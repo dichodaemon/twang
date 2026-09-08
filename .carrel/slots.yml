@@ -1,0 +1,289 @@
+slots:
+    - name: APPEND_SYSTEM.md
+      dest: omp/APPEND_SYSTEM.md
+      compose: concat
+      entries:
+        - ref: carrel-omp:append-system:APPEND_SYSTEM.md
+        - ref: carrel-omp:append-system:beads-policy.md
+        - ref: carrel-omp:append-system:carrel-policy.md
+        - ref: carrel-omp:append-system:folio-policy.md
+    - name: audit-document
+      dest: skills/audit-document/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:audit-document
+    - name: audit-plan
+      dest: skills/audit-plan/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:audit-plan
+    - name: carrel-configuration
+      dest: rules/carrel-configuration.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:carrel-configuration
+    - name: config
+      dest: config/helix/config.toml
+      compose: override
+      entries:
+        - ref: carrel-omp:helix:config
+    - name: create-dataflow-diagram
+      dest: skills/create-dataflow-diagram/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:create-dataflow-diagram
+    - name: create-dependency-diagram
+      dest: skills/create-dependency-diagram/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:create-dependency-diagram
+    - name: create-plan
+      dest: skills/create-plan/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:create-plan
+    - name: create-skill
+      dest: skills/create-skill/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:create-skill
+    - name: display-svg
+      dest: skills/display-svg/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:display-svg
+    - name: execute-plan
+      dest: skills/execute-plan/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:execute-plan
+    - name: find-session
+      dest: skills/find-session/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:find-session
+    - name: generate-glossary
+      dest: skills/generate-glossary/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:generate-glossary
+    - name: grill-me
+      dest: skills/grill-me/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:grill-me
+    - name: init
+      dest: config/nvim/init.lua
+      compose: override
+      entries:
+        - ref: carrel-omp:nvim:init
+    - name: mux-server
+      dest: config/wezterm/mux-server.lua
+      compose: override
+      entries:
+        - ref: carrel-omp:wezterm:mux-server
+    - name: no-push-oh-my-pi
+      dest: rules/no-push-oh-my-pi.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:no-push-oh-my-pi
+    - name: no-todo-write
+      dest: rules/no-todo-write.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:no-todo-write
+    - name: p10k.zsh
+      dest: config/zsh/p10k.zsh
+      compose: override
+      entries:
+        - ref: carrel-omp:p10k:p10k.zsh
+    - name: rebase-pr-chain
+      dest: skills/rebase-pr-chain/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:rebase-pr-chain
+    - name: rebase-pr-tree
+      dest: skills/rebase-pr-tree/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:rebase-pr-tree
+    - name: type-agent
+      dest: rules/type-agent.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-agent
+    - name: type-append-system
+      dest: rules/type-append-system.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-append-system
+    - name: type-command
+      dest: rules/type-command.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-command
+    - name: type-extension
+      dest: rules/type-extension.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-extension
+    - name: type-helix
+      dest: rules/type-helix.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-helix
+    - name: type-hook
+      dest: rules/type-hook.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-hook
+    - name: type-instruction
+      dest: rules/type-instruction.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-instruction
+    - name: type-nvim
+      dest: rules/type-nvim.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-nvim
+    - name: type-p10k
+      dest: rules/type-p10k.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-p10k
+    - name: type-prompt
+      dest: rules/type-prompt.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-prompt
+    - name: type-rule
+      dest: rules/type-rule.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-rule
+    - name: type-skill
+      dest: rules/type-skill.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-skill
+    - name: type-slot-defaults
+      dest: rules/type-slot-defaults.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-slot-defaults
+    - name: type-tool
+      dest: rules/type-tool.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-tool
+    - name: type-wezterm
+      dest: rules/type-wezterm.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-wezterm
+    - name: type-zsh
+      dest: rules/type-zsh.md
+      compose: override
+      entries:
+        - ref: carrel-omp:rule:type-zsh
+    - name: update-skill
+      dest: skills/update-skill/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:update-skill
+    - name: validate-agent
+      dest: skills/validate-agent/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-agent
+    - name: validate-append-system
+      dest: skills/validate-append-system/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-append-system
+    - name: validate-command
+      dest: skills/validate-command/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-command
+    - name: validate-extension
+      dest: skills/validate-extension/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-extension
+    - name: validate-helix
+      dest: skills/validate-helix/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-helix
+    - name: validate-hook
+      dest: skills/validate-hook/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-hook
+    - name: validate-instruction
+      dest: skills/validate-instruction/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-instruction
+    - name: validate-nvim
+      dest: skills/validate-nvim/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-nvim
+    - name: validate-p10k
+      dest: skills/validate-p10k/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-p10k
+    - name: validate-prompt
+      dest: skills/validate-prompt/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-prompt
+    - name: validate-rule
+      dest: skills/validate-rule/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-rule
+    - name: validate-skill
+      dest: skills/validate-skill/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-skill
+    - name: validate-slot-defaults
+      dest: skills/validate-slot-defaults/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-slot-defaults
+    - name: validate-tool
+      dest: skills/validate-tool/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-tool
+    - name: validate-wezterm
+      dest: skills/validate-wezterm/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-wezterm
+    - name: validate-zsh
+      dest: skills/validate-zsh/SKILL.md
+      compose: override
+      entries:
+        - ref: carrel-omp:skill:validate-zsh
+    - name: wezterm
+      dest: config/wezterm/wezterm.lua
+      compose: override
+      entries:
+        - ref: carrel-omp:wezterm:wezterm
+    - name: zprofile
+      dest: config/zsh/zprofile.zsh
+      compose: override
+      entries:
+        - ref: carrel-omp:zsh:zprofile
+    - name: zshrc
+      dest: config/zsh/zshrc.zsh
+      compose: override
+      entries:
+        - ref: carrel-omp:zsh:zshrc
