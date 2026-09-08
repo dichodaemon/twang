@@ -6,6 +6,8 @@
 #include "engine.h"
 #include "params.h"
 
+using namespace engine;
+
 static void put_u16(FILE *f, std::uint16_t v) { std::fwrite(&v, 1, 2, f); }
 static void put_u32(FILE *f, std::uint32_t v) { std::fwrite(&v, 1, 4, f); }
 
@@ -13,19 +15,19 @@ int main(int argc, char **argv) {
     int seconds = (argc > 1) ? std::atoi(argv[1]) : 1;
     const char *path = (argc > 2) ? argv[2] : "out.wav";
 
-    int frames = seconds * ENGINE_SAMPLE_RATE;
+    int frames = seconds * kSampleRate;
     std::vector<float> buf(frames);
 
     /* plucky patch: saw -> envelope-swept SVF -> ADSR */
     engine_init();
     Voice *v = engine_voice();
-    param_set(v, PARAM_CUTOFF, 0.4f);
-    param_set(v, PARAM_RESONANCE, 0.25f);
-    param_set(v, PARAM_FILTER_ENV_AMOUNT, 0.5f);
-    param_set_disp(v, PARAM_ATTACK, 0.01f);
-    param_set_disp(v, PARAM_DECAY, 0.3f);
-    param_set(v, PARAM_SUSTAIN, 0.6f);
-    param_set_disp(v, PARAM_RELEASE, 0.4f);
+    param_set(v, ParamId::kCutoff, 0.4f);
+    param_set(v, ParamId::kResonance, 0.25f);
+    param_set(v, ParamId::kFilterEnvAmount, 0.5f);
+    param_set_disp(v, ParamId::kAttack, 0.01f);
+    param_set_disp(v, ParamId::kDecay, 0.3f);
+    param_set(v, ParamId::kSustain, 0.6f);
+    param_set_disp(v, ParamId::kRelease, 0.4f);
 
     int note_frames = frames * 8 / 10;  /* held 80%, release the rest */
     engine_note_on(440.0f);
@@ -42,8 +44,8 @@ int main(int argc, char **argv) {
     std::fwrite("fmt ", 1, 4, f); put_u32(f, 16);
     put_u16(f, 1);                      /* PCM */
     put_u16(f, 1);                      /* mono */
-    put_u32(f, ENGINE_SAMPLE_RATE);
-    put_u32(f, ENGINE_SAMPLE_RATE * 2); /* byte rate */
+    put_u32(f, kSampleRate);
+    put_u32(f, kSampleRate * 2);        /* byte rate */
     put_u16(f, 2);                      /* block align */
     put_u16(f, 16);                     /* bits/sample */
     std::fwrite("data", 1, 4, f); put_u32(f, data_bytes);

@@ -1,7 +1,7 @@
-#ifndef ENGINE_PARAMS_H
-#define ENGINE_PARAMS_H
+#pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 #include "engine.h"
 
@@ -9,20 +9,22 @@
 // (0..1) in the Voice. UI, MIDI CC mapping, and patch save/load all walk this
 // table instead of knowing about individual parameters.
 
-enum ParamId {
-    PARAM_CUTOFF = 0,
-    PARAM_RESONANCE,
-    PARAM_FILTER_ENV_AMOUNT,
-    PARAM_ATTACK,
-    PARAM_DECAY,
-    PARAM_SUSTAIN,
-    PARAM_RELEASE,
-    PARAM_COUNT
+namespace engine {
+
+enum class ParamId : std::uint8_t {
+    kCutoff = 0,
+    kResonance,
+    kFilterEnvAmount,
+    kAttack,
+    kDecay,
+    kSustain,
+    kRelease,
+    kCount,
 };
 
-enum ParamCurve {
-    PARAM_CURVE_LIN = 0,
-    PARAM_CURVE_EXP = 1
+enum class ParamCurve : std::uint8_t {
+    kLinear = 0,
+    kExponential,
 };
 
 struct ParamDesc {
@@ -36,7 +38,7 @@ struct ParamDesc {
 };
 
 // The single source of truth for the parameter surface.
-extern const ParamDesc g_params[PARAM_COUNT];
+extern const ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)];
 
 int param_count();
 const char *param_name(ParamId id);
@@ -52,4 +54,4 @@ int   param_format(const Voice *v, ParamId id, char *buf, std::size_t n);
 float param_norm_to_disp(const ParamDesc *p, float norm);
 float param_disp_to_norm(const ParamDesc *p, float disp);
 
-#endif  // ENGINE_PARAMS_H
+}  // namespace engine

@@ -8,6 +8,8 @@
 #include "dsp.h"
 #include "params.h"
 
+using namespace engine;
+
 static volatile float g_sink;  // defeats dead-code elimination
 
 static double now_ns() {
@@ -17,24 +19,24 @@ static double now_ns() {
 }
 
 static void patch_pluck(Voice *v) {
-    param_set(v, PARAM_CUTOFF, 0.4f);
-    param_set(v, PARAM_RESONANCE, 0.25f);
-    param_set(v, PARAM_FILTER_ENV_AMOUNT, 0.5f);
-    param_set_disp(v, PARAM_ATTACK, 0.01f);
-    param_set_disp(v, PARAM_DECAY, 0.3f);
-    param_set(v, PARAM_SUSTAIN, 0.6f);
-    param_set_disp(v, PARAM_RELEASE, 0.4f);
+    param_set(v, ParamId::kCutoff, 0.4f);
+    param_set(v, ParamId::kResonance, 0.25f);
+    param_set(v, ParamId::kFilterEnvAmount, 0.5f);
+    param_set_disp(v, ParamId::kAttack, 0.01f);
+    param_set_disp(v, ParamId::kDecay, 0.3f);
+    param_set(v, ParamId::kSustain, 0.6f);
+    param_set_disp(v, ParamId::kRelease, 0.4f);
 }
 
 static void run_full(int seconds, int voices) {
-    int frames = seconds * ENGINE_SAMPLE_RATE;
+    int frames = seconds * kSampleRate;
     std::vector<float> buf(frames);
 
     engine_init();
     patch_pluck(engine_voice());
     engine_note_on(440.0f);
 
-    render(buf.data(), ENGINE_BLOCK_SIZE);  // warm caches
+    render(buf.data(), kBlockSize);  // warm caches
 
     double t0 = now_ns();
     for (int v = 0; v < voices; ++v) render(buf.data(), frames);
@@ -47,15 +49,15 @@ static void run_full(int seconds, int voices) {
 }
 
 static void run_breakdown(int seconds) {
-    int frames = seconds * ENGINE_SAMPLE_RATE;
+    int frames = seconds * kSampleRate;
     std::vector<float> buf(frames);
 
     /* standalone voice for isolated stage timing */
     Voice sv = {};
-    sv.inc = 440.0f / ENGINE_SAMPLE_RATE;
+    sv.inc = 440.0f / kSampleRate;
     dsp_svf_set_f_q(&sv, 2000.0f, 2.0f);
 
-    for (int i = 0; i < ENGINE_BLOCK_SIZE; ++i) {
+    for (int i = 0; i < kBlockSize; ++i) {
         g_sink += dsp_osc_tick(&sv);
         g_sink += dsp_svf_tick(&sv, 0.5f);
     }
@@ -82,7 +84,7 @@ static void run_breakdown(int seconds) {
     engine_init();
     patch_pluck(engine_voice());
     engine_note_on(440.0f);
-    render(buf.data(), ENGINE_BLOCK_SIZE);
+    render(buf.data(), kBlockSize);
     t0 = now_ns();
     render(buf.data(), frames);
     t1 = now_ns();

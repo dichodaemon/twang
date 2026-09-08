@@ -1,13 +1,18 @@
-#ifndef ENGINE_H
-#define ENGINE_H
+#pragma once
 
-#define ENGINE_SAMPLE_RATE 48000
-#define ENGINE_BLOCK_SIZE 64          // samples per processing block
-#define ENGINE_CONTROL_DECIMATION 16  // 1 control step per N audio samples
+#include <cstdint>
+
+namespace engine {
+
+inline constexpr int kSampleRate = 48000;          // Hz
+inline constexpr int kBlockSize = 64;              // samples per block
+inline constexpr int kControlDecimation = 16;      // 1 control step per N samples
 
 // One synthesizer voice. Plain old data: memcpy-able, no heap pointers, no
 // virtual table. This is what enables TCM placement on the target.
 struct Voice {
+    enum class Stage : std::uint8_t { kIdle, kAttack, kDecay, kSustain, kRelease };
+
     // oscillator
     float phase;   // [0, 1)
     float inc;     // phase increment per sample
@@ -19,7 +24,7 @@ struct Voice {
     // envelope state
     float env;      // current level [0,1]
     float env_inc;  // per-sample signed increment
-    int stage;      // 0 idle, 1 attack, 2 decay, 3 sustain, 4 release
+    Stage stage;    // envelope stage
 
     // parameters (all normalized 0..1; see params.h)
     float cutoff;
@@ -30,7 +35,7 @@ struct Voice {
     float sustain;
     float release;
 
-    int gate;  // 1 held, 0 released
+    bool gate;  // true held, false released
 };
 
 void  engine_init();
@@ -41,4 +46,4 @@ Voice *engine_voice();
 // Render `frames` mono samples into `out` (finite, clamped to [-1,1]).
 void render(float *out, int frames);
 
-#endif  // ENGINE_H
+}  // namespace engine

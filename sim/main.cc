@@ -4,15 +4,17 @@
  * SDL window at the EK-RA8D2 in-box panel resolution (1024x600, 24-bit RGB
  * parallel). Shows a minimal screen; replace with the real UI later.
  */
+#include <cstdint>
+
 #include "lvgl/lvgl.h"
 
-#define HOR_RES 1024
-#define VER_RES 600
+constexpr int kHorRes = 1024;
+constexpr int kVerRes = 600;
 
-int main(void) {
+int main() {
     lv_init();
 
-    lv_sdl_window_create(HOR_RES, VER_RES);
+    lv_sdl_window_create(kHorRes, kVerRes);
     lv_sdl_mouse_create();
     lv_sdl_keyboard_create();
     lv_sdl_mousewheel_create();
@@ -22,7 +24,7 @@ int main(void) {
     lv_obj_center(label);
 
     for (;;) {
-        uint32_t delay = lv_timer_handler();
+        std::uint32_t delay = lv_timer_handler();
         if (delay == LV_NO_TIMER_READY) delay = LV_DEF_REFR_PERIOD;
         lv_delay_ms(delay);
     }
