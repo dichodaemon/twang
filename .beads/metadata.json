@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "twang",
+  "project_id": "9334a201-e342-4996-873f-e8a71784c5fe"
+}
