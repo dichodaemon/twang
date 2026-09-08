@@ -12,35 +12,35 @@ using namespace engine;
 
 static volatile float g_sink;  // defeats dead-code elimination
 
-static double now_ns() {
+static double NowNs() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec * 1e9 + (double)ts.tv_nsec;
 }
 
-static void patch_pluck(Voice *v) {
-    param_set(v, ParamId::kCutoff, 0.4f);
-    param_set(v, ParamId::kResonance, 0.25f);
-    param_set(v, ParamId::kFilterEnvAmount, 0.5f);
-    param_set_disp(v, ParamId::kAttack, 0.01f);
-    param_set_disp(v, ParamId::kDecay, 0.3f);
-    param_set(v, ParamId::kSustain, 0.6f);
-    param_set_disp(v, ParamId::kRelease, 0.4f);
+static void PatchPluck(Voice *v) {
+    ParamSet(v, ParamId::kCutoff, 0.4f);
+    ParamSet(v, ParamId::kResonance, 0.25f);
+    ParamSet(v, ParamId::kFilterEnvAmount, 0.5f);
+    ParamSetDisp(v, ParamId::kAttack, 0.01f);
+    ParamSetDisp(v, ParamId::kDecay, 0.3f);
+    ParamSet(v, ParamId::kSustain, 0.6f);
+    ParamSetDisp(v, ParamId::kRelease, 0.4f);
 }
 
-static void run_full(int seconds, int voices) {
+static void RunFull(int seconds, int voices) {
     int frames = seconds * kSampleRate;
     std::vector<float> buf(frames);
 
-    engine_init();
-    patch_pluck(engine_voice());
-    engine_note_on(440.0f);
+    EngineInit();
+    PatchPluck(EngineVoice());
+    EngineNoteOn(440.0f);
 
-    render(buf.data(), kBlockSize);  // warm caches
+    Render(buf.data(), kBlockSize);  // warm caches
 
-    double t0 = now_ns();
-    for (int v = 0; v < voices; ++v) render(buf.data(), frames);
-    double t1 = now_ns();
+    double t0 = NowNs();
+    for (int v = 0; v < voices; ++v) Render(buf.data(), frames);
+    double t1 = NowNs();
 
     double ns_per = (t1 - t0) / (double)frames / (double)voices;
     std::printf("voices=%d  seconds=%d  samples=%d\n", voices, seconds, frames);
@@ -48,46 +48,46 @@ static void run_full(int seconds, int voices) {
     std::printf("ns/sample/voice: %.1f\n", ns_per);
 }
 
-static void run_breakdown(int seconds) {
+static void RunBreakdown(int seconds) {
     int frames = seconds * kSampleRate;
     std::vector<float> buf(frames);
 
     /* standalone voice for isolated stage timing */
     Voice sv = {};
     sv.inc = 440.0f / kSampleRate;
-    dsp_svf_set_f_q(&sv, 2000.0f, 2.0f);
+    DspSvfSetFq(&sv, 2000.0f, 2.0f);
 
     for (int i = 0; i < kBlockSize; ++i) {
-        g_sink += dsp_osc_tick(&sv);
-        g_sink += dsp_svf_tick(&sv, 0.5f);
+        g_sink += DspOscTick(&sv);
+        g_sink += DspSvfTick(&sv, 0.5f);
     }
     g_sink = 0.0f;
 
     /* oscillator only */
     sv.phase = 0.0f;
-    double t0 = now_ns();
-    for (int i = 0; i < frames; ++i) g_sink += dsp_osc_tick(&sv);
-    double t1 = now_ns();
+    double t0 = NowNs();
+    for (int i = 0; i < frames; ++i) g_sink += DspOscTick(&sv);
+    double t1 = NowNs();
     double osc_ns = (t1 - t0) / frames;
 
     /* oscillator + filter */
     sv.phase = 0.0f;
     sv.ic1eq = 0.0f;
     sv.ic2eq = 0.0f;
-    t0 = now_ns();
+    t0 = NowNs();
     for (int i = 0; i < frames; ++i)
-        g_sink += dsp_svf_tick(&sv, dsp_osc_tick(&sv));
-    t1 = now_ns();
+        g_sink += DspSvfTick(&sv, DspOscTick(&sv));
+    t1 = NowNs();
     double osf_ns = (t1 - t0) / frames;
 
-    /* full voice (osc + filter + envelope + coeffs), via render() */
-    engine_init();
-    patch_pluck(engine_voice());
-    engine_note_on(440.0f);
-    render(buf.data(), kBlockSize);
-    t0 = now_ns();
-    render(buf.data(), frames);
-    t1 = now_ns();
+    /* full voice (osc + filter + envelope + coeffs), via Render() */
+    EngineInit();
+    PatchPluck(EngineVoice());
+    EngineNoteOn(440.0f);
+    Render(buf.data(), kBlockSize);
+    t0 = NowNs();
+    Render(buf.data(), frames);
+    t1 = NowNs();
     double full_ns = (t1 - t0) / frames;
 
     double filter_ns = osf_ns - osc_ns;
@@ -105,13 +105,13 @@ int main(int argc, char **argv) {
     if (argc > 1 && std::strcmp(argv[1], "--breakdown") == 0) {
         int seconds = (argc > 2) ? std::atoi(argv[2]) : 5;
         if (seconds < 1) seconds = 1;
-        run_breakdown(seconds);
+        RunBreakdown(seconds);
         return 0;
     }
     int seconds = (argc > 1) ? std::atoi(argv[1]) : 5;
     int voices = (argc > 2) ? std::atoi(argv[2]) : 1;
     if (seconds < 1) seconds = 1;
     if (voices < 1) voices = 1;
-    run_full(seconds, voices);
+    RunFull(seconds, voices);
     return 0;
 }

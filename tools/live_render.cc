@@ -22,8 +22,8 @@ constexpr ma_uint64 kNotePeriodSamples =
 
 static ma_uint64 g_frame = 0;  // audio-thread-only sample counter
 
-static void audio_callback(ma_device *, void *output, const void *,
-                           ma_uint32 frame_count) {
+static void AudioCallback(ma_device *, void *output, const void *,
+                          ma_uint32 frame_count) {
     float *dst = static_cast<float *>(output);
     while (frame_count > 0) {
         ma_uint64 pos = g_frame % kNotePeriodSamples;
@@ -32,33 +32,33 @@ static void audio_callback(ma_device *, void *output, const void *,
         ma_uint32 n = static_cast<ma_uint32>(
             (boundary - pos) < frame_count ? (boundary - pos) : frame_count);
 
-        if (pos == 0) engine_note_on(440.0f);
-        render(dst, static_cast<int>(n));
+        if (pos == 0) EngineNoteOn(440.0f);
+        Render(dst, static_cast<int>(n));
         g_frame += n;
         dst += n;
         frame_count -= n;
 
         if (g_frame % kNotePeriodSamples == kNoteHeldSamples)
-            engine_note_off();
+            EngineNoteOff();
     }
 }
 
 int main() {
-    engine_init();
-    Voice *v = engine_voice();
-    param_set(v, ParamId::kCutoff, 0.4f);
-    param_set(v, ParamId::kResonance, 0.25f);
-    param_set(v, ParamId::kFilterEnvAmount, 0.5f);
-    param_set_disp(v, ParamId::kAttack, 0.01f);
-    param_set_disp(v, ParamId::kDecay, 0.3f);
-    param_set(v, ParamId::kSustain, 0.6f);
-    param_set_disp(v, ParamId::kRelease, 0.4f);
+    EngineInit();
+    Voice *v = EngineVoice();
+    ParamSet(v, ParamId::kCutoff, 0.4f);
+    ParamSet(v, ParamId::kResonance, 0.25f);
+    ParamSet(v, ParamId::kFilterEnvAmount, 0.5f);
+    ParamSetDisp(v, ParamId::kAttack, 0.01f);
+    ParamSetDisp(v, ParamId::kDecay, 0.3f);
+    ParamSet(v, ParamId::kSustain, 0.6f);
+    ParamSetDisp(v, ParamId::kRelease, 0.4f);
 
     ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
-    cfg.playback.format = ma_format_f32;   // matches render()'s float out
+    cfg.playback.format = ma_format_f32;   // matches Render()'s float out
     cfg.playback.channels = 1;
     cfg.sampleRate = kSampleRate;
-    cfg.dataCallback = audio_callback;
+    cfg.dataCallback = AudioCallback;
 
     ma_device device;
     if (ma_device_init(nullptr, &cfg, &device) != MA_SUCCESS) {

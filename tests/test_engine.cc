@@ -11,14 +11,14 @@ int main() {
     constexpr int kNumSamples = kSampleRate;  // 1 second
     std::vector<float> buf(kNumSamples);
 
-    engine_init();
-    Voice *v = engine_voice();
-    param_set_disp(v, ParamId::kAttack, 0.01f);
-    param_set_disp(v, ParamId::kDecay, 0.2f);
-    param_set(v, ParamId::kSustain, 0.7f);
-    param_set_disp(v, ParamId::kRelease, 0.2f);
-    engine_note_on(440.0f);
-    render(buf.data(), kNumSamples);
+    EngineInit();
+    Voice *v = EngineVoice();
+    ParamSetDisp(v, ParamId::kAttack, 0.01f);
+    ParamSetDisp(v, ParamId::kDecay, 0.2f);
+    ParamSet(v, ParamId::kSustain, 0.7f);
+    ParamSetDisp(v, ParamId::kRelease, 0.2f);
+    EngineNoteOn(440.0f);
+    Render(buf.data(), kNumSamples);
 
     float peak = 0.0f, sum_sq = 0.0f;
     int bad = 0;
@@ -36,8 +36,8 @@ int main() {
     if (rms < 0.01f) { std::printf("FAIL: rms %.3f too low (silent)\n", rms); return 1; }
 
     /* release: after one second the envelope must have decayed to silence */
-    engine_note_off();
-    render(buf.data(), kNumSamples);
+    EngineNoteOff();
+    Render(buf.data(), kNumSamples);
     float tail = 0.0f;
     for (int i = kNumSamples - kBlockSize; i < kNumSamples; ++i) {
         float a = std::fabs(buf[i]);

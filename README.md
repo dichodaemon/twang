@@ -38,18 +38,18 @@ inline constexpr int kSampleRate = 48000;        // Hz
 inline constexpr int kBlockSize = 64;            // samples per block
 inline constexpr int kControlDecimation = 16;    // control step every N samples
 
-void engine_init();
-void engine_note_on(float freq_hz);
-void engine_note_off();
-Voice *engine_voice();
-void render(float *out, int frames);             // finite, clamped to [-1,1]
+void EngineInit();
+void EngineNoteOn(float freq_hz);
+void EngineNoteOff();
+Voice *EngineVoice();
+void Render(float *out, int frames);             // finite, clamped to [-1,1]
 
 // parameters — walk the table instead of hardcoding (params.h)
-int   param_count();
-float param_get(const Voice *v, ParamId id);          // normalized 0..1
-void  param_set(Voice *v, ParamId id, float norm);    // normalized 0..1
-void  param_set_disp(Voice *v, ParamId id, float d);  // display units
-int   param_format(const Voice *v, ParamId id, char *buf, std::size_t n);
+int   ParamCount();
+float ParamGet(const Voice *v, ParamId id);          // normalized 0..1
+void  ParamSet(Voice *v, ParamId id, float norm);    // normalized 0..1
+void  ParamSetDisp(Voice *v, ParamId id, float d);   // display units
+int   ParamFormat(const Voice *v, ParamId id, char *buf, std::size_t n);
 }  // namespace engine
 ```
 

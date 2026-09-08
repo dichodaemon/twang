@@ -29,35 +29,35 @@ constexpr ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)] = {
           offsetof(Voice, release) },
 };
 
-int param_count() { return static_cast<int>(ParamId::kCount); }
+int ParamCount() { return static_cast<int>(ParamId::kCount); }
 
-const char *param_name(ParamId id) {
+const char *ParamName(ParamId id) {
     return g_params[static_cast<std::size_t>(id)].name;
 }
 
-const char *param_unit(ParamId id) {
+const char *ParamUnit(ParamId id) {
     return g_params[static_cast<std::size_t>(id)].unit;
 }
 
-float param_norm_to_disp(const ParamDesc *p, float norm) {
+float ParamNormToDisp(const ParamDesc *p, float norm) {
     if (p->curve == ParamCurve::kExponential)
         return p->disp_min * std::pow(p->disp_max / p->disp_min, norm);
     return p->disp_min + (p->disp_max - p->disp_min) * norm;
 }
 
-float param_disp_to_norm(const ParamDesc *p, float disp) {
+float ParamDispToNorm(const ParamDesc *p, float disp) {
     if (p->curve == ParamCurve::kExponential)
         return std::log(disp / p->disp_min) / std::log(p->disp_max / p->disp_min);
     return (disp - p->disp_min) / (p->disp_max - p->disp_min);
 }
 
-float param_get(const Voice *v, ParamId id) {
+float ParamGet(const Voice *v, ParamId id) {
     const ParamDesc &p = g_params[static_cast<std::size_t>(id)];
     const auto *base = reinterpret_cast<const std::byte *>(v);
     return *reinterpret_cast<const float *>(base + p.offset);
 }
 
-void param_set(Voice *v, ParamId id, float norm) {
+void ParamSet(Voice *v, ParamId id, float norm) {
     if (norm < 0.0f) norm = 0.0f;
     if (norm > 1.0f) norm = 1.0f;
     const ParamDesc &p = g_params[static_cast<std::size_t>(id)];
@@ -65,19 +65,19 @@ void param_set(Voice *v, ParamId id, float norm) {
     *reinterpret_cast<float *>(base + p.offset) = norm;
 }
 
-float param_get_disp(const Voice *v, ParamId id) {
-    return param_norm_to_disp(&g_params[static_cast<std::size_t>(id)],
-                              param_get(v, id));
+float ParamGetDisp(const Voice *v, ParamId id) {
+    return ParamNormToDisp(&g_params[static_cast<std::size_t>(id)],
+                           ParamGet(v, id));
 }
 
-void param_set_disp(Voice *v, ParamId id, float disp) {
-    param_set(v, id, param_disp_to_norm(&g_params[static_cast<std::size_t>(id)],
-                                        disp));
+void ParamSetDisp(Voice *v, ParamId id, float disp) {
+    ParamSet(v, id,
+             ParamDispToNorm(&g_params[static_cast<std::size_t>(id)], disp));
 }
 
-int param_format(const Voice *v, ParamId id, char *buf, std::size_t n) {
-    return std::snprintf(buf, n, "%.3g %s", param_get_disp(v, id),
-                         param_unit(id));
+int ParamFormat(const Voice *v, ParamId id, char *buf, std::size_t n) {
+    return std::snprintf(buf, n, "%.3g %s", ParamGetDisp(v, id),
+                         ParamUnit(id));
 }
 
 }  // namespace engine
