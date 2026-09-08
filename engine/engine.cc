@@ -1,13 +1,16 @@
 #include "engine.h"
 
 #include "dsp.h"
+#include "ipc.h"
 #include "params.h"
 
 namespace engine {
 
 namespace {
 
-Voice g_voice;
+Voice g_voice;            // audio-thread-only DSP state
+EventRing g_events;       // control → audio events
+ParamBlock g_param_block;  // control → audio parameters
 
 // DSP-specific mapping: normalized resonance -> Q (not the display %).
 float QFromResonance(float resonance) {
@@ -64,7 +67,43 @@ void UpdateEnvelope(int samples) {
     }
 }
 
+// Start a note on the voice (audio thread).
+void StartNote(float freq_hz) {
+    Voice *v = &g_voice;
+    v->phase = 0.0f;
+    v->inc = freq_hz / kSampleRate;
+    v->env = 0.0f;
+    v->stage = Voice::Stage::kAttack;
+    float attack_s = ParamGetDisp(v, ParamId::kAttack);
+    v->env_inc = 1.0f / (attack_s * kSampleRate);
+    v->gate = true;
+}
+
+// Release the current note (audio thread).
+void ReleaseNote() {
+    Voice *v = &g_voice;
+    if (v->stage == Voice::Stage::kIdle) return;
+    float release_s = ParamGetDisp(v, ParamId::kRelease);
+    v->stage = Voice::Stage::kRelease;
+    v->env_inc = -(v->env / (release_s * kSampleRate));
+    v->gate = false;
+}
+
+// Drain queued events into the voice (audio thread, block boundary).
+void ApplyEvents() {
+    Event e;
+    while (g_events.Pop(&e)) {
+        if (e.type == Event::Type::kNoteOn)
+            StartNote(e.freq);
+        else if (e.type == Event::Type::kNoteOff)
+            ReleaseNote();
+    }
+}
+
 void RenderBlock(float *out, int frames) {
+    g_param_block.Commit(&g_voice);  // snapshot params into the voice
+    ApplyEvents();                   // then apply note on/off with latest params
+
     Voice *v = &g_voice;
     for (int start = 0; start < frames; start += kControlDecimation) {
         int n = kControlDecimation;
@@ -85,33 +124,27 @@ void RenderBlock(float *out, int frames) {
 
 void EngineInit() {
     g_voice = Voice{};
-    for (int i = 0; i < static_cast<int>(ParamId::kCount); ++i)
-        ParamSet(&g_voice, static_cast<ParamId>(i), g_params[i].def);
+    g_events.Reset();
+    g_param_block.Reset(g_params);
+    g_param_block.Commit(&g_voice);
     UpdateFilterCoeffs();
 }
 
 void EngineNoteOn(float freq_hz) {
-    Voice *v = &g_voice;
-    v->phase = 0.0f;
-    v->inc = freq_hz / kSampleRate;
-    v->env = 0.0f;
-    v->stage = Voice::Stage::kAttack;
-    float attack_s = ParamGetDisp(v, ParamId::kAttack);
-    v->env_inc = 1.0f / (attack_s * kSampleRate);
-    v->gate = true;
+    g_events.Push({Event::Type::kNoteOn, freq_hz});
 }
 
 void EngineNoteOff() {
-    Voice *v = &g_voice;
-    if (v->stage == Voice::Stage::kIdle) return;
-    float release_s = ParamGetDisp(v, ParamId::kRelease);
-    v->stage = Voice::Stage::kRelease;
-    v->env_inc = -(v->env / (release_s * kSampleRate));
-    v->gate = false;
+    g_events.Push({Event::Type::kNoteOff, 0.0f});
 }
 
-Voice *EngineVoice() {
-    return &g_voice;
+void EngineSetParam(ParamId id, float norm) {
+    g_param_block.Set(id, norm);
+}
+
+void EngineSetParamDisp(ParamId id, float disp) {
+    g_param_block.Set(
+        id, ParamDispToNorm(&g_params[static_cast<std::size_t>(id)], disp));
 }
 
 void Render(float *out, int frames) {

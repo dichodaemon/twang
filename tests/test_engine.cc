@@ -12,11 +12,10 @@ int main() {
     std::vector<float> buf(kNumSamples);
 
     EngineInit();
-    Voice *v = EngineVoice();
-    ParamSetDisp(v, ParamId::kAttack, 0.01f);
-    ParamSetDisp(v, ParamId::kDecay, 0.2f);
-    ParamSet(v, ParamId::kSustain, 0.7f);
-    ParamSetDisp(v, ParamId::kRelease, 0.2f);
+    EngineSetParamDisp(ParamId::kAttack, 0.01f);
+    EngineSetParamDisp(ParamId::kDecay, 0.2f);
+    EngineSetParam(ParamId::kSustain, 0.7f);
+    EngineSetParamDisp(ParamId::kRelease, 0.2f);
     EngineNoteOn(440.0f);
     Render(buf.data(), kNumSamples);
 

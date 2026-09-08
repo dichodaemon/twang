@@ -12,6 +12,13 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fno-rtti")
 # Emit build/compile_commands.json so clangd/editors get real flags.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# ThreadSanitizer build, for verifying the control/audio split (test_split).
+option(TWANG_ENABLE_TSAN "Build with ThreadSanitizer" OFF)
+if(TWANG_ENABLE_TSAN)
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=thread)
+endif()
+
 # ---- Engine: no LVGL/SDL/OS dependencies ----
 add_library(engine STATIC
     engine/engine.cc
@@ -55,3 +62,16 @@ add_test(NAME engine_render COMMAND test_engine)
 add_executable(test_params tests/test_params.cc)
 target_link_libraries(test_params PRIVATE engine)
 add_test(NAME params COMMAND test_params)
+
+find_package(Threads REQUIRED)
+add_executable(test_ring tests/test_ring.cc)
+target_link_libraries(test_ring PRIVATE engine)
+add_test(NAME ring COMMAND test_ring)
+
+add_executable(test_param_block tests/test_param_block.cc)
+target_link_libraries(test_param_block PRIVATE engine)
+add_test(NAME param_block COMMAND test_param_block)
+
+add_executable(test_split tests/test_split.cc)
+target_link_libraries(test_split PRIVATE engine Threads::Threads)
+add_test(NAME split COMMAND test_split)

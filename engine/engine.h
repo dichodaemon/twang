@@ -1,5 +1,12 @@
 /// @file engine.h
 /// @brief Single-voice audio engine: polyBLEP saw → TPT SVF → ADSR.
+///
+/// The engine is split across two threads. The control thread calls
+/// EngineNoteOn / EngineNoteOff / EngineSetParam; the audio thread calls
+/// Render, which drains the pending events and parameters at each block
+/// boundary. The inter-thread transport (event ring + double-buffered
+/// parameters, in ipc.h) is swapped for the M33↔M85 mailbox on the target;
+/// the boundary contract stays the same.
 
 #pragma once
 
@@ -15,6 +22,9 @@ inline constexpr int kBlockSize = 64;
 
 /// One control step per this many audio samples.
 inline constexpr int kControlDecimation = 16;
+
+// Parameter identifier; defined in params.h.
+enum class ParamId : std::uint8_t;
 
 /// One synthesizer voice.
 ///
@@ -57,22 +67,30 @@ struct Voice {
 };
 
 /// @brief Initialize the engine and reset the voice to its defaults.
+/// Call from the control thread before the audio thread starts.
 void EngineInit();
 
-/// @brief Start a note at the given frequency.
+/// @brief Queue a note-on (control thread).
 /// @param freq_hz Note frequency in Hz.
 void EngineNoteOn(float freq_hz);
 
-/// @brief Release the currently held note.
+/// @brief Queue a note-off (control thread).
 void EngineNoteOff();
 
-/// @brief Return the single engine voice.
-/// @return Pointer to the mutable voice state.
-Voice *EngineVoice();
+/// @brief Set a parameter's normalized value (control thread).
+/// @param id Parameter identifier.
+/// @param norm Value in [0, 1].
+void EngineSetParam(ParamId id, float norm);
 
-/// @brief Render `frames` mono samples into `out`.
+/// @brief Set a parameter from display units (control thread).
+/// @param id Parameter identifier.
+/// @param disp Display value.
+void EngineSetParamDisp(ParamId id, float disp);
+
+/// @brief Render `frames` mono samples into `out` (audio thread).
 ///
-/// Output is finite and clamped to [-1, 1].
+/// Drains pending events and parameters at each block boundary. Output is
+/// finite and clamped to [-1, 1].
 /// @param out Destination buffer (holds at least `frames` floats).
 /// @param frames Number of samples to render.
 void Render(float *out, int frames);

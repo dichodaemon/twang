@@ -18,14 +18,14 @@ static double NowNs() {
     return (double)ts.tv_sec * 1e9 + (double)ts.tv_nsec;
 }
 
-static void PatchPluck(Voice *v) {
-    ParamSet(v, ParamId::kCutoff, 0.4f);
-    ParamSet(v, ParamId::kResonance, 0.25f);
-    ParamSet(v, ParamId::kFilterEnvAmount, 0.5f);
-    ParamSetDisp(v, ParamId::kAttack, 0.01f);
-    ParamSetDisp(v, ParamId::kDecay, 0.3f);
-    ParamSet(v, ParamId::kSustain, 0.6f);
-    ParamSetDisp(v, ParamId::kRelease, 0.4f);
+static void PatchPluck() {
+    EngineSetParam(ParamId::kCutoff, 0.4f);
+    EngineSetParam(ParamId::kResonance, 0.25f);
+    EngineSetParam(ParamId::kFilterEnvAmount, 0.5f);
+    EngineSetParamDisp(ParamId::kAttack, 0.01f);
+    EngineSetParamDisp(ParamId::kDecay, 0.3f);
+    EngineSetParam(ParamId::kSustain, 0.6f);
+    EngineSetParamDisp(ParamId::kRelease, 0.4f);
 }
 
 static void RunFull(int seconds, int voices) {
@@ -33,7 +33,7 @@ static void RunFull(int seconds, int voices) {
     std::vector<float> buf(frames);
 
     EngineInit();
-    PatchPluck(EngineVoice());
+    PatchPluck();
     EngineNoteOn(440.0f);
 
     Render(buf.data(), kBlockSize);  // warm caches
@@ -82,7 +82,7 @@ static void RunBreakdown(int seconds) {
 
     /* full voice (osc + filter + envelope + coeffs), via Render() */
     EngineInit();
-    PatchPluck(EngineVoice());
+    PatchPluck();
     EngineNoteOn(440.0f);
     Render(buf.data(), kBlockSize);
     t0 = NowNs();

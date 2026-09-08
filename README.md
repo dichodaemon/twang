@@ -38,10 +38,14 @@ inline constexpr int kSampleRate = 48000;        // Hz
 inline constexpr int kBlockSize = 64;            // samples per block
 inline constexpr int kControlDecimation = 16;    // control step every N samples
 
+// control thread — queue events / set parameters
 void EngineInit();
 void EngineNoteOn(float freq_hz);
 void EngineNoteOff();
-Voice *EngineVoice();
+void EngineSetParam(ParamId id, float norm);     // normalized 0..1
+void EngineSetParamDisp(ParamId id, float disp); // display units
+
+// audio thread — render, draining events/params at each block boundary
 void Render(float *out, int frames);             // finite, clamped to [-1,1]
 
 // parameters — walk the table instead of hardcoding (params.h)
@@ -102,6 +106,9 @@ None — the engine is self-contained.
 | `engine` | static library | Audio render core |
 | `sim` | executable | LVGL + SDL2 simulator |
 | `test_engine` | executable | Engine contract test |
+| `test_ring` | executable | Event ring contract test |
+| `test_param_block` | executable | Parameter block contract test |
+| `test_split` | executable | Control/audio split test (two threads) |
 | `wav_render` | executable | Render audio to a WAV file |
 | `live_render` | executable | Stream audio to the playback device |
 | `bench` | executable | Cycle harness: measure render cost |
@@ -116,6 +123,11 @@ None — the engine is self-contained.
   range, curve, target offset) in `params.h`/`params.cc`; every parameter is
   stored normalized 0..1. The UI, MIDI CC mapping, and patch save/load walk the
   table instead of knowing individual parameters.
+- **Control/audio split** — the control thread queues note events over a
+  lock-free single-producer/single-consumer ring and writes parameters to a
+  double-buffered block; the audio thread drains both at each block boundary
+  (`ipc.h`). On the target the transport is swapped for the M33↔M85 mailbox;
+  the boundary contract stays the same.
 - **Simulator** — vendored LVGL with the SDL2 driver at 1024×600 (the EK-RA8D2
   in-box panel resolution). `sim/lv_conf.h` enables only the SDL driver;
   everything else falls back to LVGL defaults (software renderer, no asserts,
@@ -129,12 +141,30 @@ Tests cover:
   and within [-1,1] while a note is held; silent after release.
 - [`tests/test_params.cc`](tests/test_params.cc) — parameter table contract:
   clamping, normalized↔display round-trip, curve mapping, defaults.
+- [`tests/test_ring.cc`](tests/test_ring.cc) — event ring: FIFO order, full/empty.
+- [`tests/test_param_block.cc`](tests/test_param_block.cc) — parameter block:
+  set/commit round-trip, defaults.
+- [`tests/test_split.cc`](tests/test_split.cc) — control/audio split (two threads).
 
 Run:
 
 ```bash
 ctest --test-dir build
 ```
+
+### ThreadSanitizer
+
+Verify the control/audio split for data races:
+
+```bash
+cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTWANG_ENABLE_TSAN=ON
+cmake --build build-tsan --target test_split test_ring test_param_block test_engine test_params
+setarch $(uname -m) -R ctest --test-dir build-tsan   # disable ASLR (TSAN requires it)
+```
+
+TSAN's runtime rejects the kernel's default ASLR layout (`unexpected memory
+mapping`), so disable ASLR with `setarch -R`. If that is unavailable, build and
+run on the host instead of a container.
 
 ## Reference Documents
 

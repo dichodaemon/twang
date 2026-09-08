@@ -45,14 +45,13 @@ static void AudioCallback(ma_device *, void *output, const void *,
 
 int main() {
     EngineInit();
-    Voice *v = EngineVoice();
-    ParamSet(v, ParamId::kCutoff, 0.4f);
-    ParamSet(v, ParamId::kResonance, 0.25f);
-    ParamSet(v, ParamId::kFilterEnvAmount, 0.5f);
-    ParamSetDisp(v, ParamId::kAttack, 0.01f);
-    ParamSetDisp(v, ParamId::kDecay, 0.3f);
-    ParamSet(v, ParamId::kSustain, 0.6f);
-    ParamSetDisp(v, ParamId::kRelease, 0.4f);
+    EngineSetParam(ParamId::kCutoff, 0.4f);
+    EngineSetParam(ParamId::kResonance, 0.25f);
+    EngineSetParam(ParamId::kFilterEnvAmount, 0.5f);
+    EngineSetParamDisp(ParamId::kAttack, 0.01f);
+    EngineSetParamDisp(ParamId::kDecay, 0.3f);
+    EngineSetParam(ParamId::kSustain, 0.6f);
+    EngineSetParamDisp(ParamId::kRelease, 0.4f);
 
     ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
     cfg.playback.format = ma_format_f32;   // matches Render()'s float out

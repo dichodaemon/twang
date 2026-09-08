@@ -1,0 +1,122 @@
+/// @file ipc.h
+/// @brief Lock-free inter-thread communication: events and parameters.
+///
+/// The control thread produces note events and parameter changes; the audio
+/// thread consumes them at block boundaries. Events travel over a
+/// single-producer / single-consumer ring; parameters travel through a
+/// double-buffered block. Keeping the two mechanisms separate avoids locking.
+
+#pragma once
+
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+
+#include "params.h"
+
+namespace engine {
+
+/// A control event sent from the control thread to the audio thread.
+struct Event {
+    enum class Type : std::uint8_t { kNoteOn, kNoteOff };
+
+    Type type;
+    float freq;  ///< Note frequency in Hz; valid for kNoteOn.
+};
+
+/// Lock-free single-producer / single-consumer ring of events.
+///
+/// `Push` is the control thread; `Pop` is the audio thread. The capacity must
+/// be a power of two.
+class EventRing {
+  public:
+    static constexpr std::size_t kCapacity = 32;  // power of two
+
+    /// @brief Append an event.
+    /// @return false if the ring is full (event dropped).
+    bool Push(const Event &e) {
+        std::size_t tail = tail_.load(std::memory_order_relaxed);
+        std::size_t next = (tail + 1) & (kCapacity - 1);
+        if (next == head_.load(std::memory_order_acquire))
+            return false;  // full
+        buf_[tail] = e;
+        tail_.store(next, std::memory_order_release);
+        return true;
+    }
+
+    /// @brief Remove the oldest event.
+    /// @return false if the ring is empty.
+    bool Pop(Event *e) {
+        std::size_t head = head_.load(std::memory_order_relaxed);
+        if (head == tail_.load(std::memory_order_acquire))
+            return false;  // empty
+        *e = buf_[head];
+        head_.store((head + 1) & (kCapacity - 1), std::memory_order_release);
+        return true;
+    }
+
+    /// @brief Discard all pending events (single-threaded init only).
+    void Reset() {
+        head_.store(0, std::memory_order_relaxed);
+        tail_.store(0, std::memory_order_relaxed);
+    }
+
+  private:
+    std::atomic<std::size_t> head_{0};  // consumer index
+    std::atomic<std::size_t> tail_{0};  // producer index
+    Event buf_[kCapacity];
+};
+
+/// Double-buffered parameter block.
+///
+/// The control thread keeps the authoritative set in `pending_` and publishes
+/// it wholesale into the back buffer, then flips the front index. The audio
+/// thread snapshots the front buffer into the voice at each block boundary.
+/// Publishing the full set keeps the front buffer a consistent snapshot even
+/// though the control updates one parameter at a time.
+class ParamBlock {
+  public:
+    /// @brief Update one normalized parameter and publish the set.
+    /// Control thread only (single writer).
+    void Set(ParamId id, float norm) {
+        pending_[to_index(id)] = norm;
+        int back = 1 - front_.load(std::memory_order_relaxed);
+        for (int i = 0; i < kParamCount; ++i)
+            buf_[back].v[i].store(pending_[i], std::memory_order_relaxed);
+        front_.store(back, std::memory_order_release);
+    }
+
+    /// @brief Snapshot the front buffer into the voice (audio thread).
+    void Commit(Voice *voice) {
+        int front = front_.load(std::memory_order_acquire);
+        for (int i = 0; i < kParamCount; ++i)
+            ParamSet(voice, static_cast<ParamId>(i),
+                     buf_[front].v[i].load(std::memory_order_relaxed));
+    }
+
+    /// @brief Reset both buffers to defaults (single-threaded init only).
+    void Reset(const ParamDesc *table) {
+        for (int i = 0; i < kParamCount; ++i) {
+            pending_[i] = table[i].def;
+            buf_[0].v[i].store(table[i].def, std::memory_order_relaxed);
+            buf_[1].v[i].store(table[i].def, std::memory_order_relaxed);
+        }
+        front_.store(0, std::memory_order_relaxed);
+    }
+
+  private:
+    static constexpr int kParamCount = static_cast<int>(ParamId::kCount);
+    static std::size_t to_index(ParamId id) {
+        return static_cast<std::size_t>(id);
+    }
+
+    float pending_[kParamCount];  // control-thread-only authoritative set
+
+    struct ParamValues {
+        std::atomic<float> v[kParamCount];
+    };
+    ParamValues buf_[2];         // shared: audio reads buf_[front_]
+    std::atomic<int> front_{0};  // which buffer the audio reads
+};
+
+}  // namespace engine
