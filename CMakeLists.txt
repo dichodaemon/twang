@@ -5,12 +5,17 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Embedded-style C++: no exceptions, no RTTI (unwind tables and type info
+# cost flash/RAM and are unnecessary in the audio path).
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fno-rtti")
+
 # Emit build/compile_commands.json so clangd/editors get real flags.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ---- Engine: pure C++, no LVGL/SDL/OS dependencies ----
+# ---- Engine: no LVGL/SDL/OS dependencies ----
 add_library(engine STATIC
-    engine/engine.cpp
+    engine/engine.cc
+    engine/params.cc
 )
 target_include_directories(engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/engine)
 
@@ -25,24 +30,28 @@ add_subdirectory(lvgl)
 
 # ---- Simulator: LVGL + SDL2 ----
 find_package(SDL2 REQUIRED)
-add_executable(sim sim/main.c)
+add_executable(sim sim/main.cc)
 target_link_libraries(sim PRIVATE lvgl ${SDL2_LIBRARIES})
 
 # ---- WAV renderer: hear the engine output ----
-add_executable(wav_render tools/wav_render.c)
+add_executable(wav_render tools/wav_render.cc)
 target_link_libraries(wav_render PRIVATE engine)
 
 # ---- Live audio: stream the engine to the playback device (miniaudio) ----
-add_executable(live_render tools/live_render.c)
+add_executable(live_render tools/live_render.cc)
 target_include_directories(live_render PRIVATE third_party/miniaudio)
 target_link_libraries(live_render PRIVATE engine m pthread dl)
 
 # ---- Cycle harness: measure render cost ----
-add_executable(bench tools/bench.c)
+add_executable(bench tools/bench.cc)
 target_link_libraries(bench PRIVATE engine)
 
 # ---- Tests ----
 enable_testing()
-add_executable(test_engine tests/test_engine.c)
+add_executable(test_engine tests/test_engine.cc)
 target_link_libraries(test_engine PRIVATE engine)
 add_test(NAME engine_render COMMAND test_engine)
+
+add_executable(test_params tests/test_params.cc)
+target_link_libraries(test_params PRIVATE engine)
+add_test(NAME params COMMAND test_params)

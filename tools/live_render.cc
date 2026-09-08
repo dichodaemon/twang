@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 #include "engine.h"
+#include "params.h"
 
 /* Note pattern (samples @ ENGINE_SAMPLE_RATE): 0.9 s held, 0.6 s released. */
 #define NOTE_HELD_SAMPLES   ((ma_uint64)ENGINE_SAMPLE_RATE * 9 / 10)
@@ -44,10 +45,14 @@ static void audio_callback(ma_device *device, void *output, const void *input,
 
 int main(void) {
     engine_init();
-    engine_set_cutoff(0.4f);
-    engine_set_resonance(0.25f);
-    engine_set_filter_env(0.5f);
-    engine_set_adsr(0.01f, 0.3f, 0.6f, 0.4f);
+    Voice *v = engine_voice();
+    param_set(v, PARAM_CUTOFF, 0.4f);
+    param_set(v, PARAM_RESONANCE, 0.25f);
+    param_set(v, PARAM_FILTER_ENV_AMOUNT, 0.5f);
+    param_set_disp(v, PARAM_ATTACK, 0.01f);
+    param_set_disp(v, PARAM_DECAY, 0.3f);
+    param_set(v, PARAM_SUSTAIN, 0.6f);
+    param_set_disp(v, PARAM_RELEASE, 0.4f);
 
     ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
     cfg.playback.format = ma_format_f32;   /* matches render()'s float out */

@@ -2,13 +2,18 @@
 #include <stdio.h>
 
 #include "engine.h"
+#include "params.h"
 
 int main(void) {
     enum { N = ENGINE_SAMPLE_RATE };  /* 1 second */
     static float buf[N];
 
     engine_init();
-    engine_set_adsr(0.01f, 0.2f, 0.7f, 0.2f);
+    Voice *v = engine_voice();
+    param_set_disp(v, PARAM_ATTACK, 0.01f);
+    param_set_disp(v, PARAM_DECAY, 0.2f);
+    param_set(v, PARAM_SUSTAIN, 0.7f);
+    param_set_disp(v, PARAM_RELEASE, 0.2f);
     engine_note_on(440.0f);
     render(buf, N);
 
