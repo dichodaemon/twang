@@ -77,7 +77,9 @@ Buffer inventory (all `float`, 4 B, owned by `Ui` + `ScopeRing`):
 | **Total** | | **160 KiB** | |
 
 Target memory (Zephyr cm33 target / RA8D2): 128 KiB M33 TCM; 640 KiB on-target
-RAM (its TCM + a ~512 KiB slice of the 1664 KiB user SRAM); 64 MiB SDRAM.
+RAM (its TCM + a ~512 KiB slice of the 1664 KiB user SRAM); 64 MiB SDRAM at
+0x68000000, CPU-addressable from the M33 (`device_type = "memory"` in the board
+devicetree, shared by both cores).
 
 ## 3. Dimensions
 
@@ -153,16 +155,18 @@ the target, or is it a desktop-only debug aid?
 
 - **Properties.** Ship it; commit to a feedback path and a buffer budget now.
 - **Pros.** Full mockup fidelity on target.
-- **Cons.** ~25% of M33 RAM for a debug visualization, plus an M85→M33 feedback
-  channel not in the digest's inter-core design.
+- **Cons.** Needs an M85→M33 feedback channel not in the digest's inter-core
+  design. The memory cost is nil once the buffers live in SDRAM (§2).
 
 **Observation.** This dimension gates 3.3 and 3.4: if desktop-only, the data path
 and budget are moot for the target.
 
-**Conclusion.** Option 2, gated off by default. It keeps the portable draw code in
-one place and defers the real commitment (memory + feedback IPC) until there is a
-positive reason to spend it. Desktop keeps the feature; target defaults to
-readout-only.
+**Conclusion.** Option 3, committed — once the memory objection is removed. The
+160 KiB that motivated the gate now lives in the 64 MiB SDRAM (verified
+CPU-addressable from the M33, §2), so it no longer taxes the 640 KiB SRAM. The
+scope/spectrum ships compiled-in with its buffers in SDRAM, and stays dormant
+until the GLCDC display and the M85→M33 feedback feed exist — a missing feed
+makes the feature dormant, not a build-time exclusion. No compile-time gate.
 
 ### 3.3. Scope/Spectrum Data Path (conditional on shipping)
 
@@ -172,7 +176,7 @@ is the M85's output.
 #### Option 1: M33-local ring fed by an IPC copy
 
 - **Properties.** The M85 sends a (decimated) block over IPC; the M33 copies it
-  into its own user-SRAM ring.
+  into its own SDRAM ring (§3.4).
 - **Pros.** Single-core ownership — no cache coherency, plain cacheable SRAM, no
   shared-region management.
 - **Cons.** One memcpy per block + IPC bandwidth for the feedback channel.
@@ -213,10 +217,15 @@ negligible, and it removes the entire coherency class of bug for a debug feature
 
 - **Properties.** Relocate the ring/scratch to the 64 MiB SDRAM.
 - **Pros.** Offloads SRAM/TCM entirely.
-- **Cons.** Requires SDRAM controller init; slower; unnecessary at this size.
+- **Cons.** Requires SDRAM controller init — but that init is already required
+  for the GLCDC framebuffer, and the M33's access is verified (§2). Slower than
+  SRAM, but irrelevant at the 20–50 Hz display rate.
 
-**Conclusion.** Option 2 if ever shipped. Desktop keeps 8192 (memory is free); the
-target uses a reduced FFT, chosen only after the feature is actually wanted.
+**Conclusion.** Option 3 — move to SDRAM and keep the desktop-tuned sizes. With
+the 64 MiB SDRAM verified CPU-addressable from the M33 (§2), 160 KiB costs 0.24%
+of free SDRAM instead of 25% of scarce SRAM, so there is no memory reason to
+shrink the FFT and lose low-frequency resolution. Shrinking remains available as
+a display-quality choice only.
 
 ## 4. Design Options (end-to-end)
 
@@ -250,8 +259,9 @@ flag on; the target builds with it off (or on, paying memory + adding a feed).
 buffer budget.
 
 - **Pros.** Full mockup fidelity on target from day one.
-- **Cons.** Most work and most risk; commits memory + a new IPC channel before
-  the Phase-0 gate has proven the basic split.
+- **Cons.** Most work and most risk; commits a new IPC channel before the
+  Phase-0 gate has proven the basic split (the memory cost is nil once the
+  buffers live in SDRAM, §2).
 
 ## 5. Evaluation
 
@@ -260,34 +270,35 @@ surface, (3) restructure churn, (4) target mockup fidelity, (5) reversibility.
 
 | Criterion | A (desktop-only) | B (gated off) | C (committed) |
 |---|---|---|---|
-| Target memory cost | None | None (default) | ~25% M33 RAM |
+| Target memory cost | None | None (default) | ~0% (SDRAM) |
 | New IPC surface | None | None (default) | M85→M33 feedback channel |
 | Restructure churn | Move files + split `ui.cc` | Move files + gate buffers/feed | Move files + add IPC |
 | Target mockup fidelity | Readout only | Readout only (default) | Full |
 | Reversibility | Low (re-add = re-split) | High (flip a flag) | N/A (committed) |
 
-**Recommendation.** Option B. It draws the portable/desktop boundary cleanly
-(`controller/` + `host/`), keeps the scope/spectrum code portable and in one
-place, and defers the two real costs — memory and a feedback IPC channel —
-behind a flag until there is a positive reason to spend them. Desktop keeps the
-feature as-is; the target ships readout-only by default.
+**Recommendation.** Option C (committed) — the `controller/` + `host/` split with
+the scope/spectrum shipped compiled-in, buffers in SDRAM, no gate flag. The
+original reason to gate (160 KiB = 25% of the M33's SRAM) was dissolved by the
+SDRAM finding (§2): the buffers now cost 0.24% of 64 MiB, are CPU-addressable
+from the M33, and the SDRAM controller is already required for the framebuffer.
+The feature stays dormant — not compiled out — until the GLCDC display and the
+M85→M33 feedback feed exist.
 
-The decisive trade-off: A and B are near-identical on target cost, but B avoids
-the irreversible `ui.cc` split and keeps the door open at zero cost. C spends the
-memory and the IPC surface before Phase-0 has proven the basic split — premature.
+The decisive trade-off: A needs an irreversible `ui.cc` split to save memory that
+is now free; B's gate was the old answer to that same memory cost and is now
+unnecessary. C's one real remaining cost — the feedback IPC channel — is deferred
+naturally: the feature is dormant until that channel is built, which needs no
+compile-time flag.
 
 ## 6. Open Questions
 
-Both are deferred and non-blocking — they only arise if the scope/spectrum flag
-is ever enabled (the recommendation is gated off by default).
-
-1. **Buffer size, if the flag is ever enabled.** Does the target FFT go 1024 or
-   2048, and does the ring drop to 4096? Blocks 3.4. Candidate: FFT 1024
-   (11.7 Hz bins), ring 4096. Decide when enabling.
-2. **Feedback IPC framing.** If enabled, does the M85 send a decimated block
-   every N samples, or only while the OUTPUT module is visible? Blocks 3.3.
-   Candidate: piggyback on the existing IPC mailbox, decimated to display
-   refresh (~20–50 Hz). Decide when enabling.
+1. **Buffer size — resolved.** The desktop-tuned sizes (FFT 8192, ring 16384)
+   are kept, in SDRAM (§3.4); no shrink is needed because memory is no longer
+   the constraint. Shrinking reopens only as a display-quality choice.
+2. **Feedback IPC framing.** When the feed is added, does the M85 send a
+   decimated block every N samples, or only while the OUTPUT module is visible?
+   Blocks 3.3. Candidate: piggyback on the existing IPC mailbox, decimated to
+   display refresh (~20–50 Hz). Decide when adding the feed.
 
 ## 7. Deliverables
 
@@ -296,5 +307,8 @@ decision, not written):
 
 - [x] `controller/` + `host/` split — `sim/` was split into `controller/`
   (portable UI + scope/fft) and `host/` (desktop transport); the `controller`
-  library links `engine` + `lvgl` only. The scope/spectrum gate flag was
-  deferred to the target build.
+  library links `engine` + `lvgl` only.
+- [x] Scope/spectrum ships compiled-in, buffers in SDRAM — no gate flag. The
+  160 KiB moved out of the M33's SRAM into the 64 MiB SDRAM (verified
+  CPU-addressable from the M33 at 0x68000000); the feature stays dormant until
+  the GLCDC display and the M85→M33 feedback feed exist.
