@@ -33,18 +33,36 @@ float Clamp(float x) {
     return x;
 }
 
+// Per-sample envelope increment to cover `delta` over `time_s` seconds.
+// A non-positive time is instant: returns 0 and the caller jumps the level.
+float EnvInc(float delta, float time_s) {
+    if (time_s <= 0.0f) return 0.0f;
+    return delta / (time_s * kSampleRate);
+}
+
+// Move from the attack peak into decay, skipping straight to sustain if the
+// decay time is zero (instant).
+void EnterDecay() {
+    Voice *v = &g_voice;
+    v->env = 1.0f;
+    float decay_s = ParamGetDisp(v, ParamId::kDecay);
+    if (decay_s <= 0.0f) {
+        v->env = v->sustain;
+        v->stage = Voice::Stage::kSustain;
+        v->env_inc = 0.0f;
+    } else {
+        v->stage = Voice::Stage::kDecay;
+        v->env_inc = EnvInc(-(1.0f - v->sustain), decay_s);
+    }
+}
+
 // Advance the envelope by `samples` (control step).
 void UpdateEnvelope(int samples) {
     Voice *v = &g_voice;
     switch (v->stage) {
     case Voice::Stage::kAttack:
         v->env += v->env_inc * static_cast<float>(samples);
-        if (v->env >= 1.0f) {
-            v->env = 1.0f;
-            v->stage = Voice::Stage::kDecay;
-            float decay_s = ParamGetDisp(v, ParamId::kDecay);
-            v->env_inc = -(1.0f - v->sustain) / (decay_s * kSampleRate);
-        }
+        if (v->env >= 1.0f) EnterDecay();
         break;
     case Voice::Stage::kDecay:
         v->env += v->env_inc * static_cast<float>(samples);
@@ -73,10 +91,15 @@ void StartNote(float freq_hz) {
     v->phase = 0.0f;
     v->inc = freq_hz / kSampleRate;
     v->env = 0.0f;
-    v->stage = Voice::Stage::kAttack;
-    float attack_s = ParamGetDisp(v, ParamId::kAttack);
-    v->env_inc = 1.0f / (attack_s * kSampleRate);
     v->gate = true;
+
+    float attack_s = ParamGetDisp(v, ParamId::kAttack);
+    if (attack_s <= 0.0f) {
+        EnterDecay();  // instant attack
+    } else {
+        v->stage = Voice::Stage::kAttack;
+        v->env_inc = EnvInc(1.0f, attack_s);
+    }
 }
 
 // Release the current note (audio thread).
@@ -84,8 +107,14 @@ void ReleaseNote() {
     Voice *v = &g_voice;
     if (v->stage == Voice::Stage::kIdle) return;
     float release_s = ParamGetDisp(v, ParamId::kRelease);
-    v->stage = Voice::Stage::kRelease;
-    v->env_inc = -(v->env / (release_s * kSampleRate));
+    if (release_s <= 0.0f) {
+        v->env = 0.0f;
+        v->stage = Voice::Stage::kIdle;
+        v->env_inc = 0.0f;
+    } else {
+        v->stage = Voice::Stage::kRelease;
+        v->env_inc = EnvInc(-v->env, release_s);
+    }
     v->gate = false;
 }
 

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1024, user-scalable=no">
+<title>Synth Playground — UI mockup</title>
+<style>
+  :root {
+    --bg: #eef0f3;
+    --panel: #ffffff;
+    --panel-edge: #d8dbe1;
+    --text: #1c1e24;
+    --muted: #5c6068;
+    --signal: #0e9f9f;
+    --handle: #e07b00;
+    --grid: #dfe2e8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1024px; height: 600px; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .app { display: flex; flex-direction: column; height: 100%; }
+
+  .titlebar {
+    padding: 8px 16px;
+    color: var(--muted);
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .titlebar b { color: var(--text); font-weight: 600; }
+
+  .modules { display: flex; flex: 1; gap: 10px; padding: 0 16px; min-height: 0; }
+  .module {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  }
+  .module .hd {
+    padding: 7px 12px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    font-size: 10px; text-transform: uppercase;
+    border-bottom: 1px solid var(--panel-edge);
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .module .hd b { color: var(--text); font-weight: 600; font-size: 11px; }
+  .module canvas { display: block; width: 100%; flex: 1; min-height: 0; }
+  .module .readout {
+    padding: 7px 8px;
+    border-top: 1px solid var(--panel-edge);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    display: flex; justify-content: center; align-items: baseline; gap: 7px;
+    white-space: nowrap; overflow: hidden;
+  }
+  .f { display: inline-flex; align-items: baseline; gap: 3px; flex: 0 0 auto; }
+  .f i { font-style: normal; font-size: 9px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .f b { font-size: 13px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .arrow { align-self: center; color: var(--signal); font-size: 22px; flex: 0 0 14px; text-align: center; }
+
+  .keyboard { display: flex; margin: 12px 16px 16px; height: 88px; }
+  .key {
+    flex: 1; border: 1px solid var(--panel-edge); border-radius: 0 0 4px 4px;
+    background: #ffffff; color: #1c1e24; cursor: pointer;
+    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px;
+    font-size: 12px;
+  }
+  .key.black { background: #2a2c30; color: #f0f0f4; border-color: #2a2c30; }
+  .key:active, .key.down { background: var(--handle); color: #fff; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="titlebar"><b>SIGNAL FLOW</b><span>· touch-drag the curves · tap a key</span><span id="midiStatus" style="margin-left:auto; color:var(--handle)">MIDI: off</span></div>
+
+  <div class="modules">
+    <section class="module">
+      <div class="hd"><span>Oscillator</span><b>polyBLEP saw</b></div>
+      <canvas id="osc"></canvas>
+      <div class="readout" id="oscOut">440 Hz</div>
+    </section>
+    <div class="arrow">▶</div>
+
+    <section class="module">
+      <div class="hd"><span>Filter</span><b>TPT SVF · lowpass</b></div>
+      <canvas id="filt"></canvas>
+      <div class="readout" id="filtOut">cutoff 2.0 kHz · res 25%</div>
+    </section>
+    <div class="arrow">▶</div>
+
+    <section class="module">
+      <div class="hd"><span>Envelope</span><b>ADSR</b></div>
+      <canvas id="env"></canvas>
+      <div class="readout" id="envOut">A 10ms · D 250ms · S 60% · R 250ms</div>
+    </section>
+    <div class="arrow">▶</div>
+
+    <section class="module">
+      <div class="hd"><span>Output</span><b>scope</b></div>
+      <canvas id="out"></canvas>
+      <div class="readout" id="outOut">mono · 48 kHz</div>
+    </section>
+  </div>
+
+  <div class="keyboard" id="keyboard"></div>
+</div>
+
+<script>
+"use strict";
+const C = {
+  bg: "#eef0f3", panel: "#ffffff", grid: "#dfe2e8",
+  signal: "#0e9f9f", handle: "#e07b00", text: "#1c1e24", muted: "#5c6068",
+};
+
+const state = {
+  freq: 440,
+  cutoff: 0.5, resonance: 0.25,
+  attack: 0.1, decay: 0.35, sustain: 0.6, release: 0.35,
+  noteOn: false, noteAt: 0, releaseAt: 0, releaseFrom: 0, phase: 0,
+};
+
+const LOG20 = Math.log10(20), LOG20K = Math.log10(20000);
+const NORM2HZ = n => 20 * Math.pow(1000, n);
+const HZ2NORM = h => (Math.log10(h) - LOG20) / (LOG20K - LOG20);
+const Q = () => 0.5 + state.resonance * state.resonance * 20;
+const dbTop = 30, dbBot = -48;   // magnitude plot range (dB)
+const resToDb = res => 20 * Math.log10(0.5 + res * res * 20);   // resonance -> peak dB at cutoff
+const dbToRes = db => Math.sqrt((Math.pow(10, db / 20) - 0.5) / 20);
+
+const cvs = {};
+for (const id of ["osc","filt","env","out"]) cvs[id] = document.getElementById(id);
+
+function sizeCanvas(c) {
+  c.width = c.clientWidth; c.height = c.clientHeight;
+  const ctx = c.getContext("2d");
+  ctx.setTransform(1,0,0,1,0,0);
+  return ctx;
+}
+function draw(fn, id) { const ctx = sizeCanvas(cvs[id]); fn(ctx, cvs[id].clientWidth, cvs[id].clientHeight); }
+
+function pad(ctx, x0, y0, x1, y1, col, w) {
+  ctx.strokeStyle = col; ctx.lineWidth = w || 1.5; ctx.beginPath();
+  ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+}
+function dot(ctx, x, y, r, col, fill) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2);
+  ctx.fillStyle = fill || col; ctx.fill();
+  if (fill) { ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke(); }
+}
+function fmtHz(h) { return h >= 1000 ? (h/1000).toFixed(2) + "kHz" : h.toFixed(0) + "Hz"; }
+function fmtTime(n) { if (n <= 0) return "0ms"; const s = 10 * (Math.pow(10000, n) - 1) / 9999; return s < 1 ? Math.round(s*1000)+"ms" : s.toFixed(2)+"s"; }
+function setReadout(id, fields) {
+  document.getElementById(id).innerHTML =
+    fields.map(([l, v]) => `<span class="f">${l ? `<i>${l}</i>` : ""}<b>${v}</b></span>`).join("");
+}
+
+// ---- oscillator ----
+function drawOsc(ctx, w, h) {
+  const mid = h/2, amp = h*0.34, cyc = 3;
+  const x0 = 10, x1 = w - 10;
+  ctx.clearRect(0,0,w,h);
+  pad(ctx, x0, mid, x1, mid, C.grid);
+  ctx.strokeStyle = C.signal; ctx.lineWidth = 2; ctx.beginPath();
+  const ph = ((state.phase % 1) + 1) % 1;
+  for (let x = x0; x <= x1; x++) {
+    const t = ((x - x0) / (x1 - x0)) * cyc;
+    const p = ((t + ph) % 1 + 1) % 1;
+    const y = mid - (2*p - 1) * amp;
+    x === x0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  setReadout("oscOut", [["", `${state.freq.toFixed(0)}Hz`]]);
+}
+
+// ---- filter (2-pole lowpass magnitude) ----
+function drawFilter(ctx, w, h) {
+  const L=14, R=w-14, T=12, B=h-18;
+  ctx.clearRect(0,0,w,h);
+  pad(ctx, L, B, R, B, C.grid);
+  pad(ctx, L, B, L, T, C.grid);
+  // 0 dB reference
+  const fc = NORM2HZ(state.cutoff), q = Q();
+  const xFor = f => L + HZ2NORM(f) * (R - L);
+  const yFor = db => T + (dbTop - db) / (dbTop - dbBot) * (B - T);
+  const y0 = yFor(0);
+  pad(ctx, L, y0, R, y0, "rgba(0,0,0,0.18)", 1);
+  ctx.fillStyle = C.muted; ctx.font = "11px monospace";
+  ctx.fillText("20Hz", L, h-3); ctx.fillText("20k", R-24, h-3); ctx.fillText("0dB", L+3, y0-3);
+  // magnitude curve
+  ctx.strokeStyle = C.signal; ctx.lineWidth = 2; ctx.beginPath();
+  for (let x = L; x <= R; x++) {
+    const f = NORM2HZ((x - L) / (R - L));
+    const r = f / fc;
+    const den = Math.sqrt((1 - r*r)*(1 - r*r) + (r/q)*(r/q));
+    let db = 20 * Math.log10(den > 1e-6 ? 1/den : 1e6);
+    if (db > dbTop) db = dbTop;
+    if (db < dbBot) db = dbBot;
+    const y = yFor(db);
+    x === L ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  // cutoff marker + resonance peak
+  const cutoffX = xFor(fc);
+  const peakY = yFor(resToDb(state.resonance));
+  pad(ctx, cutoffX, T, cutoffX, B, C.handle, 1);
+  dot(ctx, cutoffX, peakY, 7, C.handle, C.panel);
+  setReadout("filtOut", [
+    ["fc", fmtHz(fc)],
+    ["res", `${Math.round(state.resonance*100)}%`],
+  ]);
+}
+
+// ---- envelope (attack / decay+sustain / release) ----
+function envLayout(w, h) {
+  const L=14, R=w-14, T=12, B=h-20;
+  const W = R - L, H = B - T;
+  const xA = L + state.attack * 0.25 * W;
+  const xD = xA + state.decay * 0.25 * W;
+  const xH = xD + 0.20 * W;                     // sustain hold
+  const xR = xH + state.release * 0.30 * W;
+  const yS = T + (1 - state.sustain) * H;
+  return { L, R, T, B, W, H, xA, xD, xH, xR, yS };
+}
+function drawEnv(ctx, w, h) {
+  const e = envLayout(w, h);
+  ctx.clearRect(0,0,w,h);
+  pad(ctx, e.L, e.B, e.R, e.B, C.grid);
+  pad(ctx, e.L, e.T, e.L, e.B, C.grid);
+  ctx.strokeStyle = C.signal; ctx.lineWidth = 2; ctx.beginPath();
+  ctx.moveTo(e.L, e.B);
+  ctx.lineTo(e.xA, e.T);
+  ctx.lineTo(e.xD, e.yS);
+  ctx.lineTo(e.xH, e.yS);
+  ctx.lineTo(e.xR, e.B);
+  ctx.stroke();
+  dot(ctx, e.xA, e.T, 8, C.handle, C.panel);   // attack
+  dot(ctx, e.xD, e.yS, 8, C.handle, C.panel);  // decay/sustain
+  dot(ctx, e.xR, e.B, 8, C.handle, C.panel);   // release
+  const ph = envPlayhead(w, h);
+  if (ph.active) dot(ctx, ph.x, ph.y, 4, C.text, C.text);
+  setReadout("envOut", [
+    ["A", fmtTime(state.attack)],
+    ["D", fmtTime(state.decay)],
+    ["S", `${Math.round(state.sustain*100)}%`],
+    ["R", fmtTime(state.release)],
+  ]);
+}
+function envPlayhead(w, h) {
+  const e = envLayout(w, h);
+  const now = performance.now();
+  const atk = 0.05 + state.attack * 0.6, dec = 0.05 + state.decay * 0.6, rel = 0.08 + state.release * 1.2;
+  if (state.noteOn) {
+    const t = (now - state.noteAt) / 1000;
+    if (t < atk) return { x: e.L + (t/atk)*(e.xA-e.L), y: e.B - (t/atk)*(e.B-e.T), active: true };
+    const t2 = t - atk;
+    if (t2 < dec) {
+      const lvl = 1 - (1 - state.sustain) * (t2/dec);
+      return { x: e.xA + (t2/dec)*(e.xD-e.xA), y: e.B - lvl*(e.B-e.T), active: true };
+    }
+    const u = Math.min((t - atk - dec) / 0.25, 1);
+    return { x: e.xD + u*(e.xH-e.xD), y: e.yS, active: true };
+  }
+  if ((now - state.releaseAt) < rel * 1000 + 400) {
+    const t = (now - state.releaseAt) / 1000;
+    const u = Math.min(t / rel, 1);
+    const lvl = state.releaseFrom * (1 - u);
+    return { x: e.xH + u*(e.xR-e.xH), y: e.B - lvl*(e.B-e.T), active: true };
+  }
+  return { active: false };
+}
+
+// ---- scope ----
+function envLevel(nowMs) {
+  const atk = (0.01 + state.attack * 1.2) * 1000, dec = (0.01 + state.decay * 1.2) * 1000;
+  const rel = (0.02 + state.release * 2) * 1000;
+  if (!state.noteOn) {
+    const t = nowMs - state.releaseAt;
+    if (t >= rel) return 0;
+    return state.releaseFrom * (1 - t/rel);
+  }
+  const t = nowMs - state.noteAt;
+  if (t < atk) return t/atk;
+  if (t < atk + dec) return 1 - (1 - state.sustain) * ((t-atk)/dec);
+  return state.sustain;
+}
+function drawOut(ctx, w, h) {
+  const mid = h/2, amp = h*0.42;
+  const now = performance.now();
+  ctx.clearRect(0,0,w,h);
+  pad(ctx, 0, mid, w, mid, C.grid);
+  let lp = drawOut.lp || 0;
+  const lpCoef = 1 - Math.exp(-2*Math.PI*NORM2HZ(state.cutoff)/48000);
+  const env = envLevel(now);
+  ctx.strokeStyle = C.signal; ctx.lineWidth = 1.5; ctx.beginPath();
+  const per = 48; // samples per pixel (48000 / ~1000 px/sec scroll)
+  for (let x = 0; x < w; x++) {
+    const t = state.phase + (x - w) / per;
+    const p = ((t % 1) + 1) % 1;
+    const saw = 2*p - 1;
+    lp += (saw - lp) * lpCoef;
+    const y = mid - lp * env * amp;
+    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  state.phase = (state.phase + 64/48000) % 1;
+  setReadout("outOut", [["", env > 0.01 ? `env ${(env*100).toFixed(0)}%` : "silent"]]);
+}
+
+// ---- keyboard (equal-width keys) ----
+const KB = [["C",0,false],["C#",1,true],["D",2,false],["D#",3,true],["E",4,false],
+  ["F",5,false],["F#",6,true],["G",7,false],["G#",8,true],["A",9,false],
+  ["A#",10,true],["B",11,false],["C",12,false]];
+const BASE = 261.63;
+(function buildKeyboard(){
+  const kb = document.getElementById("keyboard");
+  for (const [name, semi, black] of KB) {
+    const k = document.createElement("div");
+    k.className = "key" + (black ? " black" : "");
+    k.textContent = name;
+    k.dataset.freq = BASE * Math.pow(2, semi/12);
+    k.addEventListener("pointerdown", () => { state.noteOn = true; state.noteAt = performance.now(); state.freq = +k.dataset.freq; k.classList.add("down"); });
+    k.addEventListener("pointerup", () => { state.releaseFrom = envLevel(performance.now()); state.noteOn = false; state.releaseAt = performance.now(); k.classList.remove("down"); });
+    k.addEventListener("pointerleave", () => k.classList.remove("down"));
+    kb.appendChild(k);
+  }
+})();
+
+// ---- drag ----
+let drag = null;
+function nearestHandle(x, y, handles) {
+  let best = null, bd = 1e9;
+  for (const h of handles) { const d = Math.hypot(x-h.x, y-h.y); if (d < 18 && d < bd) { bd = d; best = h; } }
+  return best;
+}
+function envHandles(w, h) {
+  const e = envLayout(w, h);
+  return [
+    { id: "attack",  x: e.xA, y: e.T },
+    { id: "decay",   x: e.xD, y: e.yS },
+    { id: "release", x: e.xR, y: e.B },
+  ];
+}
+function onDown(c, id, e) {
+  const rect = c.getBoundingClientRect();
+  const x = e.clientX - rect.left, y = e.clientY - rect.top;
+  if (id === "filt") { drag = { id, h: null }; return; }   // XY pad
+  const h = nearestHandle(x, y, envHandles(rect.width, rect.height));
+  if (h) drag = { id, h };
+}
+function onMove(c, id, e) {
+  if (!drag || drag.id !== id) return;
+  const rect = c.getBoundingClientRect();
+  const x = e.clientX - rect.left, y = e.clientY - rect.top;
+  const w = rect.width, h = rect.height;
+  const n = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  if (id === "filt") {
+    const L=14, R=w-14, T=12, B=h-18;
+    state.cutoff = n((x-L)/(R-L), 0, 1);
+    const db = dbTop - (y - T) / (B - T) * (dbTop - dbBot);
+    state.resonance = n(dbToRes(db), 0, 1);
+  } else if (id === "env") {
+    const L=14, R=w-14, T=12, B=h-20, W=R-L, H=B-T;
+    if (drag.h.id === "attack") {
+      state.attack = n((x - L) / (0.25 * W), 0, 1);
+    } else if (drag.h.id === "decay") {
+      const xA = L + state.attack * 0.25 * W;
+      state.decay = n((x - xA) / (0.25 * W), 0, 1);
+      state.sustain = n(1 - (y - T) / H, 0, 1);
+    } else if (drag.h.id === "release") {
+      const xH = L + state.attack*0.25*W + state.decay*0.25*W + 0.20*W;
+      state.release = n((x - xH) / (0.30 * W), 0, 1);
+    }
+  }
+}
+for (const id of ["filt","env"]) {
+  const c = cvs[id];
+  c.addEventListener("pointerdown", e => onDown(c, id, e));
+  c.addEventListener("pointermove", e => onMove(c, id, e));
+  window.addEventListener("pointerup", () => drag = null);
+}
+
+// ---- Web MIDI (X-Touch Compact) ----
+// Layer A "Mixer Control" (ch 1): faders CC1-9, encoder turns CC10-25, rings CC26-41.
+const MIDI_MAP = {
+  1: ["attack", "abs"], 2: ["decay", "abs"], 3: ["sustain", "abs"], 4: ["release", "abs"],
+  10: ["resonance", "rel"], 11: ["cutoff", "rel"],
+};
+const RING_CC = { 10: 26, 11: 27 };   // encoder CC -> LED-ring CC
+const REL_STEP = 0.004;               // relative sensitivity per detent
+let midiOut = null;
+const lastSent = {};
+
+function onMidiMessage(e) {
+  const [s, cc, v] = e.data;
+  if ((s & 0xf0) !== 0xb0 || (s & 0x0f) !== 0) return;   // CC, channel 1 only
+  const m = MIDI_MAP[cc];
+  if (!m) return;
+  if (m[1] === "abs") state[m[0]] = Math.min(1, Math.max(0, v / 127));
+  else state[m[0]] = Math.min(1, Math.max(0, state[m[0]] + (v < 64 ? v : v - 128) * REL_STEP));
+}
+
+function sendFeedback() {
+  if (!midiOut) return;
+  for (const [cc, p] of [[1,"attack"],[2,"decay"],[3,"sustain"],[4,"release"]]) {
+    const v = Math.round(state[p] * 127);
+    if (lastSent[cc] !== v) { midiOut.send([0xb0, cc, v]); lastSent[cc] = v; }
+  }
+  for (const [cc, p] of [[10,"resonance"],[11,"cutoff"]]) {
+    const v = Math.round(state[p] * 13);
+    if (lastSent[cc] !== v) { midiOut.send([0xb0, RING_CC[cc], v]); lastSent[cc] = v; }
+  }
+}
+
+function initMidi() {
+  if (!navigator.requestMIDIAccess) { setMidiStatus("unsupported"); return; }
+  navigator.requestMIDIAccess().then(acc => {
+    const input = [...acc.inputs.values()].find(p => /x-?touch/i.test(p.name || ""));
+    const output = [...acc.outputs.values()].find(p => /x-?touch/i.test(p.name || ""));
+    if (input) { input.onmidimessage = onMidiMessage; midiOut = output || null; setMidiStatus(input.name); }
+    else setMidiStatus("no X-Touch found");
+  }).catch(() => setMidiStatus("denied"));
+}
+function setMidiStatus(t) { document.getElementById("midiStatus").textContent = "MIDI: " + t; }
+
+// ---- loop ----
+function loop() {
+  draw(drawOsc, "osc");
+  draw(drawFilter, "filt");
+  draw(drawEnv, "env");
+  draw(drawOut, "out");
+  sendFeedback();
+  requestAnimationFrame(loop);
+}
+initMidi();
+loop();
+</script>
+</body>
+</html>

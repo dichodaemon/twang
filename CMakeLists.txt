@@ -26,6 +26,14 @@ add_library(engine STATIC
 )
 target_include_directories(engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/engine)
 
+# ---- Audio output abstraction (realtime device backend) ----
+# Hides the device library (miniaudio) behind audio::Output; the sim only sees
+# a render callback, so the backend can be swapped for a hardware driver.
+add_library(audio STATIC audio/audio_out_miniaudio.cc)
+target_include_directories(audio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/audio)
+target_include_directories(audio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio)
+target_link_libraries(audio PUBLIC m pthread dl)
+
 # ---- Vendored LVGL (git submodule) ----
 # Trim to the core library: no demos, examples, or ThorVG.
 set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
@@ -37,8 +45,9 @@ add_subdirectory(lvgl)
 
 # ---- Simulator: LVGL + SDL2 ----
 find_package(SDL2 REQUIRED)
-add_executable(sim sim/main.cc)
-target_link_libraries(sim PRIVATE lvgl ${SDL2_LIBRARIES})
+add_executable(sim sim/main.cc sim/ui.cc)
+target_include_directories(sim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sim)
+target_link_libraries(sim PRIVATE lvgl engine audio ${SDL2_LIBRARIES})
 
 # ---- WAV renderer: hear the engine output ----
 add_executable(wav_render tools/wav_render.cc)

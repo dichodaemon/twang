@@ -2,14 +2,35 @@
  * Desktop LVGL simulator.
  *
  * SDL window at the EK-RA8D2 in-box panel resolution (1024x600, 24-bit RGB
- * parallel). Shows a minimal screen; replace with the real UI later.
+ * parallel). Builds the signal-flow panel UI (sim/ui.cc) — a port of the
+ * HTML mockup (ui/mockup) — and drives it with the SDL mouse/touch drivers.
+ *
+ * Audio runs through the audio-output abstraction: the UI (control thread)
+ * queues note events and parameter changes into the engine, and the audio
+ * thread renders them out the device, the same split live_render exercises.
  */
 #include <cstdint>
+#include <cstdio>
 
 #include "lvgl/lvgl.h"
 
+#include "audio_out.h"
+#include "engine.h"
+#include "ui.h"
+
 constexpr int kHorRes = 1024;
 constexpr int kVerRes = 600;
+
+namespace {
+
+// Audio thread: render the engine into the device's output buffer, then tap
+// the samples into the scope's lock-free ring (display only, no latency).
+void AudioCallback(void *, float *out, int frames) {
+    engine::Render(out, frames);
+    ui_audio_tap(out, frames);
+}
+
+}  // namespace
 
 int main() {
     lv_init();
@@ -19,9 +40,12 @@ int main() {
     lv_sdl_keyboard_create();
     lv_sdl_mousewheel_create();
 
-    lv_obj_t *label = lv_label_create(lv_screen_active());
-    lv_label_set_text(label, "Synth");
-    lv_obj_center(label);
+    engine::EngineInit();
+    audio::Output audio_out;
+    if (!audio_out.Start(engine::kSampleRate, AudioCallback, nullptr))
+        std::fprintf(stderr, "sim: no playback device, running silent\n");
+
+    ui_create(lv_screen_active());
 
     for (;;) {
         std::uint32_t delay = lv_timer_handler();

@@ -1,6 +1,9 @@
 /build*/
 *.wav
 
+# Scratch files (screenshots dropped here for review)
+/tmp/
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db

@@ -33,15 +33,22 @@ int main() {
     ParamSet(&v, ParamId::kCutoff, -9.0f);
     Check(ParamGet(&v, ParamId::kCutoff) == 0.0f, "clamp low to 0");
 
-    /* exponential curve: attack 0.5 -> 100 ms */
-    ParamSet(&v, ParamId::kAttack, 0.5f);
-    Check(std::fabs(ParamGetDisp(&v, ParamId::kAttack) - 0.1f) < 1e-3f,
-          "attack norm 0.5 -> 0.1 s");
+    /* NaN must not poison a parameter (regression: resonance NaN killed the
+     * filter state and silenced the engine until restart). */
+    ParamSet(&v, ParamId::kResonance, std::nanf(""));
+    Check(ParamGet(&v, ParamId::kResonance) == 0.0f, "NaN clamps to 0");
+
+    /* exponential-from-zero curve: 0 -> 0 s, 1 -> 10 s */
+    ParamSet(&v, ParamId::kAttack, 0.0f);
+    Check(ParamGetDisp(&v, ParamId::kAttack) == 0.0f, "attack 0 -> 0 s");
+    ParamSet(&v, ParamId::kAttack, 1.0f);
+    Check(std::fabs(ParamGetDisp(&v, ParamId::kAttack) - 10.0f) < 1e-3f,
+          "attack 1 -> 10 s");
 
     /* display -> normalized round-trip */
     ParamSetDisp(&v, ParamId::kAttack, 0.1f);
-    Check(std::fabs(ParamGet(&v, ParamId::kAttack) - 0.5f) < 1e-3f,
-          "attack 0.1 s -> norm 0.5");
+    Check(std::fabs(ParamGetDisp(&v, ParamId::kAttack) - 0.1f) < 1e-3f,
+          "attack 0.1 s round-trip");
 
     /* linear curve: sustain 0.6 -> 60 % */
     ParamSet(&v, ParamId::kSustain, 0.6f);
