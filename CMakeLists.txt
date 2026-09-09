@@ -30,7 +30,7 @@ add_library(engine STATIC
 target_include_directories(engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/engine)
 
 # ---- Audio output abstraction (realtime device backend) ----
-# Hides the device library (miniaudio) behind audio::Output; the sim only sees
+# Hides the device library (miniaudio) behind audio::Output; the host only sees
 # a render callback, so the backend can be swapped for a hardware driver.
 add_library(audio STATIC audio/audio_out_miniaudio.cc)
 target_include_directories(audio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/audio)
@@ -42,7 +42,7 @@ target_link_libraries(audio PUBLIC m pthread dl)
 set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG OFF CACHE BOOL "" FORCE)
-set(LV_BUILD_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/sim/lv_conf.h" CACHE PATH
+set(LV_BUILD_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/controller/lv_conf.h" CACHE PATH
     "Path to lv_conf.h" FORCE)
 add_subdirectory(lvgl)
 
@@ -54,12 +54,18 @@ target_compile_definitions(rtmidi PRIVATE __LINUX_ALSA__)
 target_compile_options(rtmidi PRIVATE -fexceptions)  # RtMidi throws RtMidiError
 target_link_libraries(rtmidi PUBLIC ALSA::ALSA)
 
-# ---- Simulator: LVGL + SDL2 ----
+# ---- Controller: portable display + control (LVGL UI + scope/fft helpers) ----
+# No SDL/RtMidi/miniaudio — this is the library the target (M33) builds.
+add_library(controller STATIC controller/ui.cc controller/fft.cc controller/scope_ring.cc)
+target_include_directories(controller PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller)
+target_link_libraries(controller PUBLIC engine lvgl)
+
+# ---- Desktop host: SDL + RtMidi + miniaudio wiring around the controller ----
 find_package(SDL2 REQUIRED)
-add_executable(sim sim/fft.cc sim/main.cc sim/midi_io.cc sim/scope_ring.cc sim/ui.cc)
-target_include_directories(sim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sim)
-target_compile_options(sim PRIVATE -fexceptions)  # sim/midi_io.cc catches RtMidiError
-target_link_libraries(sim PRIVATE lvgl engine audio rtmidi ${SDL2_LIBRARIES})
+add_executable(host host/main.cc host/midi_io.cc)
+target_include_directories(host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/host)
+target_compile_options(host PRIVATE -fexceptions)  # host/midi_io.cc catches RtMidiError
+target_link_libraries(host PRIVATE controller audio rtmidi lvgl ${SDL2_LIBRARIES})
 
 # ---- WAV renderer: hear the engine output ----
 add_executable(wav_render tools/wav_render.cc)

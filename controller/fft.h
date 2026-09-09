@@ -5,7 +5,7 @@
 
 #pragma once
 
-namespace sim {
+namespace controller {
 
 /// The constant pi, as a float.
 inline constexpr float kPi = 3.14159265358979323846f;
@@ -18,4 +18,4 @@ inline constexpr float kPi = 3.14159265358979323846f;
 /// @param n Transform length; a power of two.
 void Fft(float *re, float *im, int n);
 
-}  // namespace sim
+}  // namespace controller

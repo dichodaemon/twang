@@ -10,15 +10,17 @@ minimal LVGL screen at the panel resolution.
 
 | File | Description |
 |---|---|
-| [`CMakeLists.txt`](CMakeLists.txt) | Build: engine, sim, tests, vendored LVGL |
+| [`CMakeLists.txt`](CMakeLists.txt) | Build: engine, controller, host, tests, vendored LVGL |
 | [`engine/engine.h`](engine/engine.h) / [`.cc`](engine/engine.cc) | 24 voices / 4 parts: polyBLEP saw → TPT SVF → ADSR; no LVGL/SDL/OS deps |
 | [`engine/allocator.h`](engine/allocator.h) | Control-side voice allocator (reservation + stealing) |
 | [`engine/dsp.h`](engine/dsp.h) | Per-sample DSP primitives (oscillator, SVF) |
 | [`engine/params.h`](engine/params.h) / [`.cc`](engine/params.cc) | Parameter descriptor table + accessors |
 | [`engine/midi.h`](engine/midi.h) / [`.cc`](engine/midi.cc) | MIDI CC/note → parameter mapping (swappable layouts) |
-| [`sim/main.cc`](sim/main.cc) | LVGL + SDL2 simulator (1024×600) |
-| [`sim/midi_in.h`](sim/midi_in.h) / [`.cc`](sim/midi_in.cc) | RtMidi transport (external controller → engine) |
-| [`sim/lv_conf.h`](sim/lv_conf.h) | Minimal LVGL v9 config |
+| [`controller/ui.h`](controller/ui.h) / [`.cc`](controller/ui.cc) | Portable LVGL panel UI (signal flow, pads, keyboard) |
+| [`controller/fft.h`](controller/fft.h) / [`scope_ring.h`](controller/scope_ring.h) | Spectrum + scope display helpers |
+| [`controller/lv_conf.h`](controller/lv_conf.h) | Minimal LVGL v9 config |
+| [`host/main.cc`](host/main.cc) | Desktop host: SDL2 + miniaudio + RtMidi wiring |
+| [`host/midi_io.h`](host/midi_io.h) / [`.cc`](host/midi_io.cc) | RtMidi transport (external controller → engine) |
 | [`tests/test_engine.cc`](tests/test_engine.cc) | Engine contract test |
 | [`tests/test_params.cc`](tests/test_params.cc) | Parameter table contract test |
 | [`tests/test_allocator.cc`](tests/test_allocator.cc) | Voice allocator (reservation + stealing) test |
@@ -87,7 +89,7 @@ cmake --build build
 ### Run
 
 ```bash
-./build/sim                        # LVGL simulator (needs a display)
+./build/host                       # LVGL simulator (needs a display)
 ./build/wav_render 1 out.wav       # render 1 s of audio to a WAV file
 ./build/live_render                # stream audio to speakers (Enter to stop)
 ./build/bench 5                    # cycle harness: ns/sample/voice
@@ -114,7 +116,8 @@ None — the engine is self-contained.
 | Target | Type | Description |
 |---|---|---|
 | `engine` | static library | Audio render core |
-| `sim` | executable | LVGL + SDL2 simulator |
+| `controller` | static library | Portable display + control (LVGL UI, scope/fft) |
+| `host` | executable | Desktop host: LVGL + SDL2 simulator |
 | `test_engine` | executable | Engine contract test |
 | `test_ring` | executable | Event ring contract test |
 | `test_param_block` | executable | Parameter block contract test |
@@ -140,8 +143,8 @@ None — the engine is self-contained.
   ramps down over a few ms before retriggering (no click).
 - **MIDI control** — a swappable `MidiLayout` table maps CCs to parameters
   (absolute faders, relative encoders) and notes to the engine; the handler is
-  layout-agnostic, so a different controller is a different table. The sim
-  reads the X-Touch Compact over RtMidi (`sim/midi_in`); the target swaps the
+  layout-agnostic, so a different controller is a different table. The desktop
+  host reads the X-Touch Compact over RtMidi (`host/midi_io`); the target swaps the
   transport for Zephyr's MIDI stack, keeping the handler (`engine/midi`).
 - **Parameter model** — a `constexpr` descriptor table (name, unit, display
   range, curve, target offset) in `params.h`/`params.cc`; every parameter is
@@ -153,7 +156,7 @@ None — the engine is self-contained.
   (`ipc.h`). On the target the transport is swapped for the M33↔M85 mailbox;
   the boundary contract stays the same.
 - **Simulator** — vendored LVGL with the SDL2 driver at 1024×600 (the EK-RA8D2
-  in-box panel resolution). `sim/lv_conf.h` enables only the SDL driver;
+  in-box panel resolution). `controller/lv_conf.h` enables only the SDL driver;
   everything else falls back to LVGL defaults (software renderer, no asserts,
   no vector graphics).
 

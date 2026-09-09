@@ -20,5 +20,5 @@ echo
 echo "Built ($BUILD_TYPE). Run:"
 echo "  ./build/live_render              # stream audio (Enter to stop)"
 echo "  ./build/wav_render 1 out.wav     # render a note to a WAV file"
-echo "  ./build/sim                      # LVGL simulator (needs a display)"
+echo "  ./build/host                     # LVGL simulator (needs a display)"
 echo "  ./build/bench 5                  # cycle harness: ns/sample/voice"

@@ -2,7 +2,7 @@
  * Desktop LVGL simulator.
  *
  * SDL window at the EK-RA8D2 in-box panel resolution (1024x600, 24-bit RGB
- * parallel). Builds the signal-flow panel UI (sim/ui.cc) — a port of the
+ * parallel). Builds the signal-flow panel UI (controller/ui.cc) — a port of the
  * HTML mockup (ui/mockup) — and drives it with the SDL mouse/touch drivers.
  *
  * Audio runs through the audio-output abstraction: the UI (control thread)
@@ -49,7 +49,7 @@ int main() {
 
     audio::Output audio_out;
     if (!audio_out.Start(engine::kSampleRate, AudioCallback, ui))
-        std::fprintf(stderr, "sim: no playback device, running silent\n");
+        std::fprintf(stderr, "host: no playback device, running silent\n");
 
     MidiIo midi;
     midi.Init();

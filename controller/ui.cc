@@ -428,10 +428,10 @@ void draw_spectrum(lv_layer_t *layer, int ox, int oy, int w, int h, Ui *ui) {
 
     ui->scope_ring.ReadLast(re, kN, 1);
     for (int i = 0; i < kN; ++i) {
-        re[i] *= 0.5f - 0.5f * cosf(2.0f * sim::kPi * static_cast<float>(i) / static_cast<float>(kN - 1));
+        re[i] *= 0.5f - 0.5f * cosf(2.0f * controller::kPi * static_cast<float>(i) / static_cast<float>(kN - 1));
         im[i] = 0.0f;
     }
-    sim::Fft(re, im, kN);
+    controller::Fft(re, im, kN);
 
     // Power per bin (skip DC), then normalize to the peak.
     float peak = 0.0f;

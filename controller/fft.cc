@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-namespace sim {
+namespace controller {
 
 void Fft(float *re, float *im, int n) {
     // Bit-reversal permutation.
@@ -36,4 +36,4 @@ void Fft(float *re, float *im, int n) {
     }
 }
 
-}  // namespace sim
+}  // namespace controller

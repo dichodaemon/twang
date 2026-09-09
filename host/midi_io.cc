@@ -37,7 +37,7 @@ void MidiIo::Init() {
         const unsigned int in_n = in->getPortCount();
         const int idx = FindXtouch(in, in_n);
         if (idx < 0) {
-            std::fprintf(stderr, "sim: X-Touch Compact not found; available MIDI inputs:\n");
+            std::fprintf(stderr, "host: X-Touch Compact not found; available MIDI inputs:\n");
             for (unsigned int i = 0; i < in_n; ++i)
                 std::fprintf(stderr, "    %u: %s\n", i, in->getPortName(i).c_str());
             delete in;
@@ -45,21 +45,21 @@ void MidiIo::Init() {
             return;
         }
         in->openPort(static_cast<unsigned int>(idx));
-        std::fprintf(stderr, "sim: MIDI input: %s\n", in->getPortName(idx).c_str());
+        std::fprintf(stderr, "host: MIDI input: %s\n", in->getPortName(idx).c_str());
 
         out = new rt::midi::RtMidiOut();
         const unsigned int out_n = out->getPortCount();
         const int oidx = FindXtouch(out, out_n);
         if (oidx >= 0) {
             out->openPort(static_cast<unsigned int>(oidx));
-            std::fprintf(stderr, "sim: MIDI output: %s\n", out->getPortName(oidx).c_str());
+            std::fprintf(stderr, "host: MIDI output: %s\n", out->getPortName(oidx).c_str());
         } else {
-            std::fprintf(stderr, "sim: no X-Touch MIDI output (no LED feedback)\n");
+            std::fprintf(stderr, "host: no X-Touch MIDI output (no LED feedback)\n");
             delete out;
             out = nullptr;
         }
     } catch (rt::midi::RtMidiError &e) {
-        std::fprintf(stderr, "sim: MIDI init failed: %s\n", e.what());
+        std::fprintf(stderr, "host: MIDI init failed: %s\n", e.what());
         delete in;
         delete out;
         in = nullptr;
