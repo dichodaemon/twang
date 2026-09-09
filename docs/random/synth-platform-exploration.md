@@ -282,8 +282,9 @@ This removes the entire panel design problem from the critical path. Ring
 feedback is MIDI sent *back*, which exercises bidirectional MIDI you need anyway.
 
 - Configure in **standard MIDI mode** (not Mackie Control) via X-Touch Editor
-- Use **relative mode** if available — absolute 7-bit CC is 128 steps, too
-  coarse for cutoff (*verify this in the editor*)
+- Encoders send **relative** two's-complement CC (0-63 up, 64-127 down) — used
+  for cutoff/resonance at 0.004/detent. Faders stay absolute 7-bit (fine for
+  ADSR). Implemented in `engine/midi.{h,cc}`.
 - Abstract the mapping layer: "control 7 moved by +3", not "CC 23 arrived".
   Swapping to a local encoder panel later becomes a driver change.
 
@@ -478,13 +479,14 @@ regression test.
 | EK-RA8D2 price and availability | Deciding vs MIMXRT1170-EVKB | **Resolved** — board ordered |
 | Simultaneous M85 + M33 debug | Central to the whole project. NXP has AN13264 proving it | **Resolved** — R01AN7982EU0101 (see note below) |
 | Does Zephyr's SSIE driver expose TDM slot config? | Per-part outputs depend on it | Driver source; fall back to FSP / direct registers |
-| X-Touch Compact relative-mode CC | 7-bit absolute is too coarse for cutoff | X-Touch Editor |
+| X-Touch Compact relative-mode CC | 7-bit absolute is too coarse for cutoff | **Resolved** — encoders relative (two's-complement), faders absolute |
 | Does Helium help *your* workload? | 4× is Arm's DSP-kernel figure; IIR filters don't vectorise | Measure oscillators vs filters separately |
 | Does analog filtering earn its cost? | The premise of the whole analog thread | Borrowed Eurorack filter, one evening |
 
 **Resolved since writing (2026-09-09):**
 
 - **EK-RA8D2 ordered.**
+- **X-Touch Compact relative-mode CC** — encoders emit relative two's-complement CC (0-63 up, 64-127 down); implemented as `rel_step = 0.004` for cutoff/resonance (CC 10/11) and absolute faders (CC 1-4) for ADSR in `engine/midi.{h,cc}`.
 - **Simultaneous M85 + M33 debug** — the Renesas equivalent of NXP's AN13264 is
   **R01AN7982EU0101** *"Multicore Setup and Running Hello World on Dual-Core"*
   (Rev 1.01, Oct 16 2025; Rev 1.01 explicitly added RA8D2). e² studio's Multicore
