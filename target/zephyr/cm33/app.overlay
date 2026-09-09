@@ -124,3 +124,10 @@
 		vfront-porch = <9>;
 	};
 };
+
+/* Dual-core IPC: notify the M85 (audio) after queueing events. 60 is free
+ * (wired IRQs: 40..59, GLCDC 71). */
+&mbox0 {
+	status = "okay";
+	interrupts = <60 1>;
+};

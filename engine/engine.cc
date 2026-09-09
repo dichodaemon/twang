@@ -3,17 +3,18 @@
 #include "allocator.h"
 #include "dsp.h"
 #include "ipc.h"
+#include "ipc_shared.h"
 #include "params.h"
 
 namespace engine {
 
 namespace {
 
-Part g_parts[kNumParts];      // shared per-part parameters (audio thread reads)
-Voice g_voices[kNumVoices];   // audio-thread-only DSP state
-EventRing g_events;           // control → audio events
-ParamBlock g_param_block;     // control → audio parameters
-Allocator g_alloc;            // control-thread voice ownership (allocator)
+Part g_parts[kNumParts];      // per-part parameters (audio core reads)
+Voice g_voices[kNumVoices];   // audio-core-only DSP state
+EventRing &g_events = Shared().events;       // control → audio events (shared)
+ParamBlock &g_param_block = Shared().params; // control → audio params (shared)
+Allocator g_alloc;            // control-core voice ownership (allocator)
 
 // DSP-specific mapping: normalized resonance -> Q (not the display %).
 float QFromResonance(float resonance) {
@@ -207,6 +208,8 @@ void EngineInit() {
     g_param_block.Commit(g_parts);
 }
 
+__attribute__((weak)) void EngineEventsPending() {}
+
 void EngineNoteOn(int part, float freq_hz) {
     const Allocator::Decision d = g_alloc.NoteOn(part, freq_hz);
     if (d.voice < 0) return;  // dropped: full and nothing to steal
@@ -214,6 +217,7 @@ void EngineNoteOn(int part, float freq_hz) {
         d.steal ? Event::Type::kSteal : Event::Type::kNoteOn;
     g_events.Push({type, static_cast<std::uint8_t>(part),
                    static_cast<std::uint8_t>(d.voice), freq_hz});
+    EngineEventsPending();
 }
 
 void EngineNoteOff(int part, float freq_hz) {
@@ -221,6 +225,7 @@ void EngineNoteOff(int part, float freq_hz) {
     if (voice < 0) return;  // no matching note
     g_events.Push({Event::Type::kNoteOff, static_cast<std::uint8_t>(part),
                    static_cast<std::uint8_t>(voice), 0.0f});
+    EngineEventsPending();
 }
 
 void EngineSetParam(int part, ParamId id, float norm) {

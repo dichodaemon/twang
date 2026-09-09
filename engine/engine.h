@@ -86,6 +86,14 @@ struct Voice {
 /// voices to idle. Call from the control thread before the audio thread starts.
 void EngineInit();
 
+/// @brief Weak hook called after the control side queues events.
+///
+/// Defaults to a no-op. The target overrides it to notify the audio core that
+/// events are pending (e.g. a mailbox signal on the M33→M85 channel). The
+/// audio core drains the shared ring at its block boundary regardless; this is
+/// the interrupt-driven notification path.
+void EngineEventsPending();
+
 /// @brief Queue a note-on (control thread).
 /// @param part Part index in [0, kNumParts).
 /// @param freq_hz Note frequency in Hz.

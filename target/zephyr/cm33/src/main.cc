@@ -1,10 +1,13 @@
 // twang cm33 — control-core image: LVGL panel UI on the GLCDC display.
 //
 // Runs the portable controller (controller/ui.cc) against the Zephyr LVGL
-// module and the EK-RA8D2's GLCDC + 7" 1024x600 RGB panel. The engine is
-// linked so the UI's parameter readouts and note path compile and run; IPC to
-// the audio (M85) core is the next step.
+// module and the EK-RA8D2's GLCDC + 7" 1024x600 RGB panel. Note/param events
+// are queued into the shared SDRAM IPC ring; a mailbox signal notifies the
+// audio (M85) core.
 
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/drivers/mbox.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 
@@ -12,6 +15,19 @@
 
 #include "engine.h"
 #include "ui.h"
+
+namespace engine {
+
+// Override the engine's weak notification hook: ping the audio core (M85) on
+// mbox0 after a note-on/note-off is queued into the shared SDRAM ring.
+void EngineEventsPending() {
+    const struct device *mbox = DEVICE_DT_GET(DT_NODELABEL(mbox0));
+    if (mbox && device_is_ready(mbox)) {
+        mbox_send(mbox, 0, NULL);  // signal channel 0 (msg == NULL)
+    }
+}
+
+}  // namespace engine
 
 int main(void) {
     // LVGL is auto-initialized (LV_Z_AUTO_INIT) against the Zephyr display

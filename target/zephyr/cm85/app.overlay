@@ -62,3 +62,11 @@
 		pwms = <&pwm2 0 PWM_HZ(3072000) PWM_POLARITY_NORMAL>;
 	};
 };
+
+/* Dual-core IPC: M33 → M85 notification (events pending on the shared ring).
+ * The driver links EVENT_IPC_IRQ0 to this vector at runtime, so the number is
+ * arbitrary — 29 is free (wired IRQs: 0..28, 92..95). */
+&mbox0 {
+	status = "okay";
+	interrupts = <29 1>;
+};
