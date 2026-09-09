@@ -793,7 +793,7 @@ void make_module(Ui *ui, lv_obj_t *parent, const char *title, const char *subtit
     lv_obj_t *plot = lv_obj_create(panel);
     lv_obj_set_flex_grow(plot, 1);
     lv_obj_set_width(plot, LV_PCT(100));
-    lv_obj_set_clickable(plot, true);
+    lv_obj_add_flag(plot, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_opa(plot, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(plot, 0, 0);
     lv_obj_set_style_pad_all(plot, 0, 0);
@@ -866,7 +866,7 @@ void make_keyboard(Ui *ui, lv_obj_t *parent) {
         lv_obj_t *key = lv_button_create(kb);
         lv_obj_set_flex_grow(key, 1);
         lv_obj_set_height(key, LV_PCT(100));
-        lv_obj_set_state_trickle(key, true);
+        lv_obj_add_flag(key, LV_OBJ_FLAG_STATE_TRICKLE);
         lv_obj_set_style_radius(key, 0, 0);
         lv_obj_set_style_shadow_width(key, 0, 0);
         lv_obj_set_style_border_width(key, 1, 0);
