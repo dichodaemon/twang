@@ -1,17 +1,17 @@
 # Multitimbral Hybrid Synth
 
-A 4-part / 4-voice multitimbral hybrid synthesizer, developed desktop-first: a
+A 4-part / 24-voice multitimbral hybrid synthesizer, developed desktop-first: a
 pure C++ audio engine plus an LVGL UI, targeting the Renesas EK-RA8D2
-(Cortex-M85 audio, Cortex-M33 control). The engine renders a single voice
-(polyBLEP saw → TPT SVF → ADSR); the simulator shows a minimal LVGL screen at
-the panel resolution.
+(Cortex-M85 audio, Cortex-M33 control). The engine renders a fixed pool of 24
+voices across 4 parts (polyBLEP saw → TPT SVF → ADSR); the simulator shows a
+minimal LVGL screen at the panel resolution.
 
 ## Contents
 
 | File | Description |
 |---|---|
 | [`CMakeLists.txt`](CMakeLists.txt) | Build: engine, sim, tests, vendored LVGL |
-| [`engine/engine.h`](engine/engine.h) / [`.cc`](engine/engine.cc) | One voice: polyBLEP saw → TPT SVF → ADSR; no LVGL/SDL/OS deps |
+| [`engine/engine.h`](engine/engine.h) / [`.cc`](engine/engine.cc) | 24 voices / 4 parts: polyBLEP saw → TPT SVF → ADSR; no LVGL/SDL/OS deps |
 | [`engine/dsp.h`](engine/dsp.h) | Per-sample DSP primitives (oscillator, SVF) |
 | [`engine/params.h`](engine/params.h) / [`.cc`](engine/params.cc) | Parameter descriptor table + accessors |
 | [`sim/main.cc`](sim/main.cc) | LVGL + SDL2 simulator (1024×600) |
@@ -37,23 +37,25 @@ namespace engine {
 inline constexpr int kSampleRate = 48000;        // Hz
 inline constexpr int kBlockSize = 64;            // samples per block
 inline constexpr int kControlDecimation = 16;    // control step every N samples
+inline constexpr int kNumParts = 4;              // timbre slots
+inline constexpr int kNumVoices = 24;            // concurrent voices (fixed pool)
 
 // control thread — queue events / set parameters
 void EngineInit();
-void EngineNoteOn(float freq_hz);
-void EngineNoteOff();
-void EngineSetParam(ParamId id, float norm);     // normalized 0..1
-void EngineSetParamDisp(ParamId id, float disp); // display units
+void EngineNoteOn(int part, float freq_hz);
+void EngineNoteOff(int part, float freq_hz);
+void EngineSetParam(int part, ParamId id, float norm);     // normalized 0..1
+void EngineSetParamDisp(int part, ParamId id, float disp); // display units
 
 // audio thread — render, draining events/params at each block boundary
-void Render(float *out, int frames);             // finite, clamped to [-1,1]
+void Render(float *out, int frames);             // sum of active voices, clamped
 
 // parameters — walk the table instead of hardcoding (params.h)
 int   ParamCount();
-float ParamGet(const Voice *v, ParamId id);          // normalized 0..1
-void  ParamSet(Voice *v, ParamId id, float norm);    // normalized 0..1
-void  ParamSetDisp(Voice *v, ParamId id, float d);   // display units
-int   ParamFormat(const Voice *v, ParamId id, char *buf, std::size_t n);
+float ParamGet(const Part *p, ParamId id);          // normalized 0..1
+void  ParamSet(Part *p, ParamId id, float norm);    // normalized 0..1
+void  ParamSetDisp(Part *p, ParamId id, float d);   // display units
+int   ParamFormat(const Part *p, ParamId id, char *buf, std::size_t n);
 }  // namespace engine
 ```
 
@@ -116,7 +118,8 @@ None — the engine is self-contained.
 ## Design
 
 - **Engine** — C++17, restricted subset (no exceptions/RTTI, no heap in the
-  audio path). One voice: polyBLEP saw → TPT SVF (Zavalishin/Simper) → ADSR.
+  audio path). 24 voices across 4 parts: polyBLEP saw → TPT SVF
+  (Zavalishin/Simper) → ADSR, each voice bound to a part's parameter bank.
   Fixed 64-sample block, sub-block control rate every 16 samples. Voice state
   is a memcpy-able struct; no allocation, `double`, or `sin` in the audio path.
 - **Parameter model** — a `constexpr` descriptor table (name, unit, display

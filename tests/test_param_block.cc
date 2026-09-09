@@ -17,25 +17,25 @@ static void Check(bool ok, const char *msg) {
 
 int main() {
     ParamBlock block;
-    Voice v = {};
+    Part p = {};
 
     block.Reset(g_params);
-    block.Commit(&v);
-    Check(std::fabs(ParamGet(&v, ParamId::kCutoff) -
+    block.Commit(&p);
+    Check(std::fabs(ParamGet(&p, ParamId::kCutoff) -
                     g_params[static_cast<std::size_t>(ParamId::kCutoff)].def) <
               1e-6f,
           "default cutoff committed");
 
-    block.Set(ParamId::kCutoff, 0.5f);
-    block.Commit(&v);
-    Check(ParamGet(&v, ParamId::kCutoff) == 0.5f, "cutoff set then committed");
+    block.Set(0, ParamId::kCutoff, 0.5f);
+    block.Commit(&p);
+    Check(ParamGet(&p, ParamId::kCutoff) == 0.5f, "cutoff set then committed");
 
     // Multiple params updated in sequence stay consistent.
-    block.Set(ParamId::kCutoff, 0.25f);
-    block.Set(ParamId::kResonance, 0.75f);
-    block.Commit(&v);
-    Check(ParamGet(&v, ParamId::kCutoff) == 0.25f, "cutoff updated");
-    Check(ParamGet(&v, ParamId::kResonance) == 0.75f, "resonance updated");
+    block.Set(0, ParamId::kCutoff, 0.25f);
+    block.Set(0, ParamId::kResonance, 0.75f);
+    block.Commit(&p);
+    Check(ParamGet(&p, ParamId::kCutoff) == 0.25f, "cutoff updated");
+    Check(ParamGet(&p, ParamId::kResonance) == 0.75f, "resonance updated");
 
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);

@@ -1,5 +1,6 @@
 /// @file engine.h
-/// @brief Single-voice audio engine: polyBLEP saw → TPT SVF → ADSR.
+/// @brief Multi-voice audio engine: polyBLEP saw → TPT SVF → ADSR, across a
+/// fixed pool of voices bound to independent parts.
 ///
 /// The engine is split across two threads. The control thread calls
 /// EngineNoteOn / EngineNoteOff / EngineSetParam; the audio thread calls
@@ -23,10 +24,32 @@ inline constexpr int kBlockSize = 64;
 /// One control step per this many audio samples.
 inline constexpr int kControlDecimation = 16;
 
+/// Number of timbre slots (independent parameter banks).
+inline constexpr int kNumParts = 4;
+
+/// Number of concurrent voices (the fixed, statically-allocated pool).
+inline constexpr int kNumVoices = 24;
+
 // Parameter identifier; defined in params.h.
 enum class ParamId : std::uint8_t;
 
-/// One synthesizer voice.
+/// One part: the shared, per-part parameter bank addressed by the descriptor
+/// table. Every voice bound to a part reads the same bank, so a part is a
+/// timbre — one cutoff/resonance/envelope shaping a set of simultaneous notes.
+///
+/// Plain old data (memcpy-able); lives in a fixed array in TCM on the target.
+struct Part {
+    // Parameters (all normalized 0..1; see params.h)
+    float cutoff;             ///< Filter cutoff.
+    float resonance;          ///< Filter resonance.
+    float filter_env_amount;  ///< Filter envelope depth.
+    float attack;             ///< Attack time.
+    float decay;              ///< Decay time.
+    float sustain;            ///< Sustain level.
+    float release;            ///< Release time.
+};
+
+/// One synthesizer voice: the per-note DSP state, bound to a part.
 ///
 /// Plain old data: trivially copyable and standard-layout, with no heap
 /// pointers and no virtual table. This lets a whole voice live in
@@ -54,16 +77,7 @@ struct Voice {
     float env_inc;  ///< Per-sample envelope increment.
     Stage stage;    ///< Envelope stage.
 
-    // Parameters (all normalized 0..1; see params.h)
-    float cutoff;             ///< Filter cutoff.
-    float resonance;          ///< Filter resonance.
-    float filter_env_amount;  ///< Filter envelope depth.
-    float attack;             ///< Attack time.
-    float decay;              ///< Decay time.
-    float sustain;            ///< Sustain level.
-    float release;            ///< Release time.
-
-    bool gate;  ///< True while the note is held.
+    std::uint8_t part;  ///< Owning part index (into the parts array).
 };
 
 /// @brief Initialize the engine and reset the voice to its defaults.
@@ -71,26 +85,32 @@ struct Voice {
 void EngineInit();
 
 /// @brief Queue a note-on (control thread).
+/// @param part Part index in [0, kNumParts).
 /// @param freq_hz Note frequency in Hz.
-void EngineNoteOn(float freq_hz);
+void EngineNoteOn(int part, float freq_hz);
 
-/// @brief Queue a note-off (control thread).
-void EngineNoteOff();
+/// @brief Queue a note-off (control thread), releasing the voice playing
+/// `freq_hz` in `part`.
+/// @param part Part index in [0, kNumParts).
+/// @param freq_hz Note frequency in Hz.
+void EngineNoteOff(int part, float freq_hz);
 
-/// @brief Set a parameter's normalized value (control thread).
+/// @brief Set a parameter's normalized value for a part (control thread).
+/// @param part Part index in [0, kNumParts).
 /// @param id Parameter identifier.
 /// @param norm Value in [0, 1].
-void EngineSetParam(ParamId id, float norm);
+void EngineSetParam(int part, ParamId id, float norm);
 
-/// @brief Set a parameter from display units (control thread).
+/// @brief Set a parameter from display units for a part (control thread).
+/// @param part Part index in [0, kNumParts).
 /// @param id Parameter identifier.
 /// @param disp Display value.
-void EngineSetParamDisp(ParamId id, float disp);
+void EngineSetParamDisp(int part, ParamId id, float disp);
 
 /// @brief Render `frames` mono samples into `out` (audio thread).
 ///
 /// Drains pending events and parameters at each block boundary. Output is
-/// finite and clamped to [-1, 1].
+/// the sum of all active voices, clamped to [-1, 1].
 /// @param out Destination buffer (holds at least `frames` floats).
 /// @param frames Number of samples to render.
 void Render(float *out, int frames);

@@ -8,25 +8,25 @@ namespace engine {
 constexpr ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)] = {
     [static_cast<std::size_t>(ParamId::kCutoff)] =
         { "cutoff", "Hz", 20.0f, 20000.0f, 1.0f, ParamCurve::kExponential,
-          offsetof(Voice, cutoff) },
+          offsetof(Part, cutoff) },
     [static_cast<std::size_t>(ParamId::kResonance)] =
         { "resonance", "%", 0.0f, 100.0f, 0.0f, ParamCurve::kLinear,
-          offsetof(Voice, resonance) },
+          offsetof(Part, resonance) },
     [static_cast<std::size_t>(ParamId::kFilterEnvAmount)] =
         { "filter_env", "%", 0.0f, 100.0f, 0.0f, ParamCurve::kLinear,
-          offsetof(Voice, filter_env_amount) },
+          offsetof(Part, filter_env_amount) },
     [static_cast<std::size_t>(ParamId::kAttack)] =
         { "attack", "s", 0.0f, 10.0f, 0.25f, ParamCurve::kExponential,
-          offsetof(Voice, attack) },
+          offsetof(Part, attack) },
     [static_cast<std::size_t>(ParamId::kDecay)] =
         { "decay", "s", 0.0f, 10.0f, 0.6f, ParamCurve::kExponential,
-          offsetof(Voice, decay) },
+          offsetof(Part, decay) },
     [static_cast<std::size_t>(ParamId::kSustain)] =
         { "sustain", "%", 0.0f, 100.0f, 0.7f, ParamCurve::kLinear,
-          offsetof(Voice, sustain) },
+          offsetof(Part, sustain) },
     [static_cast<std::size_t>(ParamId::kRelease)] =
         { "release", "s", 0.0f, 10.0f, 0.6f, ParamCurve::kExponential,
-          offsetof(Voice, release) },
+          offsetof(Part, release) },
 };
 
 int ParamCount() { return static_cast<int>(ParamId::kCount); }
@@ -63,34 +63,34 @@ float ParamDispToNorm(const ParamDesc *p, float disp) {
     return (disp - p->disp_min) / (p->disp_max - p->disp_min);
 }
 
-float ParamGet(const Voice *v, ParamId id) {
-    const ParamDesc &p = g_params[static_cast<std::size_t>(id)];
-    const auto *base = reinterpret_cast<const std::byte *>(v);
-    return *reinterpret_cast<const float *>(base + p.offset);
+float ParamGet(const Part *p, ParamId id) {
+    const ParamDesc &desc = g_params[static_cast<std::size_t>(id)];
+    const auto *base = reinterpret_cast<const std::byte *>(p);
+    return *reinterpret_cast<const float *>(base + desc.offset);
 }
 
-void ParamSet(Voice *v, ParamId id, float norm) {
+void ParamSet(Part *p, ParamId id, float norm) {
     // `!(norm >= 0)` is true for negative AND NaN; both map to 0 so a NaN
     // parameter can never poison the voice (e.g. filter state).
     if (!(norm >= 0.0f)) norm = 0.0f;
     else if (norm > 1.0f) norm = 1.0f;
-    const ParamDesc &p = g_params[static_cast<std::size_t>(id)];
-    auto *base = reinterpret_cast<std::byte *>(v);
-    *reinterpret_cast<float *>(base + p.offset) = norm;
+    const ParamDesc &desc = g_params[static_cast<std::size_t>(id)];
+    auto *base = reinterpret_cast<std::byte *>(p);
+    *reinterpret_cast<float *>(base + desc.offset) = norm;
 }
 
-float ParamGetDisp(const Voice *v, ParamId id) {
+float ParamGetDisp(const Part *p, ParamId id) {
     return ParamNormToDisp(&g_params[static_cast<std::size_t>(id)],
-                           ParamGet(v, id));
+                           ParamGet(p, id));
 }
 
-void ParamSetDisp(Voice *v, ParamId id, float disp) {
-    ParamSet(v, id,
+void ParamSetDisp(Part *p, ParamId id, float disp) {
+    ParamSet(p, id,
              ParamDispToNorm(&g_params[static_cast<std::size_t>(id)], disp));
 }
 
-int ParamFormat(const Voice *v, ParamId id, char *buf, std::size_t n) {
-    return std::snprintf(buf, n, "%.3g %s", ParamGetDisp(v, id),
+int ParamFormat(const Part *p, ParamId id, char *buf, std::size_t n) {
+    return std::snprintf(buf, n, "%.3g %s", ParamGetDisp(p, id),
                          ParamUnit(id));
 }
 

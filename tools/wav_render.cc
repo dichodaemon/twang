@@ -20,18 +20,18 @@ int main(int argc, char **argv) {
 
     /* plucky patch: saw -> envelope-swept SVF -> ADSR */
     EngineInit();
-    EngineSetParam(ParamId::kCutoff, 0.4f);
-    EngineSetParam(ParamId::kResonance, 0.25f);
-    EngineSetParam(ParamId::kFilterEnvAmount, 0.5f);
-    EngineSetParamDisp(ParamId::kAttack, 0.01f);
-    EngineSetParamDisp(ParamId::kDecay, 0.3f);
-    EngineSetParam(ParamId::kSustain, 0.6f);
-    EngineSetParamDisp(ParamId::kRelease, 0.4f);
+    EngineSetParam(0, ParamId::kCutoff, 0.4f);
+    EngineSetParam(0, ParamId::kResonance, 0.25f);
+    EngineSetParam(0, ParamId::kFilterEnvAmount, 0.5f);
+    EngineSetParamDisp(0, ParamId::kAttack, 0.01f);
+    EngineSetParamDisp(0, ParamId::kDecay, 0.3f);
+    EngineSetParam(0, ParamId::kSustain, 0.6f);
+    EngineSetParamDisp(0, ParamId::kRelease, 0.4f);
 
     int note_frames = frames * 8 / 10;  /* held 80%, release the rest */
-    EngineNoteOn(440.0f);
+    EngineNoteOn(0, 440.0f);
     Render(buf.data(), note_frames);
-    EngineNoteOff();
+    EngineNoteOff(0, 440.0f);
     Render(buf.data() + note_frames, frames - note_frames);
 
     FILE *f = std::fopen(path, "wb");

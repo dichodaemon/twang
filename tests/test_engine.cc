@@ -12,11 +12,11 @@ int main() {
     std::vector<float> buf(kNumSamples);
 
     EngineInit();
-    EngineSetParamDisp(ParamId::kAttack, 0.01f);
-    EngineSetParamDisp(ParamId::kDecay, 0.2f);
-    EngineSetParam(ParamId::kSustain, 0.7f);
-    EngineSetParamDisp(ParamId::kRelease, 0.2f);
-    EngineNoteOn(440.0f);
+    EngineSetParamDisp(0, ParamId::kAttack, 0.01f);
+    EngineSetParamDisp(0, ParamId::kDecay, 0.2f);
+    EngineSetParam(0, ParamId::kSustain, 0.7f);
+    EngineSetParamDisp(0, ParamId::kRelease, 0.2f);
+    EngineNoteOn(0, 440.0f);
     Render(buf.data(), kNumSamples);
 
     float peak = 0.0f, sum_sq = 0.0f;
@@ -35,7 +35,7 @@ int main() {
     if (rms < 0.01f) { std::printf("FAIL: rms %.3f too low (silent)\n", rms); return 1; }
 
     /* release: after one second the envelope must have decayed to silence */
-    EngineNoteOff();
+    EngineNoteOff(0, 440.0f);
     Render(buf.data(), kNumSamples);
     float tail = 0.0f;
     for (int i = kNumSamples - kBlockSize; i < kNumSamples; ++i) {

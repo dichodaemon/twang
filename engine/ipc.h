@@ -21,7 +21,9 @@ struct Event {
     enum class Type : std::uint8_t { kNoteOn, kNoteOff };
 
     Type type;
-    float freq;  ///< Note frequency in Hz; valid for kNoteOn.
+    std::uint8_t part;   ///< Part index; meaningful for kNoteOn.
+    std::uint8_t voice;  ///< Voice slot this event targets.
+    float freq;          ///< Note frequency in Hz; meaningful for kNoteOn.
 };
 
 /// Lock-free single-producer / single-consumer ring of events.
@@ -76,44 +78,48 @@ class EventRing {
 /// though the control updates one parameter at a time.
 class ParamBlock {
   public:
-    /// @brief Update one normalized parameter and publish the set.
+    /// @brief Update one normalized parameter for a part and publish the set.
     /// Control thread only (single writer).
-    void Set(ParamId id, float norm) {
-        pending_[to_index(id)] = norm;
+    void Set(int part, ParamId id, float norm) {
+        pending_[slot(part, static_cast<int>(id))] = norm;
         int back = 1 - front_.load(std::memory_order_relaxed);
-        for (int i = 0; i < kParamCount; ++i)
+        for (int i = 0; i < kSlots; ++i)
             buf_[back].v[i].store(pending_[i], std::memory_order_relaxed);
         front_.store(back, std::memory_order_release);
     }
 
-    /// @brief Snapshot the front buffer into the voice (audio thread).
-    void Commit(Voice *voice) {
+    /// @brief Snapshot the front buffer into all parts (audio thread).
+    void Commit(Part *parts) {
         int front = front_.load(std::memory_order_acquire);
-        for (int i = 0; i < kParamCount; ++i)
-            ParamSet(voice, static_cast<ParamId>(i),
-                     buf_[front].v[i].load(std::memory_order_relaxed));
+        for (int p = 0; p < kNumParts; ++p)
+            for (int i = 0; i < kParamCount; ++i)
+                ParamSet(&parts[p], static_cast<ParamId>(i),
+                         buf_[front].v[slot(p, i)].load(
+                             std::memory_order_relaxed));
     }
 
     /// @brief Reset both buffers to defaults (single-threaded init only).
     void Reset(const ParamDesc *table) {
-        for (int i = 0; i < kParamCount; ++i) {
-            pending_[i] = table[i].def;
-            buf_[0].v[i].store(table[i].def, std::memory_order_relaxed);
-            buf_[1].v[i].store(table[i].def, std::memory_order_relaxed);
-        }
+        for (int p = 0; p < kNumParts; ++p)
+            for (int i = 0; i < kParamCount; ++i) {
+                pending_[slot(p, i)] = table[i].def;
+                buf_[0].v[slot(p, i)].store(table[i].def,
+                                            std::memory_order_relaxed);
+                buf_[1].v[slot(p, i)].store(table[i].def,
+                                            std::memory_order_relaxed);
+            }
         front_.store(0, std::memory_order_relaxed);
     }
 
   private:
     static constexpr int kParamCount = static_cast<int>(ParamId::kCount);
-    static std::size_t to_index(ParamId id) {
-        return static_cast<std::size_t>(id);
-    }
+    static constexpr int kSlots = kNumParts * kParamCount;
+    static int slot(int part, int i) { return part * kParamCount + i; }
 
-    float pending_[kParamCount];  // control-thread-only authoritative set
+    float pending_[kSlots];  // control-thread-only authoritative set
 
     struct ParamValues {
-        std::atomic<float> v[kParamCount];
+        std::atomic<float> v[kSlots];
     };
     ParamValues buf_[2];         // shared: audio reads buf_[front_]
     std::atomic<int> front_{0};  // which buffer the audio reads

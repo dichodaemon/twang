@@ -2,7 +2,7 @@
 /// @brief Parameter descriptor table and accessors.
 ///
 /// The parameter model: named parameters in one flat table, stored
-/// normalized (0..1) in the Voice. The UI, MIDI CC mapping, and patch
+/// normalized (0..1) in the Part. The UI, MIDI CC mapping, and patch
 /// save/load all walk this table instead of knowing individual parameters.
 
 #pragma once
@@ -40,7 +40,7 @@ struct ParamDesc {
     float disp_max;      ///< Display value at normalized 1.
     float def;           ///< Default normalized value.
     ParamCurve curve;    ///< Display mapping curve.
-    std::size_t offset;  ///< offsetof(Voice, field) — the target slot.
+    std::size_t offset;  ///< offsetof(Part, field) — the target slot.
 };
 
 /// The single source of truth for the parameter surface.
@@ -61,36 +61,36 @@ const char *ParamName(ParamId id);
 const char *ParamUnit(ParamId id);
 
 /// @brief Read a parameter's normalized value.
-/// @param v Voice to read from.
+/// @param p Part to read from.
 /// @param id Parameter identifier.
 /// @return Value in [0, 1].
-float ParamGet(const Voice *v, ParamId id);
+float ParamGet(const Part *p, ParamId id);
 
 /// @brief Write a parameter's normalized value (clamped to [0, 1]).
-/// @param v Voice to write to.
+/// @param p Part to write to.
 /// @param id Parameter identifier.
 /// @param norm Value in [0, 1].
-void ParamSet(Voice *v, ParamId id, float norm);
+void ParamSet(Part *p, ParamId id, float norm);
 
 /// @brief Read a parameter in display units.
-/// @param v Voice to read from.
+/// @param p Part to read from.
 /// @param id Parameter identifier.
 /// @return Display value.
-float ParamGetDisp(const Voice *v, ParamId id);
+float ParamGetDisp(const Part *p, ParamId id);
 
 /// @brief Write a parameter from display units.
-/// @param v Voice to write to.
+/// @param p Part to write to.
 /// @param id Parameter identifier.
 /// @param disp Display value.
-void ParamSetDisp(Voice *v, ParamId id, float disp);
+void ParamSetDisp(Part *p, ParamId id, float disp);
 
 /// @brief Format a parameter's display value into `buf`.
-/// @param v Voice to read from.
+/// @param p Part to read from.
 /// @param id Parameter identifier.
 /// @param buf Destination buffer.
 /// @param n Buffer size in bytes.
 /// @return Characters written (excluding NUL), as snprintf.
-int ParamFormat(const Voice *v, ParamId id, char *buf, std::size_t n);
+int ParamFormat(const Part *p, ParamId id, char *buf, std::size_t n);
 
 /// @brief Map a normalized value to display units.
 /// @param p Parameter descriptor.

@@ -32,26 +32,26 @@ static void AudioCallback(ma_device *, void *output, const void *,
         ma_uint32 n = static_cast<ma_uint32>(
             (boundary - pos) < frame_count ? (boundary - pos) : frame_count);
 
-        if (pos == 0) EngineNoteOn(440.0f);
+        if (pos == 0) EngineNoteOn(0, 440.0f);
         Render(dst, static_cast<int>(n));
         g_frame += n;
         dst += n;
         frame_count -= n;
 
         if (g_frame % kNotePeriodSamples == kNoteHeldSamples)
-            EngineNoteOff();
+            EngineNoteOff(0, 440.0f);
     }
 }
 
 int main() {
     EngineInit();
-    EngineSetParam(ParamId::kCutoff, 0.4f);
-    EngineSetParam(ParamId::kResonance, 0.25f);
-    EngineSetParam(ParamId::kFilterEnvAmount, 0.5f);
-    EngineSetParamDisp(ParamId::kAttack, 0.01f);
-    EngineSetParamDisp(ParamId::kDecay, 0.3f);
-    EngineSetParam(ParamId::kSustain, 0.6f);
-    EngineSetParamDisp(ParamId::kRelease, 0.4f);
+    EngineSetParam(0, ParamId::kCutoff, 0.4f);
+    EngineSetParam(0, ParamId::kResonance, 0.25f);
+    EngineSetParam(0, ParamId::kFilterEnvAmount, 0.5f);
+    EngineSetParamDisp(0, ParamId::kAttack, 0.01f);
+    EngineSetParamDisp(0, ParamId::kDecay, 0.3f);
+    EngineSetParam(0, ParamId::kSustain, 0.6f);
+    EngineSetParamDisp(0, ParamId::kRelease, 0.4f);
 
     ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
     cfg.playback.format = ma_format_f32;   // matches Render()'s float out

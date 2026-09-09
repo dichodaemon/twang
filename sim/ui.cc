@@ -575,8 +575,8 @@ void apply_filter_drag(UiState *s, int x, int y, int w, int h) {
     s->cutoff = clamp01(static_cast<float>(x - L) / static_cast<float>(R - L));
     const float db = kDbTop - static_cast<float>(y - T) / static_cast<float>(B - T) * (kDbTop - kDbBot);
     s->resonance = clamp01(db_to_res(db));
-    engine::EngineSetParam(ParamId::kCutoff, s->cutoff);
-    engine::EngineSetParam(ParamId::kResonance, s->resonance);
+    engine::EngineSetParam(0, ParamId::kCutoff, s->cutoff);
+    engine::EngineSetParam(0, ParamId::kResonance, s->resonance);
     lv_obj_invalidate(g_plot_objs[static_cast<int>(PlotKind::kFilter)]);
     set_filter_readout();
 }
@@ -603,19 +603,19 @@ void apply_env_drag(UiState *s, int handle, int x, int y, int w, int h) {
     const int W = R - L, H = B - T;
     if (handle == 0) {   // attack
         s->attack = clamp01(static_cast<float>(x - L) / (0.25f * W));
-        engine::EngineSetParam(ParamId::kAttack, s->attack);
+        engine::EngineSetParam(0, ParamId::kAttack, s->attack);
     } else if (handle == 1) {   // decay + sustain
         const int xA = L + static_cast<int>(s->attack * 0.25f * W);
         s->decay = clamp01(static_cast<float>(x - xA) / (0.25f * W));
         s->sustain = clamp01(1.0f - static_cast<float>(y - T) / H);
-        engine::EngineSetParam(ParamId::kDecay, s->decay);
-        engine::EngineSetParam(ParamId::kSustain, s->sustain);
+        engine::EngineSetParam(0, ParamId::kDecay, s->decay);
+        engine::EngineSetParam(0, ParamId::kSustain, s->sustain);
     } else {   // release
         const int xH = L + static_cast<int>(s->attack * 0.25f * W) +
                        static_cast<int>(s->decay * 0.25f * W) +
                        static_cast<int>(0.20f * W);
         s->release = clamp01(static_cast<float>(x - xH) / (0.30f * W));
-        engine::EngineSetParam(ParamId::kRelease, s->release);
+        engine::EngineSetParam(0, ParamId::kRelease, s->release);
     }
     lv_obj_invalidate(g_plot_objs[static_cast<int>(PlotKind::kEnv)]);
     set_env_readout();
@@ -692,13 +692,13 @@ void key_event_cb(lv_event_t *e) {
         g_state.note_on = true;
         g_state.note_at = lv_tick_get();
         g_state.freq = key_freq(kd->semi);
-        engine::EngineNoteOn(g_state.freq);
+        engine::EngineNoteOn(0, g_state.freq);
         set_osc_readout();
     } else if (code == LV_EVENT_RELEASED) {
         g_state.release_from = env_level(lv_tick_get(), g_state);
         g_state.note_on = false;
         g_state.release_at = lv_tick_get();
-        engine::EngineNoteOff();
+        engine::EngineNoteOff(0, g_state.freq);
     }
 }
 
