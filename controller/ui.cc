@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <new>
 
 #include "fft.h"
 #include "params.h"
@@ -917,8 +918,22 @@ void ui_audio_tap(Ui *ui, const float *samples, int n) {
     ui->scope_ring.Write(samples, n);
 }
 
+#ifdef TWANG_UI_SDRAM
+/// Fixed SDRAM address for the Ui object on the target. SDRAM spans
+/// 0x68000000..0x6c000000 (64 MiB); the GLCDC frame buffer occupies the first
+/// ~2.4 MB (ext-ram) and the IPC block sits at 0x68400000 (engine/ipc_shared.h),
+/// so the Ui lands at +5 MB — clear of both.
+constexpr std::uintptr_t kUiSdrAddr = 0x68500000UL;
+#endif
+
 Ui *ui_create(lv_obj_t *screen) {
+#ifdef TWANG_UI_SDRAM
+    // The Ui is ~160 KB of draw scratch; the M33's 640 KB SRAM is tight, so
+    // place it in SDRAM (placement new — never freed in practice).
+    Ui *ui = new (reinterpret_cast<void *>(kUiSdrAddr)) Ui;
+#else
     Ui *ui = new Ui;
+#endif
 
     // Initialize state from the engine's descriptor table defaults.
     ui->state.freq = 440.0f;
