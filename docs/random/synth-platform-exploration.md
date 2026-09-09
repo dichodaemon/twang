@@ -14,7 +14,7 @@ whether analog filters belong in it.
 | | Platform for prototyping digital synths, ideally analog filters | Daisy / SHARC / Eurorack |
 | Pivot | Actually want the *architecture* Gearmulator emulates, in real silicon | Reframed to heterogeneous compute |
 | Scoping | Micromonsta-2 class as an intermediate target | 12 voices, 2 parts, one filter each |
-| Landing | EK-RA8D2 (Cortex-M85 + M33) | Shortlisted, not yet ordered |
+| Landing | EK-RA8D2 (Cortex-M85 + M33) | Ordered (2026-09-09) |
 
 ---
 
@@ -475,12 +475,30 @@ regression test.
 
 | Question | Why it matters | Where to look |
 |---|---|---|
-| EK-RA8D2 price and availability | Deciding vs MIMXRT1170-EVKB | Renesas / Mouser / DigiKey |
-| Simultaneous M85 + M33 debug | Central to the whole project. NXP has AN13264 proving it; Renesas equivalent not found | Renesas forum (active), Zephyr `attach` runner |
+| EK-RA8D2 price and availability | Deciding vs MIMXRT1170-EVKB | **Resolved** — board ordered |
+| Simultaneous M85 + M33 debug | Central to the whole project. NXP has AN13264 proving it | **Resolved** — R01AN7982EU0101 (see note below) |
 | Does Zephyr's SSIE driver expose TDM slot config? | Per-part outputs depend on it | Driver source; fall back to FSP / direct registers |
 | X-Touch Compact relative-mode CC | 7-bit absolute is too coarse for cutoff | X-Touch Editor |
 | Does Helium help *your* workload? | 4× is Arm's DSP-kernel figure; IIR filters don't vectorise | Measure oscillators vs filters separately |
 | Does analog filtering earn its cost? | The premise of the whole analog thread | Borrowed Eurorack filter, one evening |
+
+**Resolved since writing (2026-09-09):**
+
+- **EK-RA8D2 ordered.**
+- **Simultaneous M85 + M33 debug** — the Renesas equivalent of NXP's AN13264 is
+  **R01AN7982EU0101** *"Multicore Setup and Running Hello World on Dual-Core"*
+  (Rev 1.01, Oct 16 2025; Rev 1.01 explicitly added RA8D2). e² studio's Multicore
+  Solution Project Wizard emits a *Launch Group* (one launch config per core) that
+  starts a combined multicore debug session. Prerequisite: initialize the device
+  first (Renesas Flash Programmer "Initialize Device", or Renesas Device Partition
+  Manager) to Protection Level 2 with the TrustZone boundary unset — skipping this
+  causes download/debug failures. CPU0 (M85) is primary and boots first; it starts
+  CPU1 via `R_BSP_SecondaryCoreStart()`. The on-board SEGGER J-Link connects to the
+  primary core; a "Device Configuration Information Register for Debug" at
+  `0x02C9F04C` bit 0 steers which core is primary (SEGGER notes full Renesas
+  dual-core debug documentation is still expected Q3/2026). Zephyr side:
+  `ek_ra8d2` CM33 target (zephyrproject-rtos/zephyr#103884) plus per-core
+  `cm85`/`cm33` targets via `--sysbuild`.
 
 ---
 
@@ -504,8 +522,8 @@ preenFM are GPL. Fine for personal work, a constraint if this becomes a product.
 
 ## 13. Recommended immediate next steps
 
-1. **Resolve the debug question** for EK-RA8D2 (forum post or search), then order
-   the board.
+1. ~~Resolve the debug question for EK-RA8D2, then order the board.~~ **Done** —
+   debug resolved (R01AN7982EU0101, §11) and board ordered.
 2. **Start the desktop engine now** — WAV renderer, one voice, cycle harness.
    Nothing here is blocked on hardware.
 3. **Start the LVGL simulator UI** with the parameter descriptor table.

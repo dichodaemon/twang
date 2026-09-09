@@ -33,7 +33,7 @@ instrument rather than an open platform exploration.
 
 ## 4. Approach
 
-1. Resolve the blocking open questions (dual-core debug, board price/availability), then order the board.
+1. ~~Resolve the blocking open questions (dual-core debug, board price/availability), then order the board.~~ Done — dual-core debug resolved (R01AN7982EU0101) and board ordered.
 2. Build the desktop engine first — WAV renderer, cycle harness, one voice, then 4-part — with the control/audio split running as two threads. No hardware dependency.
 3. Build the LVGL simulator UI against the parameter descriptor table.
 4. Gate on hardware with the Phase-0 four-binary bring-up sequence, ending in: M33 note-on changes the M85 sine frequency.
@@ -52,8 +52,8 @@ instrument rather than an open platform exploration.
 
 | Question | Owner / where answered |
 |---|---|
-| Simultaneous M85 + M33 debug on EK-RA8D2 (NXP has AN13264; Renesas equivalent?) | Renesas forum / Zephyr `attach` runner |
-| EK-RA8D2 price and availability vs MIMXRT1170-EVKB | Renesas / Mouser / DigiKey |
+| Simultaneous M85 + M33 debug on EK-RA8D2 (NXP has AN13264; Renesas equivalent?) | Resolved — R01AN7982EU0101 (e² studio dual-core Launch Group) |
+| EK-RA8D2 price and availability vs MIMXRT1170-EVKB | Resolved — board ordered |
 | Does Zephyr's SSIE driver expose TDM slot config (per-part outputs)? | Driver source; fall back to FSP |
 | X-Touch Compact relative-mode CC (7-bit absolute too coarse for cutoff) | X-Touch Editor |
 | Does Helium help this workload (IIR filters don't vectorize)? | Measure oscillators vs filters separately |
