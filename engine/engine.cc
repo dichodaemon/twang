@@ -25,9 +25,19 @@ void UpdateFilterCoeffs(Voice *v, const Part *p) {
     float env_cutoff = p->cutoff + p->filter_env_amount * v->env;
     if (env_cutoff > 1.0f) env_cutoff = 1.0f;
     if (env_cutoff < 0.0f) env_cutoff = 0.0f;
-    float fc = ParamNormToDisp(
+    const float q = QFromResonance(p->resonance);
+
+    // Exact skip: env_cutoff and q are deterministic floats, so bit-identical
+    // inputs imply bit-identical fc (ParamNormToDisp) and SVF coefficients
+    // (DspSvfSetFq). Avoids the pow + tan for an unchanged filter (static
+    // cutoff, or an envelope held at sustain).
+    if (env_cutoff == v->last_env_cutoff && q == v->last_q) return;
+    v->last_env_cutoff = env_cutoff;
+    v->last_q = q;
+
+    const float fc = ParamNormToDisp(
         &g_params[static_cast<std::size_t>(ParamId::kCutoff)], env_cutoff);
-    DspSvfSetFq(v, fc, QFromResonance(p->resonance));
+    DspSvfSetFq(v, fc, q);
 }
 
 float Clamp(float x) {
@@ -112,6 +122,7 @@ void StartNote(Voice *v, float freq_hz, const Part *p) {
     // leftover energy from the previous note (a fresh note = a fresh filter).
     v->ic1eq = 0.0f;
     v->ic2eq = 0.0f;
+    v->last_env_cutoff = -1.0f;  // sentinel: force the coefficient recompute
 
     float attack_s = ParamGetDisp(p, ParamId::kAttack);
     if (attack_s <= 0.0f) {

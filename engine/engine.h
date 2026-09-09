@@ -80,6 +80,13 @@ struct Voice {
 
     float steal_freq;   ///< Pending note frequency while ramping down (kSteal).
     std::uint8_t part;  ///< Owning part index (into the parts array).
+
+    // Filter-coefficient dirtiness: the env_cutoff + Q the SVF coefficients
+    // were last computed for. UpdateFilterCoeffs skips the pow/tan recompute
+    // when both are unchanged. -1 on the cutoff is the "never matches"
+    // sentinel StartNote sets to force the first recompute of a note.
+    float last_env_cutoff;
+    float last_q;
 };
 
 /// @brief Initialize the engine: reset the parts to their defaults and the
