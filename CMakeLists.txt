@@ -21,7 +21,9 @@ endif()
 
 # ---- Engine: no LVGL/SDL/OS dependencies ----
 add_library(engine STATIC
+    engine/allocator.cc
     engine/engine.cc
+    engine/ipc.cc
     engine/params.cc
 )
 target_include_directories(engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/engine)

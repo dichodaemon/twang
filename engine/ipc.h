@@ -36,32 +36,14 @@ class EventRing {
 
     /// @brief Append an event.
     /// @return false if the ring is full (event dropped).
-    bool Push(const Event &e) {
-        std::size_t tail = tail_.load(std::memory_order_relaxed);
-        std::size_t next = (tail + 1) & (kCapacity - 1);
-        if (next == head_.load(std::memory_order_acquire))
-            return false;  // full
-        buf_[tail] = e;
-        tail_.store(next, std::memory_order_release);
-        return true;
-    }
+    bool Push(const Event &e);
 
     /// @brief Remove the oldest event.
     /// @return false if the ring is empty.
-    bool Pop(Event *e) {
-        std::size_t head = head_.load(std::memory_order_relaxed);
-        if (head == tail_.load(std::memory_order_acquire))
-            return false;  // empty
-        *e = buf_[head];
-        head_.store((head + 1) & (kCapacity - 1), std::memory_order_release);
-        return true;
-    }
+    bool Pop(Event *e);
 
     /// @brief Discard all pending events (single-threaded init only).
-    void Reset() {
-        head_.store(0, std::memory_order_relaxed);
-        tail_.store(0, std::memory_order_relaxed);
-    }
+    void Reset();
 
   private:
     std::atomic<std::size_t> head_{0};  // consumer index
@@ -73,48 +55,25 @@ class EventRing {
 ///
 /// The control thread keeps the authoritative set in `pending_` and publishes
 /// it wholesale into the back buffer, then flips the front index. The audio
-/// thread snapshots the front buffer into the voice at each block boundary.
+/// thread snapshots the front buffer into the parts at each block boundary.
 /// Publishing the full set keeps the front buffer a consistent snapshot even
 /// though the control updates one parameter at a time.
 class ParamBlock {
   public:
     /// @brief Update one normalized parameter for a part and publish the set.
     /// Control thread only (single writer).
-    void Set(int part, ParamId id, float norm) {
-        pending_[slot(part, static_cast<int>(id))] = norm;
-        int back = 1 - front_.load(std::memory_order_relaxed);
-        for (int i = 0; i < kSlots; ++i)
-            buf_[back].v[i].store(pending_[i], std::memory_order_relaxed);
-        front_.store(back, std::memory_order_release);
-    }
+    void Set(int part, ParamId id, float norm);
 
     /// @brief Snapshot the front buffer into all parts (audio thread).
-    void Commit(Part *parts) {
-        int front = front_.load(std::memory_order_acquire);
-        for (int p = 0; p < kNumParts; ++p)
-            for (int i = 0; i < kParamCount; ++i)
-                ParamSet(&parts[p], static_cast<ParamId>(i),
-                         buf_[front].v[slot(p, i)].load(
-                             std::memory_order_relaxed));
-    }
+    void Commit(Part *parts);
 
     /// @brief Reset both buffers to defaults (single-threaded init only).
-    void Reset(const ParamDesc *table) {
-        for (int p = 0; p < kNumParts; ++p)
-            for (int i = 0; i < kParamCount; ++i) {
-                pending_[slot(p, i)] = table[i].def;
-                buf_[0].v[slot(p, i)].store(table[i].def,
-                                            std::memory_order_relaxed);
-                buf_[1].v[slot(p, i)].store(table[i].def,
-                                            std::memory_order_relaxed);
-            }
-        front_.store(0, std::memory_order_relaxed);
-    }
+    void Reset(const ParamDesc *table);
 
   private:
     static constexpr int kParamCount = static_cast<int>(ParamId::kCount);
     static constexpr int kSlots = kNumParts * kParamCount;
-    static int slot(int part, int i) { return part * kParamCount + i; }
+    static int slot(int part, int i);
 
     float pending_[kSlots];  // control-thread-only authoritative set
 
