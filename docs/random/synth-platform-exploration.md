@@ -267,8 +267,8 @@ Hardcoding `main_L, main_R` makes this a rewrite later.
 
 **Per-part outputs:** 4 parts × stereo = 8 channels = one TDM8 link on one
 SSIE instance. Board has two instances, so 16 channels is reachable without
-external hardware. *Verify Zephyr's SSIE driver exposes TDM slot config —
-the Zephyr I2S API is stereo-shaped.*
+external hardware. **Resolved:** neither Zephyr's RA SSIE driver nor FSP `r_ssi`
+exposes TDM — both hardcode 2 channels (see §11).
 
 ---
 
@@ -478,7 +478,7 @@ regression test.
 |---|---|---|
 | EK-RA8D2 price and availability | Deciding vs MIMXRT1170-EVKB | **Resolved** — board ordered |
 | Simultaneous M85 + M33 debug | Central to the whole project. NXP has AN13264 proving it | **Resolved** — R01AN7982EU0101 (see note below) |
-| Does Zephyr's SSIE driver expose TDM slot config? | Per-part outputs depend on it | Driver source; fall back to FSP / direct registers |
+| Does Zephyr's SSIE driver expose TDM slot config? | Per-part outputs depend on it | **Resolved** — No: stereo-only in both Zephyr and FSP |
 | X-Touch Compact relative-mode CC | 7-bit absolute is too coarse for cutoff | **Resolved** — encoders relative (two's-complement), faders absolute |
 | Does Helium help *your* workload? | 4× is Arm's DSP-kernel figure; IIR filters don't vectorise | Measure oscillators vs filters separately |
 | Does analog filtering earn its cost? | The premise of the whole analog thread | Borrowed Eurorack filter, one evening |
@@ -487,6 +487,7 @@ regression test.
 
 - **EK-RA8D2 ordered.**
 - **X-Touch Compact relative-mode CC** — encoders emit relative two's-complement CC (0-63 up, 64-127 down); implemented as `rel_step = 0.004` for cutoff/resonance (CC 10/11) and absolute faders (CC 1-4) for ADSR in `engine/midi.{h,cc}`.
+- **Zephyr SSIE TDM slot config** — No. `i2s_renesas_ra_ssie.c` rejects `channels != 2` and the PCM/TDM frame formats; FSP `r_ssi` is also "always 2 channels". Per-part 8-channel output needs direct register access (if silicon supports TDM) or an external TDM codec.
 - **Simultaneous M85 + M33 debug** — the Renesas equivalent of NXP's AN13264 is
   **R01AN7982EU0101** *"Multicore Setup and Running Hello World on Dual-Core"*
   (Rev 1.01, Oct 16 2025; Rev 1.01 explicitly added RA8D2). e² studio's Multicore
