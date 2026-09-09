@@ -171,17 +171,23 @@ void ApplyEvents() {
 
 void RenderBlock(float *out, int frames) {
     g_param_block.Commit(g_parts);  // snapshot params into all parts
-    ApplyEvents();                  // then apply note on/off with latest params
 
     for (int i = 0; i < frames; ++i) out[i] = 0.0f;
 
-    for (int v = 0; v < kNumVoices; ++v) {
-        Voice *voice = &g_voices[v];
-        if (voice->stage == Voice::Stage::kIdle) continue;
-        const Part *part = &g_parts[voice->part];
-        for (int start = 0; start < frames; start += kControlDecimation) {
-            int n = kControlDecimation;
-            if (start + n > frames) n = frames - start;
+    // Drain note events at control-step granularity (16 samples = 0.33 ms)
+    // rather than once per block: a note-on is applied within one control
+    // step, not a whole block. Safe (single-threaded render loop); the mailbox
+    // signal remains an advisory notification only.
+    for (int start = 0; start < frames; start += kControlDecimation) {
+        int n = kControlDecimation;
+        if (start + n > frames) n = frames - start;
+
+        ApplyEvents();  // note on/off with the block-start params
+
+        for (int v = 0; v < kNumVoices; ++v) {
+            Voice *voice = &g_voices[v];
+            if (voice->stage == Voice::Stage::kIdle) continue;
+            const Part *part = &g_parts[voice->part];
 
             UpdateEnvelope(voice, n, part);
             UpdateFilterCoeffs(voice, part);
