@@ -19,23 +19,11 @@ class ScopeRing {
     static constexpr int kCapacity = 1 << 14;  // 16384 (~341 ms @ 48 kHz)
 
     /// @brief Append samples (audio thread).
-    void Write(const float *src, int n) {
-        std::uint32_t pos = write_.load(std::memory_order_relaxed);
-        for (int i = 0; i < n; ++i) {
-            buf_[pos & (kCapacity - 1)] = src[i];
-            ++pos;
-        }
-        write_.store(pos, std::memory_order_release);
-    }
+    void Write(const float *src, int n);
 
     /// @brief Read `count` samples, `stride` apart, ending at the newest
     /// sample (oldest first). UI thread. Requires count * stride <= kCapacity.
-    void ReadLast(float *dst, int count, int stride) const {
-        const std::uint32_t pos = write_.load(std::memory_order_acquire);
-        for (int i = 0; i < count; ++i) {
-            dst[i] = buf_[(pos - (count - i) * stride) & (kCapacity - 1)];
-        }
-    }
+    void ReadLast(float *dst, int count, int stride) const;
 
   private:
     std::atomic<std::uint32_t> write_{0};  ///< Monotonic sample count.

@@ -47,7 +47,7 @@ add_subdirectory(lvgl)
 
 # ---- Simulator: LVGL + SDL2 ----
 find_package(SDL2 REQUIRED)
-add_executable(sim sim/main.cc sim/ui.cc)
+add_executable(sim sim/fft.cc sim/main.cc sim/scope_ring.cc sim/ui.cc)
 target_include_directories(sim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sim)
 target_link_libraries(sim PRIVATE lvgl engine audio ${SDL2_LIBRARIES})
 
