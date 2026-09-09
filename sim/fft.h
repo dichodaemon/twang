@@ -7,10 +7,15 @@
 
 namespace sim {
 
+/// The constant pi, as a float.
 inline constexpr float kPi = 3.14159265358979323846f;
 
-/// In-place iterative radix-2 complex FFT. `n` must be a power of two.
-/// `re`/`im` hold the input and are overwritten with the transform.
+/// @brief In-place iterative radix-2 complex FFT.
+/// @param re Real part; holds the input, overwritten with the transformed
+/// real part.
+/// @param im Imaginary part; holds the input, overwritten with the
+/// transformed imaginary part.
+/// @param n Transform length; a power of two.
 void Fft(float *re, float *im, int n);
 
 }  // namespace sim

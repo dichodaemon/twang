@@ -19,10 +19,16 @@ class ScopeRing {
     static constexpr int kCapacity = 1 << 14;  // 16384 (~341 ms @ 48 kHz)
 
     /// @brief Append samples (audio thread).
+    /// @param src Samples to append.
+    /// @param n Number of samples.
     void Write(const float *src, int n);
 
     /// @brief Read `count` samples, `stride` apart, ending at the newest
-    /// sample (oldest first). UI thread. Requires count * stride <= kCapacity.
+    /// sample (oldest first). UI thread.
+    /// @param dst Destination buffer (holds at least `count` floats).
+    /// @param count Number of samples to read.
+    /// @param stride Sample distance between consecutive reads.
+    /// Requires count * stride <= kCapacity.
     void ReadLast(float *dst, int count, int stride) const;
 
   private:

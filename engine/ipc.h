@@ -18,7 +18,12 @@ namespace engine {
 
 /// A control event sent from the control thread to the audio thread.
 struct Event {
-    enum class Type : std::uint8_t { kNoteOn, kNoteOff, kSteal };
+    /// Event kind.
+    enum class Type : std::uint8_t {
+        kNoteOn,   ///< start a note
+        kNoteOff,  ///< release a note
+        kSteal,    ///< fast-ramp a voice down, then start a new note
+    };
 
     Type type;
     std::uint8_t part;   ///< Part index; meaningful for kNoteOn and kSteal.
@@ -32,13 +37,15 @@ struct Event {
 /// be a power of two.
 class EventRing {
   public:
-    static constexpr std::size_t kCapacity = 32;  // power of two
+    static constexpr std::size_t kCapacity = 32;  ///< power of two
 
     /// @brief Append an event.
+    /// @param e Event to append.
     /// @return false if the ring is full (event dropped).
     bool Push(const Event &e);
 
     /// @brief Remove the oldest event.
+    /// @param e Destination for the popped event.
     /// @return false if the ring is empty.
     bool Pop(Event *e);
 
@@ -46,8 +53,8 @@ class EventRing {
     void Reset();
 
   private:
-    std::atomic<std::size_t> head_{0};  // consumer index
-    std::atomic<std::size_t> tail_{0};  // producer index
+    std::atomic<std::size_t> head_{0};  ///< consumer index
+    std::atomic<std::size_t> tail_{0};  ///< producer index
     Event buf_[kCapacity];
 };
 
@@ -62,26 +69,33 @@ class ParamBlock {
   public:
     /// @brief Update one normalized parameter for a part and publish the set.
     /// Control thread only (single writer).
+    /// @param part Part index in [0, kNumParts).
+    /// @param id Parameter identifier.
+    /// @param norm Normalized value in [0, 1].
     void Set(int part, ParamId id, float norm);
 
     /// @brief Snapshot the front buffer into all parts (audio thread).
+    /// @param parts Destination part array (holds at least `kNumParts`).
     void Commit(Part *parts);
 
     /// @brief Reset both buffers to defaults (single-threaded init only).
+    /// @param table Parameter descriptor table (g_params).
     void Reset(const ParamDesc *table);
 
   private:
     static constexpr int kParamCount = static_cast<int>(ParamId::kCount);
     static constexpr int kSlots = kNumParts * kParamCount;
+
+    /// @brief Linearize (part, param) into the flat slot index.
     static int slot(int part, int i);
 
-    float pending_[kSlots];  // control-thread-only authoritative set
+    float pending_[kSlots];  ///< control-thread-only authoritative set
 
     struct ParamValues {
         std::atomic<float> v[kSlots];
     };
-    ParamValues buf_[2];         // shared: audio reads buf_[front_]
-    std::atomic<int> front_{0};  // which buffer the audio reads
+    ParamValues buf_[2];         ///< shared: audio reads buf_[front_]
+    std::atomic<int> front_{0};  ///< which buffer the audio reads
 };
 
 }  // namespace engine

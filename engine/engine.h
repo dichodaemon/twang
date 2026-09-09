@@ -82,8 +82,8 @@ struct Voice {
     std::uint8_t part;  ///< Owning part index (into the parts array).
 };
 
-/// @brief Initialize the engine and reset the voice to its defaults.
-/// Call from the control thread before the audio thread starts.
+/// @brief Initialize the engine: reset the parts to their defaults and the
+/// voices to idle. Call from the control thread before the audio thread starts.
 void EngineInit();
 
 /// @brief Queue a note-on (control thread).
