@@ -1,5 +1,6 @@
 #include "engine.h"
 
+#include "allocator.h"
 #include "dsp.h"
 #include "ipc.h"
 #include "params.h"
@@ -12,17 +13,7 @@ Part g_parts[kNumParts];      // shared per-part parameters (audio thread reads)
 Voice g_voices[kNumVoices];   // audio-thread-only DSP state
 EventRing g_events;           // control → audio events
 ParamBlock g_param_block;     // control → audio parameters
-
-// Control-thread view of voice ownership: which voices carry a held note.
-// This table is the placeholder for the voice allocator (reservation +
-// stealing), which will replace the first-free scan in a later step. The
-// audio thread never touches it.
-struct VoiceOwner {
-    bool active;
-    float freq;
-    std::uint8_t part;
-};
-VoiceOwner g_owner[kNumVoices];
+Allocator g_alloc;            // control-thread voice ownership (allocator)
 
 // DSP-specific mapping: normalized resonance -> Q (not the display %).
 float QFromResonance(float resonance) {
@@ -51,6 +42,10 @@ float EnvInc(float delta, float time_s) {
     return delta / (time_s * kSampleRate);
 }
 
+// How long a stolen voice ramps its envelope down before retriggering the new
+// note. A few ms: long enough to avoid a click, short enough to feel instant.
+constexpr float kStealTime = 0.005f;  // 5 ms
+
 // Move from the attack peak into decay, skipping straight to sustain if the
 // decay time is zero (instant).
 void EnterDecay(Voice *v, const Part *p) {
@@ -65,6 +60,8 @@ void EnterDecay(Voice *v, const Part *p) {
         v->env_inc = EnvInc(-(1.0f - p->sustain), decay_s);
     }
 }
+
+void StartNote(Voice *v, float freq_hz, const Part *p);  // defined below
 
 // Advance the envelope by `samples` (control step).
 void UpdateEnvelope(Voice *v, int samples, const Part *p) {
@@ -87,6 +84,13 @@ void UpdateEnvelope(Voice *v, int samples, const Part *p) {
             v->env = 0.0f;
             v->stage = Voice::Stage::kIdle;
             v->env_inc = 0.0f;
+        }
+        break;
+    case Voice::Stage::kSteal:
+        v->env += v->env_inc * static_cast<float>(samples);
+        if (v->env <= 0.0f) {
+            v->env = 0.0f;
+            StartNote(v, v->steal_freq, p);  // ramp done: retrigger the new note
         }
         break;
     default:  // kIdle or kSustain: hold
@@ -127,6 +131,20 @@ void ReleaseNote(Voice *v, const Part *p) {
     }
 }
 
+// Steal the voice for a new note (audio thread): ramp the current envelope
+// down over a few ms, then retrigger the new note. Avoids the click an
+// instant cut would cause (digest §9: "terminate", not "kill").
+void StealNote(Voice *v, float freq_hz, std::uint8_t part) {
+    v->part = part;
+    if (v->stage == Voice::Stage::kIdle || v->env <= 0.0f) {
+        StartNote(v, freq_hz, &g_parts[part]);  // nothing to ramp: start now
+        return;
+    }
+    v->steal_freq = freq_hz;
+    v->stage = Voice::Stage::kSteal;
+    v->env_inc = EnvInc(-v->env, kStealTime);
+}
+
 // Drain queued events into the voices (audio thread, block boundary).
 void ApplyEvents() {
     Event e;
@@ -137,6 +155,9 @@ void ApplyEvents() {
             if (e.part >= kNumParts) continue;
             v->part = e.part;
             StartNote(v, e.freq, &g_parts[e.part]);
+        } else if (e.type == Event::Type::kSteal) {
+            if (e.part >= kNumParts) continue;
+            StealNote(v, e.freq, e.part);
         } else {
             ReleaseNote(v, &g_parts[v->part]);
         }
@@ -175,41 +196,27 @@ void RenderBlock(float *out, int frames) {
 
 void EngineInit() {
     for (int i = 0; i < kNumParts; ++i) g_parts[i] = Part{};
-    for (int i = 0; i < kNumVoices; ++i) {
-        g_voices[i] = Voice{};
-        g_owner[i] = VoiceOwner{};
-    }
+    for (int i = 0; i < kNumVoices; ++i) g_voices[i] = Voice{};
+    g_alloc.Reset();
     g_events.Reset();
     g_param_block.Reset(g_params);
     g_param_block.Commit(g_parts);
 }
 
 void EngineNoteOn(int part, float freq_hz) {
-    if (part < 0 || part >= kNumParts) return;
-    for (int i = 0; i < kNumVoices; ++i) {
-        if (g_owner[i].active) continue;
-        g_owner[i].active = true;
-        g_owner[i].freq = freq_hz;
-        g_owner[i].part = static_cast<std::uint8_t>(part);
-        g_events.Push({Event::Type::kNoteOn, static_cast<std::uint8_t>(part),
-                       static_cast<std::uint8_t>(i), freq_hz});
-        return;
-    }
-    // No free voice: drop the note. The voice allocator will steal here.
+    const Allocator::Decision d = g_alloc.NoteOn(part, freq_hz);
+    if (d.voice < 0) return;  // dropped: full and nothing to steal
+    const Event::Type type =
+        d.steal ? Event::Type::kSteal : Event::Type::kNoteOn;
+    g_events.Push({type, static_cast<std::uint8_t>(part),
+                   static_cast<std::uint8_t>(d.voice), freq_hz});
 }
 
 void EngineNoteOff(int part, float freq_hz) {
-    if (part < 0 || part >= kNumParts) return;
-    for (int i = 0; i < kNumVoices; ++i) {
-        if (g_owner[i].active && g_owner[i].part == part &&
-            g_owner[i].freq == freq_hz) {
-            g_owner[i].active = false;
-            g_events.Push({Event::Type::kNoteOff,
-                           static_cast<std::uint8_t>(part),
-                           static_cast<std::uint8_t>(i), 0.0f});
-            return;
-        }
-    }
+    const int voice = g_alloc.NoteOff(part, freq_hz);
+    if (voice < 0) return;  // no matching note
+    g_events.Push({Event::Type::kNoteOff, static_cast<std::uint8_t>(part),
+                   static_cast<std::uint8_t>(voice), 0.0f});
 }
 
 void EngineSetParam(int part, ParamId id, float norm) {

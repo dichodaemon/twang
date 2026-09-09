@@ -12,12 +12,14 @@ minimal LVGL screen at the panel resolution.
 |---|---|
 | [`CMakeLists.txt`](CMakeLists.txt) | Build: engine, sim, tests, vendored LVGL |
 | [`engine/engine.h`](engine/engine.h) / [`.cc`](engine/engine.cc) | 24 voices / 4 parts: polyBLEP saw → TPT SVF → ADSR; no LVGL/SDL/OS deps |
+| [`engine/allocator.h`](engine/allocator.h) | Control-side voice allocator (reservation + stealing) |
 | [`engine/dsp.h`](engine/dsp.h) | Per-sample DSP primitives (oscillator, SVF) |
 | [`engine/params.h`](engine/params.h) / [`.cc`](engine/params.cc) | Parameter descriptor table + accessors |
 | [`sim/main.cc`](sim/main.cc) | LVGL + SDL2 simulator (1024×600) |
 | [`sim/lv_conf.h`](sim/lv_conf.h) | Minimal LVGL v9 config |
 | [`tests/test_engine.cc`](tests/test_engine.cc) | Engine contract test |
 | [`tests/test_params.cc`](tests/test_params.cc) | Parameter table contract test |
+| [`tests/test_allocator.cc`](tests/test_allocator.cc) | Voice allocator (reservation + stealing) test |
 | [`tools/wav_render.cc`](tools/wav_render.cc) | CLI: render audio to a WAV file |
 | [`tools/live_render.cc`](tools/live_render.cc) | CLI: stream audio to the playback device |
 | [`tools/bench.cc`](tools/bench.cc) | Cycle harness: ns/sample/voice |
@@ -111,6 +113,7 @@ None — the engine is self-contained.
 | `test_ring` | executable | Event ring contract test |
 | `test_param_block` | executable | Parameter block contract test |
 | `test_split` | executable | Control/audio split test (two threads) |
+| `test_allocator` | executable | Voice allocator (reservation + stealing) test |
 | `wav_render` | executable | Render audio to a WAV file |
 | `live_render` | executable | Stream audio to the playback device |
 | `bench` | executable | Cycle harness: measure render cost |
@@ -122,6 +125,12 @@ None — the engine is self-contained.
   (Zavalishin/Simper) → ADSR, each voice bound to a part's parameter bank.
   Fixed 64-sample block, sub-block control rate every 16 samples. Voice state
   is a memcpy-able struct; no allocation, `double`, or `sin` in the audio path.
+- **Voice allocator** — control-side (the M33 on the target). Each part
+  reserves a minimum of 3 voices; the rest form a shared surplus pool. On a
+  note-on with no free voice, the allocator steals — within the requesting
+  part first (if over its reservation), then from the most over-reservation
+  part, never from a part at/below its reservation — and the stolen voice
+  ramps down over a few ms before retriggering (no click).
 - **Parameter model** — a `constexpr` descriptor table (name, unit, display
   range, curve, target offset) in `params.h`/`params.cc`; every parameter is
   stored normalized 0..1. The UI, MIDI CC mapping, and patch save/load walk the
@@ -148,6 +157,9 @@ Tests cover:
 - [`tests/test_param_block.cc`](tests/test_param_block.cc) — parameter block:
   set/commit round-trip, defaults.
 - [`tests/test_split.cc`](tests/test_split.cc) — control/audio split (two threads).
+- [`tests/test_allocator.cc`](tests/test_allocator.cc) — voice allocator:
+  reservation floor, surplus pool, steal order (within-part → over-reservation
+  → never at/below), oldest-note victim selection.
 
 Run:
 
@@ -161,7 +173,7 @@ Verify the control/audio split for data races:
 
 ```bash
 cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTWANG_ENABLE_TSAN=ON
-cmake --build build-tsan --target test_split test_ring test_param_block test_engine test_params
+cmake --build build-tsan --target test_split test_ring test_param_block test_engine test_params test_allocator
 setarch $(uname -m) -R ctest --test-dir build-tsan   # disable ASLR (TSAN requires it)
 ```
 

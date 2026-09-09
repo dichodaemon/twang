@@ -84,3 +84,7 @@ add_test(NAME param_block COMMAND test_param_block)
 add_executable(test_split tests/test_split.cc)
 target_link_libraries(test_split PRIVATE engine Threads::Threads)
 add_test(NAME split COMMAND test_split)
+
+add_executable(test_allocator tests/test_allocator.cc)
+target_link_libraries(test_allocator PRIVATE engine)
+add_test(NAME allocator COMMAND test_allocator)

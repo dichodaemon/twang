@@ -18,12 +18,12 @@ namespace engine {
 
 /// A control event sent from the control thread to the audio thread.
 struct Event {
-    enum class Type : std::uint8_t { kNoteOn, kNoteOff };
+    enum class Type : std::uint8_t { kNoteOn, kNoteOff, kSteal };
 
     Type type;
-    std::uint8_t part;   ///< Part index; meaningful for kNoteOn.
+    std::uint8_t part;   ///< Part index; meaningful for kNoteOn and kSteal.
     std::uint8_t voice;  ///< Voice slot this event targets.
-    float freq;          ///< Note frequency in Hz; meaningful for kNoteOn.
+    float freq;          ///< Note frequency in Hz; meaningful for kNoteOn/kSteal.
 };
 
 /// Lock-free single-producer / single-consumer ring of events.

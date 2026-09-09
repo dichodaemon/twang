@@ -62,6 +62,7 @@ struct Voice {
         kDecay,     ///< Ramping down to the sustain level.
         kSustain,   ///< Holding.
         kRelease,   ///< Ramping down to zero.
+        kSteal,     ///< Fast ramp down, then retrigger a stolen voice.
     };
 
     // Oscillator
@@ -77,6 +78,7 @@ struct Voice {
     float env_inc;  ///< Per-sample envelope increment.
     Stage stage;    ///< Envelope stage.
 
+    float steal_freq;   ///< Pending note frequency while ramping down (kSteal).
     std::uint8_t part;  ///< Owning part index (into the parts array).
 };
 
