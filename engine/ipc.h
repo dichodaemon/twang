@@ -74,6 +74,14 @@ class ParamBlock {
     /// @param norm Normalized value in [0, 1].
     void Set(int part, ParamId id, float norm);
 
+    /// @brief Read a parameter's current normalized value (control thread).
+    /// @param part Part index in [0, kNumParts).
+    /// @param id Parameter identifier.
+    /// @return Value in [0, 1].
+    float Get(int part, ParamId id) const {
+        return pending_[slot(part, static_cast<int>(id))];
+    }
+
     /// @brief Snapshot the front buffer into all parts (audio thread).
     /// @param parts Destination part array (holds at least `kNumParts`).
     void Commit(Part *parts);

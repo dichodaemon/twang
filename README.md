@@ -15,16 +15,20 @@ minimal LVGL screen at the panel resolution.
 | [`engine/allocator.h`](engine/allocator.h) | Control-side voice allocator (reservation + stealing) |
 | [`engine/dsp.h`](engine/dsp.h) | Per-sample DSP primitives (oscillator, SVF) |
 | [`engine/params.h`](engine/params.h) / [`.cc`](engine/params.cc) | Parameter descriptor table + accessors |
+| [`engine/midi.h`](engine/midi.h) / [`.cc`](engine/midi.cc) | MIDI CC/note → parameter mapping (swappable layouts) |
 | [`sim/main.cc`](sim/main.cc) | LVGL + SDL2 simulator (1024×600) |
+| [`sim/midi_in.h`](sim/midi_in.h) / [`.cc`](sim/midi_in.cc) | RtMidi transport (external controller → engine) |
 | [`sim/lv_conf.h`](sim/lv_conf.h) | Minimal LVGL v9 config |
 | [`tests/test_engine.cc`](tests/test_engine.cc) | Engine contract test |
 | [`tests/test_params.cc`](tests/test_params.cc) | Parameter table contract test |
 | [`tests/test_allocator.cc`](tests/test_allocator.cc) | Voice allocator (reservation + stealing) test |
+| [`tests/test_midi.cc`](tests/test_midi.cc) | MIDI mapping (absolute/relative, notes, dispatch) test |
 | [`tools/wav_render.cc`](tools/wav_render.cc) | CLI: render audio to a WAV file |
 | [`tools/live_render.cc`](tools/live_render.cc) | CLI: stream audio to the playback device |
 | [`tools/bench.cc`](tools/bench.cc) | Cycle harness: ns/sample/voice |
 | [`lvgl/`](lvgl) | Vendored LVGL (git submodule) |
 | [`third_party/miniaudio/`](third_party/miniaudio) | Vendored miniaudio (single header) |
+| [`third_party/rtmidi/`](third_party/rtmidi) | Vendored RtMidi (MIDI I/O) |
 
 ## API
 
@@ -48,6 +52,7 @@ void EngineNoteOn(int part, float freq_hz);
 void EngineNoteOff(int part, float freq_hz);
 void EngineSetParam(int part, ParamId id, float norm);     // normalized 0..1
 void EngineSetParamDisp(int part, ParamId id, float disp); // display units
+float EngineGetParam(int part, ParamId id);                // current normalized 0..1
 
 // audio thread — render, draining events/params at each block boundary
 void Render(float *out, int frames);             // sum of active voices, clamped
@@ -68,7 +73,7 @@ int   ParamFormat(const Part *p, ParamId id, char *buf, std::size_t n);
 Ubuntu 22.04+:
 
 ```bash
-sudo apt install -y cmake ninja-build libsdl2-dev
+sudo apt install -y cmake ninja-build libsdl2-dev libasound2-dev
 ```
 
 ### Build
@@ -102,6 +107,7 @@ None — the engine is self-contained.
 | LVGL | 9.6 (vendored submodule) |
 | SDL2 | 2.x (`libsdl2-dev`) |
 | miniaudio | 0.11.25 (vendored header) |
+| RtMidi | 6.0.0 (vendored; needs ALSA) |
 
 ## Build Targets
 
@@ -114,6 +120,7 @@ None — the engine is self-contained.
 | `test_param_block` | executable | Parameter block contract test |
 | `test_split` | executable | Control/audio split test (two threads) |
 | `test_allocator` | executable | Voice allocator (reservation + stealing) test |
+| `test_midi` | executable | MIDI mapping (absolute/relative, notes, dispatch) test |
 | `wav_render` | executable | Render audio to a WAV file |
 | `live_render` | executable | Stream audio to the playback device |
 | `bench` | executable | Cycle harness: measure render cost |
@@ -131,6 +138,11 @@ None — the engine is self-contained.
   part first (if over its reservation), then from the most over-reservation
   part, never from a part at/below its reservation — and the stolen voice
   ramps down over a few ms before retriggering (no click).
+- **MIDI control** — a swappable `MidiLayout` table maps CCs to parameters
+  (absolute faders, relative encoders) and notes to the engine; the handler is
+  layout-agnostic, so a different controller is a different table. The sim
+  reads the X-Touch Compact over RtMidi (`sim/midi_in`); the target swaps the
+  transport for Zephyr's MIDI stack, keeping the handler (`engine/midi`).
 - **Parameter model** — a `constexpr` descriptor table (name, unit, display
   range, curve, target offset) in `params.h`/`params.cc`; every parameter is
   stored normalized 0..1. The UI, MIDI CC mapping, and patch save/load walk the
@@ -160,6 +172,8 @@ Tests cover:
 - [`tests/test_allocator.cc`](tests/test_allocator.cc) — voice allocator:
   reservation floor, surplus pool, steal order (within-part → over-reservation
   → never at/below), oldest-note victim selection.
+- [`tests/test_midi.cc`](tests/test_midi.cc) — MIDI mapping: absolute/relative
+  CC decoding, clamping, note→frequency, message dispatch, swappable layout.
 
 Run:
 

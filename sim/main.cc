@@ -16,6 +16,7 @@
 
 #include "audio_out.h"
 #include "engine.h"
+#include "midi_io.h"
 #include "ui.h"
 
 constexpr int kHorRes = 1024;
@@ -46,10 +47,13 @@ int main() {
         std::fprintf(stderr, "sim: no playback device, running silent\n");
 
     ui_create(lv_screen_active());
+    midi_init();
 
     for (;;) {
         std::uint32_t delay = lv_timer_handler();
         if (delay == LV_NO_TIMER_READY) delay = LV_DEF_REFR_PERIOD;
+        midi_poll();
+        midi_feedback();
         lv_delay_ms(delay);
     }
 

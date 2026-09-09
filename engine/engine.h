@@ -109,6 +109,13 @@ void EngineSetParam(int part, ParamId id, float norm);
 /// @param disp Display value.
 void EngineSetParamDisp(int part, ParamId id, float disp);
 
+/// @brief Read a parameter's current normalized value for a part (control
+/// thread).
+/// @param part Part index in [0, kNumParts).
+/// @param id Parameter identifier.
+/// @return Value in [0, 1].
+float EngineGetParam(int part, ParamId id);
+
 /// @brief Render `frames` mono samples into `out` (audio thread).
 ///
 /// Drains pending events and parameters at each block boundary. Output is

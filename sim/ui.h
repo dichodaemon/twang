@@ -9,6 +9,16 @@
 /// @param screen The LVGL screen to build onto.
 void ui_create(lv_obj_t *screen);
 
+/// @brief A note-on from any controller (keyboard, MIDI, …): drives the
+/// engine and starts the envelope playhead.
+/// @param freq_hz Note frequency in Hz.
+void ui_note_on(float freq_hz);
+
+/// @brief A note-off from any controller: releases the note and starts the
+/// playhead's release segment.
+/// @param freq_hz Note frequency in Hz.
+void ui_note_off(float freq_hz);
+
 /// @brief Feed rendered audio samples into the scope display.
 ///
 /// Called from the audio thread (the audio-output callback) after the engine

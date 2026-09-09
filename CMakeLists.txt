@@ -24,6 +24,7 @@ add_library(engine STATIC
     engine/allocator.cc
     engine/engine.cc
     engine/ipc.cc
+    engine/midi.cc
     engine/params.cc
 )
 target_include_directories(engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/engine)
@@ -45,11 +46,20 @@ set(LV_BUILD_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/sim/lv_conf.h" CACHE PATH
     "Path to lv_conf.h" FORCE)
 add_subdirectory(lvgl)
 
+# ---- Vendored RtMidi (sim-only MIDI input, Linux/ALSA) ----
+find_package(ALSA REQUIRED)
+add_library(rtmidi STATIC third_party/rtmidi/RtMidi.cpp)
+target_include_directories(rtmidi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/rtmidi)
+target_compile_definitions(rtmidi PRIVATE __LINUX_ALSA__)
+target_compile_options(rtmidi PRIVATE -fexceptions)  # RtMidi throws RtMidiError
+target_link_libraries(rtmidi PUBLIC ALSA::ALSA)
+
 # ---- Simulator: LVGL + SDL2 ----
 find_package(SDL2 REQUIRED)
-add_executable(sim sim/fft.cc sim/main.cc sim/scope_ring.cc sim/ui.cc)
+add_executable(sim sim/fft.cc sim/main.cc sim/midi_io.cc sim/scope_ring.cc sim/ui.cc)
 target_include_directories(sim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sim)
-target_link_libraries(sim PRIVATE lvgl engine audio ${SDL2_LIBRARIES})
+target_compile_options(sim PRIVATE -fexceptions)  # sim/midi_io.cc catches RtMidiError
+target_link_libraries(sim PRIVATE lvgl engine audio rtmidi ${SDL2_LIBRARIES})
 
 # ---- WAV renderer: hear the engine output ----
 add_executable(wav_render tools/wav_render.cc)
@@ -90,3 +100,7 @@ add_test(NAME split COMMAND test_split)
 add_executable(test_allocator tests/test_allocator.cc)
 target_link_libraries(test_allocator PRIVATE engine)
 add_test(NAME allocator COMMAND test_allocator)
+
+add_executable(test_midi tests/test_midi.cc)
+target_link_libraries(test_midi PRIVATE engine)
+add_test(NAME midi COMMAND test_midi)

@@ -46,6 +46,10 @@ float EnvInc(float delta, float time_s) {
 // note. A few ms: long enough to avoid a click, short enough to feel instant.
 constexpr float kStealTime = 0.005f;  // 5 ms
 
+// Per-voice output gain, so a polyphonic chord sums below the ±1 clamp. A
+// stopgap: proper velocity sensitivity replaces this later.
+constexpr float kVoiceGain = 0.25f;
+
 // Move from the attack peak into decay, skipping straight to sustain if the
 // decay time is zero (instant).
 void EnterDecay(Voice *v, const Part *p) {
@@ -184,7 +188,7 @@ void RenderBlock(float *out, int frames) {
             for (int i = 0; i < n; ++i) {
                 float saw = DspOscTick(voice);
                 float lp = DspSvfTick(voice, saw);
-                out[start + i] += lp * voice->env;
+                out[start + i] += lp * voice->env * kVoiceGain;
             }
         }
     }
@@ -229,6 +233,11 @@ void EngineSetParamDisp(int part, ParamId id, float disp) {
     g_param_block.Set(
         part, id,
         ParamDispToNorm(&g_params[static_cast<std::size_t>(id)], disp));
+}
+
+float EngineGetParam(int part, ParamId id) {
+    if (part < 0 || part >= kNumParts) return 0.0f;
+    return g_param_block.Get(part, id);
 }
 
 void Render(float *out, int frames) {
