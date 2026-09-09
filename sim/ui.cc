@@ -10,6 +10,10 @@
 ///
 /// The plots are drawn with LVGL draw primitives (lines, dots, labels) so
 /// the same vocabulary works on the target's software renderer.
+///
+/// All mutable state lives in the single `Ui` object created by ui_create().
+/// Functions take the Ui* (or a reference into it) explicitly; nothing is
+/// file-scope or static except immutable constants.
 
 #include "ui.h"
 
@@ -19,7 +23,6 @@
 
 #include "fft.h"
 #include "params.h"
-#include "scope_ring.h"
 
 namespace {
 
@@ -27,7 +30,7 @@ using engine::ParamId;
 
 // ---- palette (flat colors only; reproducible on lv_canvas) ----
 // lv_color_hex is a plain function (color-depth dependent), so these are
-// static-storage constants, not constexpr.
+// static-storage constants, not constexpr. Immutable, so file-scope is fine.
 static const lv_color_t C_BG     = lv_color_hex(0xeef0f3);
 static const lv_color_t C_PANEL  = lv_color_hex(0xffffff);
 static const lv_color_t C_EDGE   = lv_color_hex(0xd8dbe1);
@@ -38,46 +41,6 @@ static const lv_color_t C_HANDLE = lv_color_hex(0xe07b00);
 static const lv_color_t C_GRID   = lv_color_hex(0xdfe2e8);
 static const lv_color_t C_BLACK  = lv_color_hex(0x2a2c30);
 static const lv_color_t C_KEYLIT = lv_color_hex(0xf0f0f4);
-
-// ---- shared UI state ----
-struct UiState {
-    float freq = 440.0f;
-    float cutoff = 0.0f;
-    float resonance = 0.0f;
-    float attack = 0.0f;
-    float decay = 0.0f;
-    float sustain = 0.0f;
-    float release = 0.0f;
-
-    bool note_on = false;
-    std::uint32_t note_at = 0;      ///< lv_tick_get() at note-on (ms)
-    std::uint32_t release_at = 0;   ///< lv_tick_get() at note-off (ms)
-    float release_from = 0.0f;      ///< envelope level when released
-
-    float phase = 0.0f;             ///< shared oscillator phase [0,1)
-    float scope_peak = 0.0f;        ///< peak amplitude of the scope window
-};
-
-enum class PlotKind : int { kOsc = 0, kFilter, kEnv, kOut, kCount };
-
-/// Output-module display mode.
-enum class ScopeMode : int { kScope = 0, kCycle, kSpectrum, kCount };
-
-struct PlotData {
-    PlotKind kind;
-    UiState *state;
-    int drag_handle;   ///< env drag: -1 none, 0 attack, 1 decay, 2 release
-};
-
-UiState g_state;
-PlotData g_plots[static_cast<int>(PlotKind::kCount)];
-lv_obj_t *g_plot_objs[static_cast<int>(PlotKind::kCount)] = {};
-lv_obj_t *g_readouts[static_cast<int>(PlotKind::kCount)] = {};
-ScopeRing g_scope_ring;  ///< audio thread → UI scope tap
-
-ScopeMode g_scope_mode = ScopeMode::kScope;
-lv_obj_t *g_mode_btns[static_cast<int>(ScopeMode::kCount)] = {};
-lv_obj_t *g_mode_labels[static_cast<int>(ScopeMode::kCount)] = {};
 
 // ---- math helpers (ported from the mockup) ----
 
@@ -383,7 +346,7 @@ float env_level(std::uint32_t now, const UiState &s) {
 
 // ---- output plot: streaming scope ----
 
-void draw_scope(lv_layer_t *layer, int ox, int oy, int w, int h, UiState &s) {
+void draw_scope(lv_layer_t *layer, int ox, int oy, int w, int h, Ui *ui) {
     const int mid = h / 2;
     const int amp = static_cast<int>(h * 0.42f);
 
@@ -394,7 +357,7 @@ void draw_scope(lv_layer_t *layer, int ox, int oy, int w, int h, UiState &s) {
     constexpr int kStride = 48;        // samples per pixel (~221 ms window)
     constexpr int kMaxWidth = 1024;    // plot width is ~221 px; guard for safety
     float buf[kMaxWidth];
-    g_scope_ring.ReadLast(buf, w, kStride);
+    ui->scope_ring.ReadLast(buf, w, kStride);
 
     float peak = 0.0f;
     int prev_x, prev_y;
@@ -412,26 +375,26 @@ void draw_scope(lv_layer_t *layer, int ox, int oy, int w, int h, UiState &s) {
             prev_y = y;
         }
     }
-    s.scope_peak = peak;
+    ui->state.scope_peak = peak;
 }
 
 // ---- output plot: triggered single cycle ----
 
-void draw_cycle(lv_layer_t *layer, int ox, int oy, int w, int h, const UiState &s) {
+void draw_cycle(lv_layer_t *layer, int ox, int oy, int w, int h, Ui *ui) {
     const int mid = h / 2;
     const int amp = static_cast<int>(h * 0.42f);
     draw_line(layer, ox, oy, 0, mid, w, mid, C_GRID, 1);
 
-    const int period = static_cast<int>(engine::kSampleRate / s.freq);
+    const int period = static_cast<int>(engine::kSampleRate / ui->state.freq);
     if (period < 8) return;  // no note (or too high a frequency) to show
 
     // Read three periods and lock onto the first rising zero-crossing, so a
     // full cycle is always captured regardless of where the window began.
     // Sized for the lowest expected note (a few octaves below the keyboard).
-    static float buf[4096];
+    float *buf = ui->cycle_buf;
     const int count = 3 * period;
-    if (count > 4096) return;
-    g_scope_ring.ReadLast(buf, count, 1);
+    if (count > kCycleBufSize) return;
+    ui->scope_ring.ReadLast(buf, count, 1);
 
     int trigger = -1;
     for (int i = 1; i < count; ++i) {
@@ -456,12 +419,14 @@ void draw_cycle(lv_layer_t *layer, int ox, int oy, int w, int h, const UiState &
 
 // ---- output plot: spectrum analyzer ----
 
-void draw_spectrum(lv_layer_t *layer, int ox, int oy, int w, int h, const UiState &s) {
-    constexpr int kN = 8192;
+void draw_spectrum(lv_layer_t *layer, int ox, int oy, int w, int h, Ui *ui) {
+    constexpr int kN = kFftSize;
     constexpr int kBinCount = kN / 2;
-    static float re[kN], im[kN], mag[kBinCount];
+    float *re = ui->fft_re;
+    float *im = ui->fft_im;
+    float *mag = ui->fft_mag;
 
-    g_scope_ring.ReadLast(re, kN, 1);
+    ui->scope_ring.ReadLast(re, kN, 1);
     for (int i = 0; i < kN; ++i) {
         re[i] *= 0.5f - 0.5f * cosf(2.0f * sim::kPi * static_cast<float>(i) / static_cast<float>(kN - 1));
         im[i] = 0.0f;
@@ -503,11 +468,11 @@ void draw_spectrum(lv_layer_t *layer, int ox, int oy, int w, int h, const UiStat
     }
 }
 
-void draw_out(lv_layer_t *layer, int ox, int oy, int w, int h, UiState &s) {
-    switch (g_scope_mode) {
-    case ScopeMode::kScope:    draw_scope(layer, ox, oy, w, h, s); break;
-    case ScopeMode::kCycle:    draw_cycle(layer, ox, oy, w, h, s); break;
-    case ScopeMode::kSpectrum: draw_spectrum(layer, ox, oy, w, h, s); break;
+void draw_out(lv_layer_t *layer, int ox, int oy, int w, int h, Ui *ui) {
+    switch (ui->scope_mode) {
+    case ScopeMode::kScope:    draw_scope(layer, ox, oy, w, h, ui); break;
+    case ScopeMode::kCycle:    draw_cycle(layer, ox, oy, w, h, ui); break;
+    case ScopeMode::kSpectrum: draw_spectrum(layer, ox, oy, w, h, ui); break;
     default: break;
     }
 }
@@ -521,43 +486,43 @@ void fmt_time(float norm, ParamId id, char *buf, int n) {
     else std::snprintf(buf, n, "%.2fs", s);
 }
 
-void set_osc_readout() {
+void set_osc_readout(Ui *ui) {
     char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.0fHz", g_state.freq);
-    lv_label_set_text(g_readouts[static_cast<int>(PlotKind::kOsc)], buf);
+    std::snprintf(buf, sizeof(buf), "%.0fHz", ui->state.freq);
+    lv_label_set_text(ui->readouts[static_cast<int>(PlotKind::kOsc)], buf);
 }
 
-void set_filter_readout() {
-    const float hz = norm_to_hz(g_state.cutoff);
+void set_filter_readout(Ui *ui) {
+    const float hz = norm_to_hz(ui->state.cutoff);
     char b1[32], buf[64];
     if (hz >= 1000.0f) std::snprintf(b1, sizeof(b1), "%.2fkHz", hz / 1000.0f);
     else std::snprintf(b1, sizeof(b1), "%.0fHz", hz);
     std::snprintf(buf, sizeof(buf), "fc %s | res %.0f%%", b1,
-                  g_state.resonance * 100.0f);
-    lv_label_set_text(g_readouts[static_cast<int>(PlotKind::kFilter)], buf);
+                  ui->state.resonance * 100.0f);
+    lv_label_set_text(ui->readouts[static_cast<int>(PlotKind::kFilter)], buf);
 }
 
-void set_env_readout() {
+void set_env_readout(Ui *ui) {
     char a[16], d[16], r[16];
-    fmt_time(g_state.attack, ParamId::kAttack, a, sizeof(a));
-    fmt_time(g_state.decay, ParamId::kDecay, d, sizeof(d));
-    fmt_time(g_state.release, ParamId::kRelease, r, sizeof(r));
+    fmt_time(ui->state.attack, ParamId::kAttack, a, sizeof(a));
+    fmt_time(ui->state.decay, ParamId::kDecay, d, sizeof(d));
+    fmt_time(ui->state.release, ParamId::kRelease, r, sizeof(r));
     char buf[96];
     std::snprintf(buf, sizeof(buf), "A %s | D %s | S %.0f%% | R %s",
-                  a, d, g_state.sustain * 100.0f, r);
-    lv_label_set_text(g_readouts[static_cast<int>(PlotKind::kEnv)], buf);
+                  a, d, ui->state.sustain * 100.0f, r);
+    lv_label_set_text(ui->readouts[static_cast<int>(PlotKind::kEnv)], buf);
 }
 
-void set_out_readout() {
+void set_out_readout(Ui *ui) {
     char buf[48];
-    switch (g_scope_mode) {
+    switch (ui->scope_mode) {
     case ScopeMode::kScope:
-        if (g_state.scope_peak > 0.01f)
-            std::snprintf(buf, sizeof(buf), "env %.0f%%", g_state.scope_peak * 100.0f);
+        if (ui->state.scope_peak > 0.01f)
+            std::snprintf(buf, sizeof(buf), "env %.0f%%", ui->state.scope_peak * 100.0f);
         else std::snprintf(buf, sizeof(buf), "silent");
         break;
     case ScopeMode::kCycle:
-        std::snprintf(buf, sizeof(buf), "1 cycle | %.0f Hz", g_state.freq);
+        std::snprintf(buf, sizeof(buf), "1 cycle | %.0f Hz", ui->state.freq);
         break;
     case ScopeMode::kSpectrum:
         std::snprintf(buf, sizeof(buf), "FFT 8192 | Hann");
@@ -566,28 +531,29 @@ void set_out_readout() {
         buf[0] = '\0';
         break;
     }
-    lv_label_set_text(g_readouts[static_cast<int>(PlotKind::kOut)], buf);
+    lv_label_set_text(ui->readouts[static_cast<int>(PlotKind::kOut)], buf);
 }
 
 // Sync the UI's cached parameter state from the engine. MIDI (and any future
 // control source) writes the engine directly, so the display reads back from
 // the engine rather than trusting only drag updates.
-void ui_sync_from_engine() {
-    g_state.cutoff = engine::EngineGetParam(0, ParamId::kCutoff);
-    g_state.resonance = engine::EngineGetParam(0, ParamId::kResonance);
-    g_state.attack = engine::EngineGetParam(0, ParamId::kAttack);
-    g_state.decay = engine::EngineGetParam(0, ParamId::kDecay);
-    g_state.sustain = engine::EngineGetParam(0, ParamId::kSustain);
-    g_state.release = engine::EngineGetParam(0, ParamId::kRelease);
-    set_filter_readout();
-    set_env_readout();
-    lv_obj_invalidate(g_plot_objs[static_cast<int>(PlotKind::kFilter)]);
-    lv_obj_invalidate(g_plot_objs[static_cast<int>(PlotKind::kEnv)]);
+void ui_sync_from_engine(Ui *ui) {
+    UiState &s = ui->state;
+    s.cutoff = engine::EngineGetParam(0, ParamId::kCutoff);
+    s.resonance = engine::EngineGetParam(0, ParamId::kResonance);
+    s.attack = engine::EngineGetParam(0, ParamId::kAttack);
+    s.decay = engine::EngineGetParam(0, ParamId::kDecay);
+    s.sustain = engine::EngineGetParam(0, ParamId::kSustain);
+    s.release = engine::EngineGetParam(0, ParamId::kRelease);
+    set_filter_readout(ui);
+    set_env_readout(ui);
+    lv_obj_invalidate(ui->plot_objs[static_cast<int>(PlotKind::kFilter)]);
+    lv_obj_invalidate(ui->plot_objs[static_cast<int>(PlotKind::kEnv)]);
 }
 
 // ---- drag handling ----
 
-void apply_filter_drag(UiState *s, int x, int y, int w, int h) {
+void apply_filter_drag(int x, int y, int w, int h) {
     const int L = 14, R = w - 14, T = 12, B = h - 18;
     const float cutoff = clamp01(static_cast<float>(x - L) / static_cast<float>(R - L));
     const float db = kDbTop - static_cast<float>(y - T) / static_cast<float>(B - T) * (kDbTop - kDbBot);
@@ -595,7 +561,6 @@ void apply_filter_drag(UiState *s, int x, int y, int w, int h) {
     // Write the engine only; the display is synced back by the anim timer.
     engine::EngineSetParam(0, ParamId::kCutoff, cutoff);
     engine::EngineSetParam(0, ParamId::kResonance, resonance);
-    (void)s;
 }
 
 int hit_test_env(int x, int y, int w, int h, const UiState &s) {
@@ -615,7 +580,7 @@ int hit_test_env(int x, int y, int w, int h, const UiState &s) {
     return best;
 }
 
-void apply_env_drag(UiState *s, int handle, int x, int y, int w, int h) {
+void apply_env_drag(const UiState &s, int handle, int x, int y, int w, int h) {
     const int L = 14, R = w - 14, T = 12, B = h - 20;
     const int W = R - L, H = B - T;
     // Write the engine only; the display is synced back by the anim timer.
@@ -623,14 +588,14 @@ void apply_env_drag(UiState *s, int handle, int x, int y, int w, int h) {
         engine::EngineSetParam(0, ParamId::kAttack,
             clamp01(static_cast<float>(x - L) / (0.25f * W)));
     } else if (handle == 1) {   // decay + sustain
-        const int xA = L + static_cast<int>(s->attack * 0.25f * W);
+        const int xA = L + static_cast<int>(s.attack * 0.25f * W);
         engine::EngineSetParam(0, ParamId::kDecay,
             clamp01(static_cast<float>(x - xA) / (0.25f * W)));
         engine::EngineSetParam(0, ParamId::kSustain,
             clamp01(1.0f - static_cast<float>(y - T) / H));
     } else {   // release
-        const int xH = L + static_cast<int>(s->attack * 0.25f * W) +
-                       static_cast<int>(s->decay * 0.25f * W) +
+        const int xH = L + static_cast<int>(s.attack * 0.25f * W) +
+                       static_cast<int>(s.decay * 0.25f * W) +
                        static_cast<int>(0.20f * W);
         engine::EngineSetParam(0, ParamId::kRelease,
             clamp01(static_cast<float>(x - xH) / (0.30f * W)));
@@ -640,7 +605,8 @@ void apply_env_drag(UiState *s, int handle, int x, int y, int w, int h) {
 void plot_event_cb(lv_event_t *e) {
     lv_obj_t *obj = static_cast<lv_obj_t *>(lv_event_get_target(e));
     auto *pd = static_cast<PlotData *>(lv_obj_get_user_data(obj));
-    UiState *s = pd->state;
+    Ui *ui = pd->ui;
+    UiState *s = &ui->state;
 
     if (lv_event_get_code(e) == LV_EVENT_DRAW_MAIN) {
         lv_layer_t *layer = lv_event_get_layer(e);
@@ -655,7 +621,7 @@ void plot_event_cb(lv_event_t *e) {
         case PlotKind::kOsc:    draw_osc(layer, ox, oy, w, h, *s); break;
         case PlotKind::kFilter: draw_filter(layer, ox, oy, w, h, *s); break;
         case PlotKind::kEnv:    draw_env(layer, ox, oy, w, h, *s); break;
-        case PlotKind::kOut:    draw_out(layer, ox, oy, w, h, *s); break;
+        case PlotKind::kOut:    draw_out(layer, ox, oy, w, h, ui); break;
         default: break;
         }
         return;
@@ -676,10 +642,10 @@ void plot_event_cb(lv_event_t *e) {
         const int h = lv_obj_get_height(obj);
 
         if (pd->kind == PlotKind::kFilter) {
-            apply_filter_drag(s, x, y, w, h);
+            apply_filter_drag(x, y, w, h);
         } else if (pd->kind == PlotKind::kEnv) {
             if (code == LV_EVENT_PRESSED) pd->drag_handle = hit_test_env(x, y, w, h, *s);
-            if (pd->drag_handle >= 0) apply_env_drag(s, pd->drag_handle, x, y, w, h);
+            if (pd->drag_handle >= 0) apply_env_drag(*s, pd->drag_handle, x, y, w, h);
         }
     } else if (code == LV_EVENT_RELEASED) {
         pd->drag_handle = -1;
@@ -701,13 +667,15 @@ constexpr float kBaseFreq = 261.63f;
 float key_freq(int semi) { return kBaseFreq * powf(2.0f, semi / 12.0f); }
 
 void key_event_cb(lv_event_t *e) {
-    const auto *kd = static_cast<const KeyDef *>(
-        lv_obj_get_user_data(static_cast<lv_obj_t *>(lv_event_get_target(e))));
+    lv_obj_t *key = static_cast<lv_obj_t *>(lv_event_get_target(e));
+    const auto *kd = static_cast<const KeyDef *>(lv_obj_get_user_data(key));
+    // The keyboard container holds the Ui*; the key's parent is that container.
+    Ui *ui = static_cast<Ui *>(lv_obj_get_user_data(lv_obj_get_parent(key)));
     const lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_PRESSED) {
-        ui_note_on(key_freq(kd->semi));
+        ui_note_on(ui, key_freq(kd->semi));
     } else if (code == LV_EVENT_RELEASED) {
-        ui_note_off(key_freq(kd->semi));
+        ui_note_off(ui, key_freq(kd->semi));
     }
 }
 
@@ -723,12 +691,12 @@ void style_transparent(lv_obj_t *obj) {
 
 constexpr const char *kModeNames[] = {"SCOPE", "CYCLE", "SPEC"};
 
-void refresh_mode_buttons() {
+void refresh_mode_buttons(Ui *ui) {
     for (int i = 0; i < static_cast<int>(ScopeMode::kCount); ++i) {
-        const bool active = (static_cast<int>(g_scope_mode) == i);
-        lv_obj_set_style_bg_color(g_mode_btns[i],
+        const bool active = (static_cast<int>(ui->scope_mode) == i);
+        lv_obj_set_style_bg_color(ui->mode_btns[i],
                                   active ? C_SIGNAL : C_EDGE, 0);
-        lv_obj_set_style_text_color(g_mode_labels[i],
+        lv_obj_set_style_text_color(ui->mode_labels[i],
                                     active ? lv_color_white() : C_MUTED, 0);
     }
 }
@@ -736,15 +704,18 @@ void refresh_mode_buttons() {
 void mode_btn_event_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
     lv_obj_t *btn = static_cast<lv_obj_t *>(lv_event_get_target(e));
-    const int idx = static_cast<int>(
-        reinterpret_cast<intptr_t>(lv_obj_get_user_data(btn)));
-    g_scope_mode = static_cast<ScopeMode>(idx);
-    refresh_mode_buttons();
-    lv_obj_invalidate(g_plot_objs[static_cast<int>(PlotKind::kOut)]);
-    set_out_readout();
+    Ui *ui = static_cast<Ui *>(lv_obj_get_user_data(btn));
+    for (int i = 0; i < static_cast<int>(ScopeMode::kCount); ++i) {
+        if (ui->mode_btns[i] != btn) continue;
+        ui->scope_mode = static_cast<ScopeMode>(i);
+        refresh_mode_buttons(ui);
+        lv_obj_invalidate(ui->plot_objs[static_cast<int>(PlotKind::kOut)]);
+        set_out_readout(ui);
+        return;
+    }
 }
 
-void make_mode_buttons(lv_obj_t *header) {
+void make_mode_buttons(Ui *ui, lv_obj_t *header) {
     lv_obj_t *group = lv_obj_create(header);
     lv_obj_set_flex_flow(group, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_bg_opa(group, LV_OPA_TRANSP, 0);
@@ -758,20 +729,19 @@ void make_mode_buttons(lv_obj_t *header) {
         lv_obj_set_style_shadow_width(btn, 0, 0);
         lv_obj_set_style_pad_hor(btn, 5, 0);
         lv_obj_set_style_pad_ver(btn, 1, 0);
-        lv_obj_set_user_data(btn,
-                             reinterpret_cast<void *>(static_cast<intptr_t>(i)));
+        lv_obj_set_user_data(btn, ui);
         lv_obj_add_event_cb(btn, mode_btn_event_cb, LV_EVENT_ALL, nullptr);
-        g_mode_btns[i] = btn;
+        ui->mode_btns[i] = btn;
 
         lv_obj_t *lbl = lv_label_create(btn);
         lv_label_set_text(lbl, kModeNames[i]);
         lv_obj_set_style_text_font(lbl, &lv_font_montserrat_10, 0);
-        g_mode_labels[i] = lbl;
+        ui->mode_labels[i] = lbl;
     }
-    refresh_mode_buttons();
+    refresh_mode_buttons(ui);
 }
 
-void make_module(lv_obj_t *parent, const char *title, const char *subtitle,
+void make_module(Ui *ui, lv_obj_t *parent, const char *title, const char *subtitle,
                  PlotKind kind) {
     lv_obj_t *panel = lv_obj_create(parent);
     lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
@@ -806,7 +776,7 @@ void make_module(lv_obj_t *parent, const char *title, const char *subtitle,
     lv_obj_set_style_text_font(ht, &lv_font_montserrat_10, 0);
 
     if (kind == PlotKind::kOut) {
-        make_mode_buttons(hd);
+        make_mode_buttons(ui, hd);
     } else {
         lv_obj_t *hs = lv_label_create(hd);
         lv_label_set_text(hs, subtitle);
@@ -815,9 +785,9 @@ void make_module(lv_obj_t *parent, const char *title, const char *subtitle,
     }
 
     // plot
-    auto *pd = &g_plots[static_cast<int>(kind)];
+    auto *pd = &ui->plots[static_cast<int>(kind)];
     pd->kind = kind;
-    pd->state = &g_state;
+    pd->ui = ui;
     pd->drag_handle = -1;
 
     lv_obj_t *plot = lv_obj_create(panel);
@@ -829,7 +799,7 @@ void make_module(lv_obj_t *parent, const char *title, const char *subtitle,
     lv_obj_set_style_pad_all(plot, 0, 0);
     lv_obj_set_user_data(plot, pd);
     lv_obj_add_event_cb(plot, plot_event_cb, LV_EVENT_ALL, nullptr);
-    g_plot_objs[static_cast<int>(kind)] = plot;
+    ui->plot_objs[static_cast<int>(kind)] = plot;
 
     // readout
     lv_obj_t *ro = lv_label_create(panel);
@@ -842,7 +812,7 @@ void make_module(lv_obj_t *parent, const char *title, const char *subtitle,
     lv_obj_set_style_text_color(ro, C_TEXT, 0);
     lv_obj_set_style_text_font(ro, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_align(ro, LV_TEXT_ALIGN_CENTER, 0);
-    g_readouts[static_cast<int>(kind)] = ro;
+    ui->readouts[static_cast<int>(kind)] = ro;
 }
 
 void arrow_draw_cb(lv_event_t *e) {
@@ -878,7 +848,7 @@ void make_arrow(lv_obj_t *parent) {
     lv_obj_add_event_cb(a, arrow_draw_cb, LV_EVENT_DRAW_MAIN, nullptr);
 }
 
-void make_keyboard(lv_obj_t *parent) {
+void make_keyboard(Ui *ui, lv_obj_t *parent) {
     lv_obj_t *kb = lv_obj_create(parent);
     lv_obj_set_flex_flow(kb, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_bg_opa(kb, LV_OPA_TRANSP, 0);
@@ -888,6 +858,9 @@ void make_keyboard(lv_obj_t *parent) {
     lv_obj_set_style_pad_column(kb, 0, 0);
     lv_obj_set_width(kb, LV_PCT(100));
     lv_obj_set_height(kb, 112);
+    // The keyboard container carries the Ui* so key_event_cb can reach it via
+    // each key's parent.
+    lv_obj_set_user_data(kb, ui);
 
     for (const KeyDef &kd : kKeys) {
         lv_obj_t *key = lv_button_create(kb);
@@ -912,46 +885,49 @@ void make_keyboard(lv_obj_t *parent) {
     }
 }
 
-void anim_timer_cb(lv_timer_t *) {
-    g_state.phase += 64.0f / 48000.0f;
-    if (g_state.phase >= 1.0f) g_state.phase -= 1.0f;
-    ui_sync_from_engine();
-    lv_obj_invalidate(g_plot_objs[static_cast<int>(PlotKind::kOsc)]);
-    lv_obj_invalidate(g_plot_objs[static_cast<int>(PlotKind::kEnv)]);
-    lv_obj_invalidate(g_plot_objs[static_cast<int>(PlotKind::kOut)]);
-    set_out_readout();
+void anim_timer_cb(lv_timer_t *t) {
+    Ui *ui = static_cast<Ui *>(lv_timer_get_user_data(t));
+    ui->state.phase += 64.0f / 48000.0f;
+    if (ui->state.phase >= 1.0f) ui->state.phase -= 1.0f;
+    ui_sync_from_engine(ui);
+    lv_obj_invalidate(ui->plot_objs[static_cast<int>(PlotKind::kOsc)]);
+    lv_obj_invalidate(ui->plot_objs[static_cast<int>(PlotKind::kEnv)]);
+    lv_obj_invalidate(ui->plot_objs[static_cast<int>(PlotKind::kOut)]);
+    set_out_readout(ui);
 }
 
 }  // namespace
 
-void ui_note_on(float freq_hz) {
+void ui_note_on(Ui *ui, float freq_hz) {
     engine::EngineNoteOn(0, freq_hz);
-    g_state.note_on = true;
-    g_state.note_at = lv_tick_get();
-    g_state.freq = freq_hz;
-    set_osc_readout();
+    ui->state.note_on = true;
+    ui->state.note_at = lv_tick_get();
+    ui->state.freq = freq_hz;
+    set_osc_readout(ui);
 }
 
-void ui_note_off(float freq_hz) {
-    g_state.release_from = env_level(lv_tick_get(), g_state);
-    g_state.note_on = false;
-    g_state.release_at = lv_tick_get();
+void ui_note_off(Ui *ui, float freq_hz) {
+    ui->state.release_from = env_level(lv_tick_get(), ui->state);
+    ui->state.note_on = false;
+    ui->state.release_at = lv_tick_get();
     engine::EngineNoteOff(0, freq_hz);
 }
 
-void ui_audio_tap(const float *samples, int n) {
-    g_scope_ring.Write(samples, n);
+void ui_audio_tap(Ui *ui, const float *samples, int n) {
+    ui->scope_ring.Write(samples, n);
 }
 
-void ui_create(lv_obj_t *screen) {
+Ui *ui_create(lv_obj_t *screen) {
+    Ui *ui = new Ui;
+
     // Initialize state from the engine's descriptor table defaults.
-    g_state.freq = 440.0f;
-    g_state.cutoff = engine::g_params[static_cast<int>(ParamId::kCutoff)].def;
-    g_state.resonance = engine::g_params[static_cast<int>(ParamId::kResonance)].def;
-    g_state.attack = engine::g_params[static_cast<int>(ParamId::kAttack)].def;
-    g_state.decay = engine::g_params[static_cast<int>(ParamId::kDecay)].def;
-    g_state.sustain = engine::g_params[static_cast<int>(ParamId::kSustain)].def;
-    g_state.release = engine::g_params[static_cast<int>(ParamId::kRelease)].def;
+    ui->state.freq = 440.0f;
+    ui->state.cutoff = engine::g_params[static_cast<int>(ParamId::kCutoff)].def;
+    ui->state.resonance = engine::g_params[static_cast<int>(ParamId::kResonance)].def;
+    ui->state.attack = engine::g_params[static_cast<int>(ParamId::kAttack)].def;
+    ui->state.decay = engine::g_params[static_cast<int>(ParamId::kDecay)].def;
+    ui->state.sustain = engine::g_params[static_cast<int>(ParamId::kSustain)].def;
+    ui->state.release = engine::g_params[static_cast<int>(ParamId::kRelease)].def;
 
     lv_obj_set_style_bg_color(screen, C_BG, 0);
     lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
@@ -992,21 +968,22 @@ void ui_create(lv_obj_t *screen) {
     lv_obj_set_style_pad_column(modules, 10, 0);
     lv_obj_set_width(modules, LV_PCT(100));
 
-    make_module(modules, "OSCILLATOR", "polyBLEP saw", PlotKind::kOsc);
+    make_module(ui, modules, "OSCILLATOR", "polyBLEP saw", PlotKind::kOsc);
     make_arrow(modules);
-    make_module(modules, "FILTER", "TPT SVF | lowpass", PlotKind::kFilter);
+    make_module(ui, modules, "FILTER", "TPT SVF | lowpass", PlotKind::kFilter);
     make_arrow(modules);
-    make_module(modules, "ENVELOPE", "ADSR", PlotKind::kEnv);
+    make_module(ui, modules, "ENVELOPE", "ADSR", PlotKind::kEnv);
     make_arrow(modules);
-    make_module(modules, "OUTPUT", "scope", PlotKind::kOut);
+    make_module(ui, modules, "OUTPUT", "scope", PlotKind::kOut);
 
     // keyboard
-    make_keyboard(screen);
+    make_keyboard(ui, screen);
 
-    set_osc_readout();
-    set_filter_readout();
-    set_env_readout();
-    set_out_readout();
+    set_osc_readout(ui);
+    set_filter_readout(ui);
+    set_env_readout(ui);
+    set_out_readout(ui);
 
-    lv_timer_create(anim_timer_cb, 20, nullptr);
+    lv_timer_create(anim_timer_cb, 20, ui);
+    return ui;
 }

@@ -26,9 +26,10 @@ namespace {
 
 // Audio thread: render the engine into the device's output buffer, then tap
 // the samples into the scope's lock-free ring (display only, no latency).
-void AudioCallback(void *, float *out, int frames) {
+// `user` is the Ui context (see main), so the tap routes into its scope ring.
+void AudioCallback(void *user, float *out, int frames) {
     engine::Render(out, frames);
-    ui_audio_tap(out, frames);
+    ui_audio_tap(static_cast<Ui *>(user), out, frames);
 }
 
 }  // namespace
@@ -42,18 +43,22 @@ int main() {
     lv_sdl_mousewheel_create();
 
     engine::EngineInit();
+
+    // Build the UI first: it owns the scope ring the audio thread taps into.
+    Ui *ui = ui_create(lv_screen_active());
+
     audio::Output audio_out;
-    if (!audio_out.Start(engine::kSampleRate, AudioCallback, nullptr))
+    if (!audio_out.Start(engine::kSampleRate, AudioCallback, ui))
         std::fprintf(stderr, "sim: no playback device, running silent\n");
 
-    ui_create(lv_screen_active());
-    midi_init();
+    MidiIo midi;
+    midi.Init();
 
     for (;;) {
         std::uint32_t delay = lv_timer_handler();
         if (delay == LV_NO_TIMER_READY) delay = LV_DEF_REFR_PERIOD;
-        midi_poll();
-        midi_feedback();
+        midi.Poll(ui);
+        midi.Feedback();
         lv_delay_ms(delay);
     }
 
