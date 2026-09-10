@@ -6,7 +6,8 @@
  * (boards/shields/rtklcdpar1s00001be/boards/ek_ra8d2_r7ka8d2kflcac_cm85.overlay
  *  + rtklcdpar1s00001be.overlay) for the M33's interrupt numbers.
  *
- * Touch (FT5336 on iic1) is a follow-up; this overlay wires the display only.
+ * Touch (FT5336 on iic1) rides the parallel-graphics connector's I2C + INT
+ * lines; the driver reports through the Zephyr input subsystem.
  */
 
 #include <zephyr/dt-bindings/display/panel.h>
@@ -26,6 +27,7 @@
 
 	chosen {
 		zephyr,display = &lcdif;
+		zephyr,touch = &ft5336;
 	};
 };
 
@@ -122,6 +124,26 @@
 		pixelclk-active = <0>;
 		hfront-porch = <156>;
 		vfront-porch = <9>;
+	};
+};
+
+/* Touch: FT5336 on the parallel-graphics connector's I2C (iic1). The
+ * connector maps IIC_SDA/IIC_SCL to ioport5 pins 11/12 — the board's
+ * iic1_default pinctrl already drives those. INT comes from the connector's
+ * DISP_INT line (ioport1 pin 11). The driver swaps x/y to match the panel's
+ * scan direction and scales to 1024x600. */
+&iic1 {
+	status = "okay";
+	/* FT5336 max 400 kHz; the upstream shield runs the bus at 100 kHz. */
+	clock-frequency = <DT_FREQ_K(100)>;
+
+	ft5336: ft5336@38 {
+		compatible = "focaltech,ft5336";
+		reg = <0x38>;
+		int-gpios = <&renesas_parallel_graphics_connector 3 GPIO_ACTIVE_HIGH>;
+		swapped-x-y;
+		screen-width = <1024>;
+		screen-height = <600>;
 	};
 };
 

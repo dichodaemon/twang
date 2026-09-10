@@ -7,7 +7,11 @@
 
 #include "panel.h"
 
+#if defined(__ZEPHYR__)
+#include <zephyr/kernel.h>  // k_uptime_get_32 (monotonic ms; no gettimeofday)
+#else
 #include <chrono>
+#endif
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -102,10 +106,17 @@ struct Panel {
 // ---- time ----
 
 std::uint32_t NowMs() {
+#if defined(__ZEPHYR__)
+  // Monotonic milliseconds since boot. std::chrono's libstdc++ clock pulls
+  // in gettimeofday, which picolibc does not provide, so use Zephyr's uptime
+  // on the target instead.
+  return k_uptime_get_32();
+#else
   using namespace std::chrono;
   return static_cast<std::uint32_t>(
       duration_cast<milliseconds>(steady_clock::now().time_since_epoch())
           .count());
+#endif
 }
 
 // ---- parameter math (ported unchanged from controller/ui.cc) ----

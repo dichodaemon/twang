@@ -1,6 +1,6 @@
 slots:
     - name: APPEND_SYSTEM.md
-      dest: omp/APPEND_SYSTEM.md
+      dest: APPEND_SYSTEM.md
       compose: concat
       entries:
         - ref: carrel-omp:append-system:APPEND_SYSTEM.md
