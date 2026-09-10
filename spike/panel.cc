@@ -300,11 +300,17 @@ void ColumnUpdate(FrameBuffer &fb, int ox, int oy, int w, const int *lo,
       }
     }
     if (new_on) {
-      for (int y = std::max<int>(lo[x], y_top);
-           y <= std::min<int>(hi[x], y_bot); ++y)
+      // Store the clamped (drawn) span, not the raw lo/hi: the draw loop
+      // clamps to [y_top, y_bot], so an out-of-range value would wrap in the
+      // uint8_t cast (e.g. (uint8_t)(-5) == 251) and the next erase would miss
+      // the drawn pixels, leaving a permanent trail. Clamping here keeps the
+      // trace == what was drawn regardless of what the callers produce.
+      const int y0 = std::max<int>(lo[x], y_top);
+      const int y1 = std::min<int>(hi[x], y_bot);
+      for (int y = y0; y <= y1; ++y)
         fb.px[static_cast<std::size_t>(oy + y) * fb.stride + (ox + x)] = line;
-      tr.y0[x] = static_cast<std::uint8_t>(lo[x]);
-      tr.y1[x] = static_cast<std::uint8_t>(hi[x]);
+      tr.y0[x] = static_cast<std::uint8_t>(y0);
+      tr.y1[x] = static_cast<std::uint8_t>(y1);
     } else {
       tr.y0[x] = tr.y1[x] = kEmpty;
     }
