@@ -1,6 +1,6 @@
 ---
 title: Modulation Matrix and Routing
-status: review
+status: resolved
 date: 2026-09-10
 author: Dizan Vasquez
 ---
@@ -32,7 +32,7 @@ The engine lives in `engine/engine.{h,cc}` and is split across two cores on the 
 - **Events** — `Event` {type, part, voice, velocity, freq} over a lock-free SPSC `EventRing`. Note-on/off and (as of the velocity work) note velocity ride this ring.
 - **Voice state** — `Voice` holds per-note DSP state (oscillator phase/inc, filter integrators, envelope, and now `gain`).
 - **Hardcoded modulation** — velocity→gain (`Voice.gain = kVoiceHeadroom * v/127`), env→cutoff (`filter_env_amount` applied in `UpdateFilterCoeffs`), env→amp (envelope multiplies the output). No LFOs, no matrix, no pan, no effect sends; output is mono and summed.
-- **Target hardware** — the M85 has a hardware single-precision FPU (verified: `CONFIG_FPU=y`, `-mfloat-abi=hard -mfpu=auto`), no hardware double precision, and Helium/MVE currently off (`-mcpu=cortex-m85.nomve`).
+- **Target hardware** — the M85 has a hardware single-precision FPU (Zephyr's RA8D2 SoC selects `FPU` in `soc/renesas/ra/ra8d2/Kconfig`; the GCC toolchain maps it to `-mfloat-abi=hard -mfpu=auto`), no hardware double precision, and Helium/MVE currently off (`-mcpu=cortex-m85.nomve`, from `cmake/gcc-m-cpu.cmake`).
 
 The hardcoded routes are the concrete manifestation of the problem: velocity→amp was added *this session*, and it is already the kind of special case a matrix would have to absorb.
 
@@ -74,6 +74,8 @@ The hardcoded routes are the concrete manifestation of the problem: velocity→a
 - *Pros:* No new IPC channel — the event ring and param block remain the only two transport mechanisms. Zero stream latency; no bandwidth throttle.
 - *Cons:* LFO state lives on the audio core (a small per-part phase accumulator); configuration still crosses the boundary (change-driven).
 
+**Observation.** Interacts with route model (3.6): keeping sources on the M85 means only *configuration* crosses the boundary, so the param block must generalize beyond floats before per-part sources can ride it. Interacts with evaluation (3.4): M85-local sources are what make source gating cheap — an unrouted per-voice LFO costs nothing if never advanced.
+
 **Conclusion.** Option 2. Per-note sources (velocity, note, gate) ride the existing event ring; per-part sources (modwheel, channel aftertouch, pitchbend, expression) and LFO config ride the double-buffered param block; per-voice sources (the 2 per-voice LFOs, 3 envelopes) never leave the M85. All three LFOs live on the M85; the global one is per-part state, not streamed.
 
 ### 3.3. Value domain
@@ -91,6 +93,8 @@ The hardcoded routes are the concrete manifestation of the problem: velocity→a
 - *Properties:* Unipolar sources (velocity, envelope, gate, random, constant) ∈ [0, 1]; bipolar sources (LFOs, pitchbend, note→keytrack) ∈ [−1, +1], neutral at 0. Amount is a signed float. Combination is `base + Σ(amount × source)` for additive, `base × Π(...)` for multiplicative, log-domain for exponential.
 - *Pros:* Hardware single-precision FPU on the M85 (verified §2) makes float multiply-adds free; the bipolar sources are already centered at 0, collapsing Ambika's AC-coupled branch; one multiply-add per route.
 - *Cons:* Float rounding in long accumulations (bounded at 16 slots — negligible).
+
+**Observation.** Depends on the M85's single-precision FPU (§2) — float is viable only on a core with hardware FP; without it, fixed-point (Option 1) would be forced. Interacts with evaluation (3.4): the three combination classes must be implemented in single precision only (no `double` in the render path), which the 16-slot accumulation keeps bounded.
 
 **Conclusion.** Option 2. Source values normalized to [0,1]/[−1,1]; amounts normalized, with the destination's range applied at evaluation (so a route is meaningful independent of its target). Natural units appear only at the destination's display mapping, consistent with how `ParamDesc` already separates norm from display.
 
@@ -110,6 +114,8 @@ The hardcoded routes are the concrete manifestation of the problem: velocity→a
 - *Pros:* The one big win — an unrouted LFO or envelope is not computed at all. Slots stay uncapped (the route array size is a free-standing constant). One AND instruction per source.
 - *Cons:* Couples *source count* to a bitmask width (12 sources vs 32 bits — nowhere near the ceiling, widenable to 64 mechanically).
 
+**Observation.** Interacts with source placement (3.2): gating only pays off because the gated sources are M85-local — a streamed source (3.2 Option 1) would be computed regardless. Interacts with route model (3.6): the `kNone` sentinel that distinguishes "empty slot" from "present-but-silent route" is what makes route-existence gating well-defined, forcing a fixed table with a sentinel rather than a variable-length route list.
+
 **Conclusion.** Option 2, at control rate (3 kHz) in the same control-step loop that advances envelopes and recomputes filter coefficients — not the per-sample inner loop. The amp and filter envelopes are always rendered (they drive the VCA and filter even without a route); the third envelope and both LFOs are gated. The culling bitmask keys off route *existence* (`source != kNone`), not amount — a zero-amount route is still "live" and keeps its source computed, so dragging an amount through zero never toggles source computation; only add/delete (changing `source` to/from `kNone`) changes the mask. The `kNone` sentinel is what makes "empty slot" a distinct state from "present-but-silent route" in a fixed table.
 
 ### 3.5. Chaining depth
@@ -127,6 +133,8 @@ The hardcoded routes are the concrete manifestation of the problem: velocity→a
 - *Properties:* A route whose destination is another route's amount (Deluge's `depthControlledBy`), requiring a two-phase evaluation (depth sources before amounts) and cycle concerns.
 - *Pros:* Richest routing expressiveness.
 - *Cons:* Highest complexity, lowest use — Deluge commits only one level, Surge lacks it, Ambika has only a hardcoded wheel→depth special case. Two-phase evaluation and ordering.
+
+**Observation.** Interacts with destination model (3.1): modulate-a-modulator is free precisely because destinations are open parameter ids — an LFO rate is just another destination. Interacts with evaluation (3.4): the fixed source evaluation order (rather than a dependency solver) is what makes one-level chaining cheap; depth-of-depth (Option 2) would break that by requiring a second phase before amounts.
 
 **Conclusion.** Option 1 in scope; depth-of-depth deferred but *reserved* in the destination encoding (a route-amount pseudo-destination), so it is additive later. Fixed source evaluation order; a source modulating an LFO rate or envelope time takes effect the next control step (~0.33 ms at 3 kHz), inaudible for rate modulation and avoids a dependency solver.
 
@@ -146,6 +154,8 @@ The hardcoded routes are the concrete manifestation of the problem: velocity→a
 - *Pros:* Keeps routes enum-typed; slot count is a free-standing constant (the thing that must grow to 32/64 later); matches Deluge/Surge, which both keep routes distinct from params.
 - *Cons:* Routes need a distinct addressing surface (a mod-matrix page) from params.
 
+**Observation.** Interacts with destination model (3.1): the open destination model points at `ParamId`, and keeping routes in a separate enum-typed table (rather than flattening into float params) is what preserves that type distinction. Interacts with source placement (3.2): routes and LFO config ride the same double-buffered part state as the params, so the `ParamBlock` generalization is the single transport change — one buffer, one swap.
+
 **Conclusion.** Option 2. The thing `ParamBlock` transports generalizes from "7 floats" to "a part struct — float params + route table + LFO config"; one double-buffer, one swap, one source of truth. API: `EngineSetParam(part, id, v)` for scalars plus a small `EngineSetRoute(part, slot, src, dst, amount)`. Routes are UI-editable now; the addressing leaves room for MIDI-CC route editing later.
 
 ### 3.7. Cutover
@@ -164,6 +174,8 @@ The hardcoded routes are the concrete manifestation of the problem: velocity→a
 - *Pros:* Lower initial risk.
 - *Cons:* Two code paths for the same modulation; the exact accumulation the matrix is meant to eliminate; the migration is never forced.
 
+**Observation.** Interacts with destination model (3.1): the three default routes are only expressible because the combination classes cover velocity→amp (multiplicative) and env→cutoff (additive). Constraint: the matrix must reproduce the pre-matrix render bit-for-bit before `Voice.gain` and `filter_env_amount` are deleted, which is what makes the cutover testable on desktop.
+
 **Conclusion.** Option 1. Minor baked-in defaults: the random source is per-note (latched at `StartNote`); keytrack is note→cutoff with a per-part depth (0 = off, 1 = full), default off.
 
 ### 3.8. Audio/output routing
@@ -181,6 +193,8 @@ The hardcoded routes are the concrete manifestation of the problem: velocity→a
 - *Properties:* A fixed array of N stereo buses; each voice carries pan + level + send amounts and routes to a bus by index (`add_panned(scratch, bus[v.output_bus], ...)`).
 - *Pros:* Per-part outputs and effect sends become a configuration, not a rewrite. The analog "routable part bus" becomes an insertion point (a part routes through an analog filter as its bus stage) rather than a special case.
 - *Cons:* A small indirection cost and a bus-count constant.
+
+**Observation.** Interacts with destination model (3.1): per-voice pan/level and send amounts are destinations, so the bus model and the matrix share the same float evaluation. Constraint: per-part 8-channel output is gated on TDM, which the platform does not expose, so the bus array is sized for N (starting at 1) but not committed to 8. The analog-bus interaction is captured as a structural fact (per-part paraphonic vs per-voice polyphonic) rather than designed.
 
 **Conclusion.** Option 2: N indexed stereo buses (start at 1), 2 shared effect sends (reverb + delay) with per-voice *and* per-part send amounts, per-voice pan + level. Per-part 8-channel output is deferred (gated on TDM, which the platform does not expose). The analog bus is a future extension; the one structural fact recorded is that an analog filter is inherently **per-part paraphonic** (one circuit per part) while the digital SVF is **per-voice polyphonic**, so the bus model treats "filter" as a per-part-routable stage so the two can swap without a rewrite.
 
@@ -230,22 +244,24 @@ struct Voice {
 
 Criteria stated before the results: **generality** (does it enable chained/all destinations without special cases), **cycle cost** (per-voice, control-rate), **transport fit** (does it add an IPC mechanism), **retrofit cost** (late-change cost), **complexity** (state and ordering surface).
 
-| Dimension | Chosen | Generality | Cycle cost | Transport fit | Retrofit cost | Complexity |
-|---|---|---|---|---|---|---|
-| 3.1 Destination model | Open + class | High (chaining free) | — | — | Low | Low |
-| 3.2 Source placement | All on M85 | High | Negligible (per-voice LFO) | No new IPC | **Low** (the expensive one) | Low |
-| 3.3 Value domain | Float, normalized | — | HW FPU = free | — | Low | Low |
-| 3.4 Evaluation | Source gating | High | ~1.1 M MAC/s total | — | Low (slots uncapped) | Low |
-| 3.5 Chaining | Modulate-a-mod only | Adequate (depth deferred) | — | — | Low (depth encodable) | Low |
-| 3.6 Route model | Separate table | High | — | One buffer | Low | Low |
-| 3.7 Cutover | Default routes | — | — | — | Low | Low |
-| 3.8 Audio routing | Indexed buses | High | Negligible | — | Low | Low |
+| Dimension | Chosen | Generality | Cycle cost | Transport fit | Retrofit cost | Complexity | Rejected alternative / decisive trade-off |
+|---|---|---|---|---|---|---|---|---|
+| 3.1 Destination model | Open + class | High (chaining free) | — | — | Low | Low | Closed enum: every out-of-enum route becomes a hardcoded special case |
+| 3.2 Source placement | All on M85 | High | Negligible (per-voice LFO) | No new IPC | **Low** (the expensive one) | Low | M33-streamed: adds the one IPC pattern the engine deliberately lacks |
+| 3.3 Value domain | Float, normalized | — | HW FPU = free | — | Low | Low | Fixed-point: unnecessary on a hardware-FPU core; reintroduces bipolar-neutral hacks |
+| 3.4 Evaluation | Source gating | High | ~1.1 M MAC/s total | — | Low (slots uncapped) | Low | Per-row dirtiness: caps slot count at bitmask width for a negligible saving |
+| 3.5 Chaining | Modulate-a-mod only | Adequate (depth deferred) | — | — | Low (depth encodable) | Low | Depth-of-depth: two-phase evaluation + cycle concerns for the lowest-use feature |
+| 3.6 Route model | Separate table | High | — | One buffer | Low | Low | Flattened params: enum-typed routes as floats is a type mismatch |
+| 3.7 Cutover | Default routes | — | — | — | Low | Low | Keep fast paths: dual path for the same modulation; migration never forced |
+| 3.8 Audio routing | Indexed buses | High | Negligible | — | Low | Low | Hardcoded main bus: rewrite the day per-part output or sends are needed |
+
+Per-alternative Pros/Cons and the full per-criterion reasoning live in the dimension sections (§3); the final column names only the decisive trade-off.
 
 **Recommendation.** The locked set above. The two decisions that carry the most weight — open destinations (3.1) and M85-local sources (3.2) — are exactly the two that are most expensive to retrofit, and both resolve to "general and cheap." The 16-slot matrix is ~1.1 M MAC/s at 24 voices/3 kHz, negligible against the SVF, and desktop-measurable before any silicon decision.
 
-## 6. Open Questions
+## 6. Deferred Scope
 
-None blocking the recommendation. The following are deferred by explicit decision and do not change the current architecture:
+The following are deferred by explicit decision and do not change the current architecture:
 
 1. **Depth-of-depth chaining** — deferred; the route-amount pseudo-destination is reserved so it is additive.
 2. **Analog bus / digital+analog filter combination** — future extension; only the per-part-paraphonic vs per-voice-polyphonic structural note is captured (3.8).
@@ -257,6 +273,6 @@ None blocking the recommendation. The following are deferred by explicit decisio
 
 ## 7. Deliverables
 
-- [ ] **Arch-design**: `docs/workflow/arch-designs/synth-routing_arch-design.md` — the settled internal architecture: `Part`/`Voice`/`ModRoute`/`ParamId` types, the evaluation loop, the transport contract, the source/destination/combination-class tables, and the bus/effect-send structure. This is the primary deliverable; it is written after this study reaches `resolved`.
-- [ ] **Evidence base**: [Modulation Matrix Implementations](../reports/2026-09-10_modulation-matrix-implementations_report.md) (already written) remains the cited source for the reference-synth findings.
-- [ ] Implementation is intentionally **out of scope** for this study — it begins from the arch-design's plan, after Phase-0 and the Phase-3 cycle measurement confirm the per-voice budget.
+- [x] **Arch-design**: [`synth-routing_arch-design.md`](../arch-designs/synth-routing_arch-design.md) — the settled internal architecture: `Part`/`Voice`/`ModRoute`/`ParamId` types, the evaluation loop, the transport contract, the source/destination/combination-class tables, and the bus/effect-send structure. This is the primary deliverable; written (status: `review`).
+- [x] **Evidence base**: [Modulation Matrix Implementations](../reports/2026-09-10_modulation-matrix-implementations_report.md) — the cited source for the reference-synth findings.
+- Implementation is intentionally **out of scope** for this study — it begins from the arch-design's plan, after Phase-0 and the Phase-3 cycle measurement confirm the per-voice budget.
