@@ -1,6 +1,6 @@
 ---
 title: Synth Routing
-status: draft
+status: review
 date: 2026-09-10
 author: Dizan Vasquez
 design-study: ../design-studies/2026-09-10_modulation-matrix-and-routing_design-study.md
@@ -21,7 +21,6 @@ The twang engine hardcodes its modulation — velocity→amp, envelope→cutoff,
 - **Effect DSP** — reverb/delay *algorithms*; only their send routing is specified.
 - **MIDI-CC route editing** — routes are UI-editable; CC maps to params, and route addressing leaves room for CC route editing later.
 - **Tempo-sync clock transport** — the MIDI-clock → tempo-param path on the M33 is a follow-on detail.
-- **Oscillator pitchbend routing** — pitchbend is a per-part source and osc pitch is a destination, so the capability exists; whether a pitchbend→pitch route is pre-populated at init is an open question (§13).
 
 ## 3. Terminology
 
@@ -132,7 +131,7 @@ Multiplicative has two sub-forms because a unipolar source (velocity, envelope) 
 
 ### 5.4. Default routes
 
-Four routes are pre-populated at `EngineInit`. The first three absorb today's hardcoded modulation and must reproduce the pre-matrix render bit-for-bit; the fourth is key follow (default off).
+Five routes are pre-populated at `EngineInit`. The first three absorb today's hardcoded modulation and must reproduce the pre-matrix render bit-for-bit; the fourth (key follow) and fifth (pitchbend) are off by default so they contribute nothing at rest.
 
 | Slot | Route | Class | Amount | Replaces |
 |---|---|---|---|---|
@@ -140,6 +139,9 @@ Four routes are pre-populated at `EngineInit`. The first three absorb today's ha
 | 2 | `kEnv0 → kAmp` | multiplicative | 1.0 | `out ×= env` |
 | 3 | `kEnv1 → kCutoff` | additive | `filter_env_amount` (default 0) | `env_cutoff = cutoff + filter_env_amount × env` |
 | 4 | `kNote → kCutoff` (key follow) | exponential | `key_follow_depth` (default 0) | new — 1:1 octave tracking |
+| 5 | `kPitchBend → osc pitch coarse` | exponential | 0 (off by default) | new — bend range in semitones |
+
+Pitchbend is off by default because a wheel can sit off-center or emit a stray value; amount 0 means even a non-centered bend detunes nothing. Raising the amount to 2 enables the standard ±2-semitone range.
 
 ### 5.5. Design Decisions
 
@@ -153,12 +155,13 @@ Four routes are pre-populated at `EngineInit`. The first three absorb today's ha
 | Culling | Source-level gating only, no per-row dirtiness | An unrouted LFO/envelope is not computed; slot count stays uncapped. |
 | Route model | Separate `ModRoute[16]` table, not flattened params | Routes are enum-typed; keeps slot count a free-standing constant. |
 | Empty-slot marker | `ModSourceId::kNone = 0` sentinel | Distinguishes "empty slot" from "present-but-silent route"; the culling bitmask keys off `source != kNone`, decoupled from amount. |
-| Cutover | 4 default routes, hardcoded fields deleted | One modulation mechanism from day one; the matrix reproduces today's sound. |
+| Cutover | 5 default routes (3 migration + key follow + pitchbend, both off by default), hardcoded fields deleted | One modulation mechanism from day one; the matrix reproduces today's sound. |
 | Audio routing | Indexed bus array | Per-part outputs and effect sends become configuration, not a rewrite. |
+| Pitchbend default | Pre-populated, amount 0 (off) | A wheel can sit off-center or emit a stray bend; amount 0 means a non-centered bend detunes nothing. Enable by raising the amount. |
 
 ## 6. Component Lifecycle
 
-- **Init** (`EngineInit`): zero the part state (all 16 routes empty via `source = kNone`), then pre-populate the 4 default routes (velocity→amp, env0→amp, env1→cutoff, key follow with `key_follow_depth` default 0).
+- **Init** (`EngineInit`): zero the part state (all 16 routes empty via `source = kNone`), then pre-populate the 5 default routes (velocity→amp, env0→amp, env1→cutoff, key follow with `key_follow_depth` default 0, pitchbend with amount 0).
 - **Per block** (`Render`): snapshot the front part-state buffer into the audio-side parts; drain the event ring (note-on latches velocity, note number/octaves, gate, and random).
 - **Per control step** (16 samples), for each active voice:
   1. **Gate sources** — read the per-part routed-source bitmask; skip advancing any source whose bit is clear.
@@ -314,7 +317,7 @@ void Render(float *out, int frames);
 
 - A route with `source == kNone` contributes nothing; only routes with `source != kNone` set a bit in the routed-source mask.
 - The routed-source bitmask depends only on route existence, never on `amount`; changing an amount never changes which sources are computed.
-- The three default routes (velocity→amp, env0→amp, env1→cutoff) reproduce the pre-matrix sound exactly; there is no dual path.
+- The three migration routes (velocity→amp, env0→amp, env1→cutoff) reproduce the pre-matrix sound exactly; there is no dual path. Key follow and pitchbend default off (amount 0) and contribute nothing at rest.
 - Key follow (`kNote`) combines exponentially on every destination; on cutoff it is a multiplicative factor on the additive cutoff result — `cutoff_Hz = NormToHz(cutoff_norm_eff) × 2^(key_follow_depth × key_follow_octaves)`.
 - Per-voice sources never cross the IPC boundary; only per-note (event ring) and per-part (double-buffered state) values do.
 - All matrix arithmetic is single-precision float; no `double`, no heap allocation, no exceptions/RTTI in the audio path.
@@ -324,7 +327,8 @@ void Render(float *out, int frames);
 
 The matrix is desktop-testable through the existing engine test surface; no hardware is required.
 
-- **Golden baseline**: `EngineInit` (which pre-populates the 4 default routes) → `Render` → compare against the pre-matrix render (hash/WAV). This is the migration gate: the default routes must reproduce today's sound.
+- **Golden baseline**: `EngineInit` (which pre-populates the 5 default routes) → `Render` → compare against the pre-matrix render (hash/WAV). This is the migration gate: the default routes must reproduce today's sound.
+- **Pitchbend default**: at amount 0, a non-zero bend value changes nothing; at amount 2, full bend shifts pitch ±2 semitones.
 - **Route behavior**: set a route (`EngineSetRoute`) and render; observe the destination change proportional to `source × amount`.
 - **Empty-slot and zero-amount**: an empty slot (`kNone`) and a zero-amount route both contribute nothing, but only the zero-amount route keeps its source computed (observable via the routed-source mask or a source-render counter).
 - **Source gating**: an LFO with no route is not advanced (counter stays zero); adding a route starts it.
@@ -343,6 +347,8 @@ The matrix is desktop-testable through the existing engine test surface; no hard
 - [ ] Given a multiplicative amp route and an additive cutoff route, they combine by product and sum respectively.
 - [ ] Given `key_follow_depth = 1`, a note at MIDI 72 (C5) renders with a cutoff frequency double that of the same patch at MIDI 60 (C4).
 - [ ] Given `key_follow_depth = 0`, the cutoff frequency is identical at MIDI 72 and MIDI 60.
+- [ ] Given a pitchbend→pitch route at amount 0 (default), a non-zero bend value produces no pitch change.
+- [ ] Given a pitchbend→pitch route at amount 2, full bend shifts pitch ±2 semitones.
 - [ ] Given a voice with pan `-1`, its signal appears only in the left bus.
 - [ ] Given a part with a reverb send amount, its signal reaches the reverb bus at that level.
 - [ ] No new IPC mechanism exists beyond the event ring and the double-buffered part state.
@@ -367,6 +373,15 @@ The matrix is desktop-testable through the existing engine test surface; no hard
 | `filter_env_amount` (`engine/params.*`, `engine/engine.cc` `UpdateFilterCoeffs`) | Replaced by the default env1→cutoff route |
 | `kVoiceHeadroom` / `VelocityToGain` special-casing (`engine/engine.cc`) | Folded into the velocity→amp route amount |
 
-## 13. Open Questions
+## Appendix A: Build Order
 
-1. **Pitchbend → osc pitch default route** — pitchbend is a source and osc pitch a destination, so the route is expressible; whether it is pre-populated at `EngineInit` (and with what semitone range) is undecided. Blocks nothing — it can be added as a default route or left to the user.
+Planning seed, not architecture. This appendix records the build order the implementation plan should follow; `create-plan` reads it as an "approach recommendation" and uses it to seed the plan's phase structure. Each phase lands a working, testable increment, and the order follows the architecture's dependency structure — the foundation has no dependencies, and every later phase adds sources or destinations that slot into it without changing it.
+
+| Phase | Scope | Depends on | Verify gate |
+|---|---|---|---|
+| 1 — routing foundation | generalized part-state transport, `ModSourceId`/`ModRoute`/`ParamId`, matrix evaluation at control rate, source gating, bus indirection, and the 5 default routes — velocity→amp, env0→amp, env1→cutoff, key follow (`kNote → cutoff`), and pitchbend (`kPitchBend → osc pitch coarse`) | nothing | the 5 default routes reproduce today's sound (engine golden hash); key follow and pitchbend default off (amount 0) so they are no-ops at rest |
+| 2 — LFOs | 3 LFOs (2 per-voice + 1 per-part), LFO rate params, source gating | phase-1 route table | LFO sources slot into the table; an unrouted LFO is not advanced |
+| 3 — envelopes ×3 + chaining | 3 envelopes, envelope-time destinations, modulate-a-modulator | phase-1 destinations + phase-2 sources | envelope-time destinations modulate (chaining acceptance criterion) |
+| 4 — audio routing | N buses, 2 sends (per-voice/per-part), pan/level | phase-1 bus indirection | per-voice pan/level + per-part sends (acceptance criteria) |
+
+Key follow and pitchbend both sit in the foundation: `kNote` is a per-note source latched at note-on, and pitchbend is a per-part source arriving change-driven — neither needs an LFO or envelope. Both default to amount 0, so neither moves the golden baseline; they become audible only when their amount is raised.
