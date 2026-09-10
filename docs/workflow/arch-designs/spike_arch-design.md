@@ -82,6 +82,7 @@ The backends are outside spike:
 | State ownership | `Panel` owns all mutable UI state | No globals; same contract as today's `Ui` |
 | Backend boundary | spike never touches the display or input device | Portable core, thin per-platform backends |
 | Dynamic content | C function pointers + invalidation flags, never a descriptor language | Dynamic content is procedural (waveforms, live values); data-binding opcodes are the growth path that made LVGL ~150 KB |
+| Chrome representation | Emitted drawing calls now; byte-stream descriptor (with `CALL` templates) when a second screen lands | The descriptor interpreter does not amortize over one screen; it is adopted at screen #2 (planned), not before |
 
 ## 6. Component Lifecycle
 
@@ -237,7 +238,7 @@ void panel_pointer(Panel *p, PointerEvent e);       // handle a touch/mouse even
 
 ## 13. Open Questions
 
-- **Static chrome representation** — open: emitted drawing calls vs a tagged byte-stream descriptor with `CALL` templates. Estimate ~900–1200 B descriptor vs ~4 KB emitted (~3–4×), unmeasured (recommendations §7.3 is the deciding measurement). Dynamic content is settled as C code regardless (see Design Decisions).
+- ~~**Static chrome representation**~~ — resolved: emitted drawing calls for the first screen; adopt the byte-stream descriptor (`CALL` templates) when the second screen is added. Dynamic content is C code regardless (see Design Decisions).
 - **Plot axis label size** — 8×14 may be cramped in a ~230 px-wide plot. Options: shorter labels or a third atlas (not silent shrinking).
 - **Dim-well weight** — 4 px on the real display may read too heavy; may need dropping to faint. Verify on hardware.
 - **Mod matrix** — 88 visible intersections vs 32 slots; define behaviour when the cursor is on an unassigned cell with no free slots.
