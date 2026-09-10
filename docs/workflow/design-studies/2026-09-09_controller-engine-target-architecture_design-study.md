@@ -1,6 +1,6 @@
 ---
 title: Controller/Engine Target Architecture
-status: resolved
+status: archived
 date: 2026-09-09
 author: Dizan Vasquez
 ---

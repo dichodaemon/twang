@@ -47,15 +47,6 @@ add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc spike/panel.c
 target_include_directories(spike PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/spike)
 target_link_libraries(spike PUBLIC engine scope)
 
-# ---- Vendored LVGL (git submodule) ----
-# Trim to the core library: no demos, examples, or ThorVG.
-set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
-set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(CONFIG_LV_USE_THORVG OFF CACHE BOOL "" FORCE)
-set(LV_BUILD_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/controller/lv_conf.h" CACHE PATH
-    "Path to lv_conf.h" FORCE)
-add_subdirectory(lvgl)
-
 # ---- Vendored RtMidi (sim-only MIDI input, Linux/ALSA) ----
 find_package(ALSA REQUIRED)
 add_library(rtmidi STATIC third_party/rtmidi/RtMidi.cpp)
@@ -63,12 +54,6 @@ target_include_directories(rtmidi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 target_compile_definitions(rtmidi PRIVATE __LINUX_ALSA__)
 target_compile_options(rtmidi PRIVATE -fexceptions)  # RtMidi throws RtMidiError
 target_link_libraries(rtmidi PUBLIC ALSA::ALSA)
-
-# ---- Controller: portable display + control (LVGL UI + scope/fft helpers) ----
-# No SDL/RtMidi/miniaudio — this is the library the target (M33) builds.
-add_library(controller STATIC controller/ui.cc)
-target_include_directories(controller PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller)
-target_link_libraries(controller PUBLIC engine scope lvgl)
 
 # ---- Desktop host: SDL + RtMidi + miniaudio wiring around the spike panel ----
 find_package(SDL2 REQUIRED)

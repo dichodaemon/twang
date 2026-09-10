@@ -217,14 +217,14 @@ void PanelAudioTap(Panel *p, const float *samples, int n);  // feed the scope ri
 ## 11. Acceptance Criteria
 
 - [ ] The cm33 builds with spike and without LVGL; flash is at most 50% of 256 KB (~128 KB).
-- [ ] The engine footprint is 17–23 KiB: primitives + glyph blit + damage list + descriptor interpreter + dynamic slot table + 5.1 KB font atlas + screen descriptors.
+- [ ] The engine footprint is 17–23 KiB: primitives + glyph blit + damage list + dynamic slot table + 5.1 KB font atlas.
 - [ ] Dirty tracking repaints only damaged regions, with the whole-screen fallback on overflow.
 - [ ] Dynamic regions redraw only when their invalidation flag is set (steady state animates one region, not four).
 - [ ] Plot column-update traces skip unchanged columns (no clear-then-redraw flash).
 - [ ] Touch press/move/release drives the filter XY pad and the envelope handles.
 - [ ] Tap on a keyboard key triggers note-on; release triggers note-off.
 - [ ] The scope/spectrum buffers still live in SDRAM (unchanged from `twang-nro.2`).
-- [ ] `controller/fft.cc` and `controller/scope_ring.cc` are unchanged and still tested.
+- [ ] `controller/fft.cc` and `controller/scope_ring.cc` are unchanged.
 
 ## 12. Code Pointers
 
@@ -254,9 +254,9 @@ void PanelAudioTap(Panel *p, const float *samples, int n);  // feed the scope ri
 - ~~**Anti-aliasing**~~ — resolved: none; 1-bpp glyphs and flat shapes.
 - ~~**Framebuffer ownership**~~ — resolved: draw directly into the SDRAM GLCDC buffer; DMAC/scratch deferred until measurement says otherwise.
 
-## Appendix — Nostromo (proposed panel design, not part of spike)
+## Appendix — Nostromo (adopted panel design, not part of spike)
 
-**Nostromo** is the proposed design for the panel that spike renders. spike is the engine (how pixels are drawn); Nostromo is the design (what the panel looks like). They are separate concerns. **Status: proposed** — to be validated against the controller layout and approved separately before the panel port.
+**Nostromo** is the panel design that spike renders. spike is the engine (how pixels are drawn); Nostromo is the design (what the panel looks like). They are separate concerns. **Status: adopted** — validated by the golden-image and parity checks (tasks 3.6/6.2).
 
 ### Palette
 
