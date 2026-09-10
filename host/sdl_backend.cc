@@ -20,7 +20,10 @@ struct SdlBackend::Impl {
   SDL_Window *window = nullptr;
   SDL_Renderer *renderer = nullptr;
   SDL_Texture *texture = nullptr;
-  std::uint16_t *px = nullptr;
+  // Two RGB565 framebuffers: the panel draws into px[current]; Present()
+  // displays it and flips to the other buffer (double buffering).
+  std::uint16_t *px[2] = {nullptr, nullptr};
+  int current = 0;
   int w = 0;
   int h = 0;
 };
@@ -59,16 +62,22 @@ bool SdlBackend::Init(int w, int h) {
     return false;
   }
 
-  impl->px = new std::uint16_t[w * h];
-  fb = FrameBuffer{impl->px, w, h, w, Rect{0, 0, w, h}};
+  impl->px[0] = new std::uint16_t[w * h];
+  impl->px[1] = new std::uint16_t[w * h];
+  fb = FrameBuffer{impl->px[0], w, h, w, Rect{0, 0, w, h}};
   return true;
 }
 
 void SdlBackend::Present() {
-  SDL_UpdateTexture(impl->texture, nullptr, impl->px, impl->w * 2);
+  // Display the buffer the panel just drew into, then flip fb to the other
+  // buffer for the next frame (double buffering).
+  const std::uint16_t *front = impl->px[impl->current];
+  SDL_UpdateTexture(impl->texture, nullptr, front, impl->w * 2);
   SDL_RenderClear(impl->renderer);
   SDL_RenderCopy(impl->renderer, impl->texture, nullptr, nullptr);
   SDL_RenderPresent(impl->renderer);
+  impl->current ^= 1;
+  fb.px = impl->px[impl->current];
 }
 
 void SdlBackend::PollEvents(Panel *panel) {
@@ -107,7 +116,8 @@ SdlBackend::~SdlBackend() {
   if (impl->texture) SDL_DestroyTexture(impl->texture);
   if (impl->renderer) SDL_DestroyRenderer(impl->renderer);
   if (impl->window) SDL_DestroyWindow(impl->window);
-  delete[] impl->px;
+  delete[] impl->px[0];
+  delete[] impl->px[1];
   delete impl;
   impl = nullptr;
   SDL_Quit();

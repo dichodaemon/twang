@@ -1,9 +1,11 @@
 // glcdc_backend.cc — GLCDC framebuffer + FT5336 touch presentation.
 //
-// Maps the GLCDC's SDRAM scan-out buffer (ext-ram) into a spike::FrameBuffer;
-// the Panel draws into it and the hardware scans it out continuously. Touch
-// (FT5336 on iic1) arrives through the Zephyr input subsystem and is forwarded
-// to PanelPointer as press/move/release transitions.
+// Owns two SDRAM scan-out buffers (double buffering). The Panel draws into the
+// back buffer; Present() flips it to the GLCDC via display_write, which
+// performs a buffer change and blocks until the next line-detect (vsync) —
+// the hardware scans out the front buffer while the panel draws the next frame
+// into the other. Touch (FT5336 on iic1) arrives through the Zephyr input
+// subsystem and is forwarded to PanelPointer as press/move/release.
 
 #include "glcdc_backend.h"
 
@@ -18,9 +20,15 @@ namespace spike {
 
 namespace {
 
-// 1024x600 RGB565 scan-out buffer (ext-ram / SDRAM), stride 1024 pixels.
+// 1024x600 RGB565 scan-out buffers, stride 1024 pixels. Each is 1024*600*2 =
+// 1,228,800 bytes (~1.17 MiB) — far too large for the M33's 640 KB SRAM, so
+// both live in SDRAM (0x68000000..0x6c000000). The driver's own ext-ram frame
+// buffers occupy the start of SDRAM; the IPC block is at 0x68400000 and the
+// Panel at 0x68500000 (see spike/panel.cc), so the two buffers land at +6 MiB
+// and +8 MiB — clear of everything.
 constexpr int kFrameW = 1024;
 constexpr int kFrameH = 600;
+constexpr std::uintptr_t kFbAddr[2] = {0x68600000UL, 0x68800000UL};
 
 // Latest touch state: written by the input callback (input thread) and read
 // by the main loop. `dirty` marks a transition still to be forwarded. The
@@ -63,16 +71,13 @@ INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(DT_CHOSEN(zephyr_touch)), TouchCallback,
 }  // namespace
 
 bool GlcdcBackend::Init() {
-  const struct device *dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
-  if (!device_is_ready(dev)) {
+  dev_ = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
+  if (!device_is_ready(dev_)) {
     return false;
   }
-  void *px = display_get_framebuffer(dev);
-  if (!px) {
-    return false;
-  }
-  fb = FrameBuffer{static_cast<std::uint16_t *>(px), kFrameW, kFrameH, kFrameW,
-                   Rect{0, 0, kFrameW, kFrameH}};
+  back_ = 0;
+  fb = FrameBuffer{reinterpret_cast<std::uint16_t *>(kFbAddr[back_]), kFrameW,
+                   kFrameH, kFrameW, Rect{0, 0, kFrameW, kFrameH}};
   return true;
 }
 
@@ -84,6 +89,22 @@ void GlcdcBackend::PollTouch(Panel *panel) {
   const PointerKind kind =
       g_touch.pressed ? PointerKind::kPress : PointerKind::kRelease;
   PanelPointer(panel, PointerEvent{kind, g_touch.x, g_touch.y});
+}
+
+void GlcdcBackend::Present() {
+  // Flip: display the buffer the Panel just drew into, then point `fb` at the
+  // other buffer for the next frame. display_write performs the GLCDC buffer
+  // change and blocks until the next vsync (double buffering).
+  const struct display_buffer_descriptor desc = {
+      .buf_size = static_cast<std::uint32_t>(kFrameW * kFrameH * 2),
+      .width = kFrameW,
+      .height = kFrameH,
+      .pitch = kFrameW,
+      .frame_incomplete = false,
+  };
+  display_write(dev_, 0, 0, &desc, fb.px);
+  back_ ^= 1;
+  fb.px = reinterpret_cast<std::uint16_t *>(kFbAddr[back_]);
 }
 
 }  // namespace spike

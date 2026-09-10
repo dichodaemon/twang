@@ -19,7 +19,7 @@ struct Panel;
 /// stays free of SDL types; the pixel buffer is owned by the backend and
 /// exposed as `fb`.
 struct SdlBackend {
-  FrameBuffer fb{};   ///< Framebuffer the Panel draws into.
+  FrameBuffer fb{};   ///< Framebuffer the Panel draws into (the back buffer; Present() flips it).
   bool quit = false;  ///< SDL_QUIT or ESC seen.
 
   /// @brief Opens the window and allocates the framebuffer + texture.

@@ -1,6 +1,6 @@
 ---
 title: spike -- Implementation Plan
-status: archived
+status: issued
 date: 2026-09-10
 author: Dizan Vasquez
 arch-design: ../arch-designs/spike_arch-design.md
@@ -23,7 +23,7 @@ Migrate the twang cm33 controller off LVGL onto `spike`, the purpose-built minim
 
 | # | Task | Status |
 |---|---|---|
-| 1.1 | Vendor `assets/fonts/ter-u20n.bdf`, `ter-u14n.bdf`, `assets/fonts/OFL.txt` (Terminus 4.49, OFL 1.1) | Pending |
+| 1.1 | Vendor `assets/fonts/ter-u20n.bdf`, `ter-u14n.bdf`, `assets/fonts/OFL.txt` (Terminus 4.48, OFL 1.1) | Pending |
 | 1.2 | Write `tools/bdf_to_c.py` — parse BDF, emit `spike/font_data.h` (1-bpp left-aligned bitmaps + header); `--check` mode decodes the mockup's `A20`/`A14` and diffs against the emitted atlas | Pending |
 | 1.3 | Generate `spike/font_data.h` by running the script | Pending |
 | 1.4 | Verify: `python3 tools/bdf_to_c.py --check ui/mockup/nostromo_signal-flow.html` exits 0 (emitted atlas bit-identical to the mockup's `A20`/`A14` glyph data) | Pending |
@@ -56,7 +56,7 @@ Migrate the twang cm33 controller off LVGL onto `spike`, the purpose-built minim
 | 5.7 | Archive `../design-studies/2026-09-09_controller-engine-target-architecture_design-study.md` (references `ui_note_on`/`ui_audio_tap`/`Ui`, renamed/removed by this migration) | Pending |
 | 5.8 | Verify: desktop `cmake --build /tmp/twang-build && ctest --test-dir /tmp/twang-build` and cm33 `west build -d /tmp/zephyr-cm33` all pass with LVGL absent | Pending |
 | 6.1 | Measure cm33 flash (`nm --size-sort` on `/tmp/zephyr-cm33/zephyr/zephyr.elf`): FLASH ≤ 50% (≤ 131072 B) | Pending |
-| 6.2 | Desktop parity: golden-image + SDL smoke render matches the mockup | Pending |
+| 6.2 | Desktop parity: font atlas bit-identity (task 1.4) + chrome layout coordinates match the mockup (plot curves are computed, not pixel-compared) | Pending |
 | 6.3 | Hardware smoke (if board available): panel renders to GLCDC, touch drives the filter XY pad | Pending |
 | 6.4 | Verify: full build + ctest + flash measurement; record the flash % in bead `twang-nro.9` | Pending |
 
@@ -94,7 +94,7 @@ host        ──> spike, audio, rtmidi, SDL2
 target cm33 ──> spike, engine, Zephyr (GLCDC, MBOX)
 ```
 
-The `controller` lib is trimmed to `fft` + `scope_ring` and gains no new deps; `spike` is a new static lib that links `controller` + `engine`. LVGL disappears from every target.
+The `controller` lib is trimmed to `fft` + `scope_ring` (built as the `scope` static lib) and gains no new deps; `spike` is a new static lib that links `scope` + `engine`. LVGL disappears from every target.
 
 ## 4. Interface Changes
 
@@ -217,7 +217,7 @@ The Nostromo port. `PanelCreate` allocates the panel (SDRAM placement on the tar
 - **Math** (task 3.2): the frequency/resonance/envelope mapping (`norm_to_hz`, `hz_to_norm`, `q_of`, `res_to_db`, `db_to_res`) is ported unchanged — the UI never hardcodes a parameter.
 - **Edge cases**: a slot animated in frame *n* repaints in *n+1* (two-frame rule); the sawtooth reset (three ~180-px columns) is the worst case and is bounded.
 - **Dependencies**: consumes `spike/fb` + `spike/font` + `spike/damage` + `controller/fft` + `controller/scope_ring` + `engine`. Task 3.7 adds `panel` to the `spike` lib and registers `test_panel` in `CMakeLists.txt`.
-- **Done**: task 3.8 — golden image matches the mockup (the reference bitmap is rendered once from the mockup's fixed state and stored as a test fixture; it is re-derived only when the mockup changes), note-on drives the playhead, invalidation gates the redraws.
+- **Done**: task 3.8 — golden image is a regression hash at fixed state (the mockup's plot curves are illustrative hardcoded polylines, so a pixel comparison is impossible; the font atlas is verified bit-identical in task 1.4, and the chrome layout matches the mockup coordinates), note-on drives the playhead, invalidation gates the redraws.
 
 ### 5.6 SDL backend + MIDI routing (tasks 4.1–4.2)
 
@@ -247,7 +247,7 @@ The migration renames/removes `ui_note_on`, `ui_audio_tap`, and `struct Ui`, so 
 
 ### 5.10 Verification (tasks 6.1–6.4)
 
-Measurement and smoke, no production code: task 6.1 reads the cm33 ELF section sizes and asserts FLASH ≤ 50% (≤ 131072 B); task 6.2 re-runs the golden-image and SDL smoke against the mockup; task 6.3 is the conditional on-board smoke (render + touch XY pad). Task 6.4 is the phase gate that records the flash % in bead `twang-nro.9`.
+Measurement and smoke, no production code: task 6.1 reads the cm33 ELF section sizes and asserts FLASH ≤ 50% (≤ 131072 B); task 6.2 confirms the font atlas is bit-identical (task 1.4) and the chrome layout matches the mockup (plot curves are computed, not pixel-compared); task 6.3 is the conditional on-board smoke (render + touch XY pad). Task 6.4 is the phase gate that records the flash % in bead `twang-nro.9`.
 
 - **Done**: task 6.4 — full build + ctest + flash measurement recorded.
 
@@ -268,7 +268,7 @@ Measurement and smoke, no production code: task 6.1 reads the cm33 ELF section s
 - [ ] Damage list merges, overflows to full-screen, and unions across frames — Verify 2.8
 
 ### Panel
-- [ ] Golden image matches the mockup layout at fixed state — Verify 3.8
+- [ ] Golden image is deterministic (regression hash) at fixed state; font atlas bit-identical to the mockup — Verify 3.8
 - [ ] `PanelNoteOn` drives the engine and the envelope playhead — Verify 3.8
 - [ ] The 4 dynamic regions redraw only on invalidation (asserted by `test_panel`) — Verify 3.8
 

@@ -1,9 +1,15 @@
-// spike/panel.cc — the Nostromo controller panel.
+// spike/panel.cc — the Nostromo controller panel (double-buffered).
 //
 // Draws the signal-flow layout (titlebar, four modules, keyboard, nav) with
 // the framebuffer primitives, and drives the four dynamic plot regions from
-// the cached parameter state and the audio-tap scope ring. Chrome is drawn
-// once per buffer; plots redraw only when their invalidation flag is set.
+// the cached parameter state and the audio-tap scope ring.
+//
+// The panel is buffer-agnostic: the backend owns two framebuffers and swaps
+// them each frame, so the panel draws static chrome once per buffer and keeps
+// per-buffer column traces (TraceState[2] per plot) for the column-update
+// redraw. Plots redraw only when their invalidation flag is set — never on a
+// global timer — and update only changed columns, erasing the old vertical
+// span graticule-aware.
 
 #include "panel.h"
 
@@ -12,6 +18,8 @@
 #else
 #include <chrono>
 #endif
+#include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -47,6 +55,9 @@ constexpr const char *kModes[4] = {"POLYBLEP SAW", "TPT SVF LOWPASS", "ADSR",
 
 constexpr int kCycleBufSize = 4096;
 constexpr int kFftSize = 8192;
+
+// Column-trace sentinel: a column with y0 == y1 == kEmpty has no curve.
+constexpr std::uint8_t kEmpty = 0xFF;
 
 // ---- Nostromo palette (RGB565) ----
 
@@ -87,17 +98,50 @@ struct Panel {
 
   // Damage + redraw state.
   Damage damage{kFrameW, kFrameH};
-  bool full_redraw = true;
+
+  // Double buffering: which of the two buffers we draw into now, and whether
+  // static chrome (titlebar, frames, graticule, keyboard, tabs) has been drawn
+  // into each buffer. Chrome is drawn once per buffer.
+  int fb_index = 0;
+  bool chrome_drawn[2] = {false, false};
+
+  // Per-plot, per-buffer column trace (two copies — one per buffer).
+  TraceState traces[4][2];
 
   // The four dynamic plot regions.
   DynRegion plots[4];
+
+  // Pending-buffer redraw count per plot: a plot invalidated in frame n must
+  // be repainted into BOTH buffers (n's back buffer and n+1's), so it stays
+  // pending for two frames.
+  int pending[4] = {0, 0, 0, 0};
 
   // Drag state: -1 none, 0/1/2 env attack/decay/release.
   int drag_handle = -1;
   bool filter_drag = false;
 
-  // Reusable polyline scratch (one point per plot column, <= 230).
-  Point curve_pts[256];
+  // Keyboard: index of the currently held key (-1 none), for note-off on
+  // release.
+  int held_key = -1;
+
+  // Scope invalidation: set by the audio thread (PanelAudioTap), drained by
+  // the control thread (PanelDraw) to redraw the output plot — the one plot
+  // that animates in steady state. Relaxed ordering: the ring's own
+  // synchronization orders the samples; this flag is only a redraw hint.
+  std::atomic<bool> scope_dirty{false};
+
+  // Column-update scratch: per-column lower/upper span (one entry per plot
+  // column, <= kPlotW). lo == -1 marks an empty column.
+  int col_lo[256];
+  int col_hi[256];
+
+  // Previous overlay-element rects (plot-local), per buffer, so moving cursor/
+  // handles/playhead erase their old position before redrawing. Zero rects
+  // mean "nothing drawn last frame".
+  Rect filter_cursor[2] = {};
+  Rect env_handles[3][2] = {};
+  Rect env_playhead[2] = {};
+  bool env_playhead_on[2] = {false, false};
 
   // Test/debug: draw-call counts per plot.
   int draw_counts[4] = {0, 0, 0, 0};
@@ -201,7 +245,74 @@ void Cursor(FrameBuffer &fb, int x, int y, int w, int h, Color c) {
   FillRect(fb, x + w - 2, y + h - 7, 2, 7, c);
 }
 
-// ---- plot drawing ----
+// ---- column-update traces ----
+
+// A horizontal graticule line (plot-local y + color). The column-update erase
+// restores these lines instead of the background when a curve span passes over
+// them, so the graticule survives per-column updates without a 1-bpp mask.
+struct GratLine {
+  int y;
+  Color c;
+};
+
+// Updates a single-valued plot column-by-column against its per-buffer trace.
+//
+// For each column x the curve occupies plot-local rows [lo[x], hi[x]]
+// (inclusive); lo[x] == -1 means "no curve in this column". Columns whose span
+// matches the trace are skipped; changed columns erase the old span
+// (graticule-aware) and draw the new span. `tr` must be the trace for the
+// buffer currently being drawn (two-frame rule).
+void ColumnUpdate(FrameBuffer &fb, int ox, int oy, int w, const int *lo,
+                  const int *hi, TraceState &tr, const GratLine *grat,
+                  int n_grat, Color line) {
+  for (int x = 0; x < w; ++x) {
+    const bool old_on = tr.y0[x] != kEmpty;
+    const bool new_on = lo[x] >= 0;
+    if (!old_on && !new_on) continue;
+    if (old_on) {
+      for (int y = tr.y0[x]; y <= tr.y1[x]; ++y) {
+        Color c = kBg;
+        for (int g = 0; g < n_grat; ++g)
+          if (y == grat[g].y) { c = grat[g].c; break; }
+        fb.px[static_cast<std::size_t>(oy + y) * fb.stride + (ox + x)] = c;
+      }
+    }
+    if (new_on) {
+      for (int y = lo[x]; y <= hi[x]; ++y)
+        fb.px[static_cast<std::size_t>(oy + y) * fb.stride + (ox + x)] = line;
+      tr.y0[x] = static_cast<std::uint8_t>(lo[x]);
+      tr.y1[x] = static_cast<std::uint8_t>(hi[x]);
+    } else {
+      tr.y0[x] = tr.y1[x] = kEmpty;
+    }
+  }
+}
+
+// Erases a plot-local overlay rect, restoring the background (bg + graticule)
+// and the curve (from the trace) underneath it. Used to clear a moving cursor/
+// handle/playhead's previous position before drawing the new one.
+void EraseOverlayRect(FrameBuffer &fb, int ox, int oy, int w, int h,
+                      const Rect &r, const TraceState &tr,
+                      const GratLine *grat, int n_grat, Color line) {
+  if (r.w <= 0 || r.h <= 0) return;
+  const int x0 = std::max(0, r.x);
+  const int x1 = std::min(w, r.x + r.w);
+  const int y0 = std::max(0, r.y);
+  const int y1 = std::min(h, r.y + r.h);
+  for (int x = x0; x < x1; ++x) {
+    for (int y = y0; y < y1; ++y) {
+      Color c = kBg;
+      for (int g = 0; g < n_grat; ++g)
+        if (y == grat[g].y) { c = grat[g].c; break; }
+      fb.px[static_cast<std::size_t>(oy + y) * fb.stride + (ox + x)] = c;
+    }
+    if (tr.y0[x] != kEmpty)
+      for (int y = tr.y0[x]; y <= tr.y1[x]; ++y)
+        fb.px[static_cast<std::size_t>(oy + y) * fb.stride + (ox + x)] = line;
+  }
+}
+
+// ---- plot drawing (column-update) ----
 
 void DrawOscPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const int mid = h / 2;
@@ -209,38 +320,53 @@ void DrawOscPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const int x0 = 10, x1 = w - 10;
   const float cyc = 3.0f;
 
-  DrawHLine(fb, ox + x0, oy + mid, x1 - x0, kDim);
-
   const float ph = p.phase - std::floor(p.phase);
-  int n = 0;
+  for (int x = 0; x < w; ++x) p.col_lo[x] = -1;
+  int prev = 0;
   for (int x = x0; x <= x1; ++x) {
-    const float t = static_cast<float>(x - x0) / static_cast<float>(x1 - x0) * cyc;
+    const float t =
+        static_cast<float>(x - x0) / static_cast<float>(x1 - x0) * cyc;
     float pp = t + ph;
     pp -= std::floor(pp);
     const int y = mid - static_cast<int>((2.0f * pp - 1.0f) * amp);
-    p.curve_pts[n++] = Point{ox + x, oy + y};
+    if (x == x0) {
+      p.col_lo[x] = y;
+      p.col_hi[x] = y;
+    } else {
+      p.col_lo[x] = std::min(prev, y);
+      p.col_hi[x] = std::max(prev, y);
+    }
+    prev = y;
   }
-  DrawPolyline(fb, p.curve_pts, n, kBright);
+
+  const GratLine grat[] = {
+      {(h * 17) / 100, kFaint}, {h / 2, kDim}, {(h * 83) / 100, kFaint}};
+  ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[0][p.fb_index],
+               grat, 3, kBright);
 }
 
 void DrawFilterPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const int L = 14, R = w - 14, T = 12, B = h - 18;
 
-  DrawHLine(fb, ox + L, oy + B, R - L, kDim);
-  DrawVLine(fb, ox + L, oy + T, B - T, kDim);
-
   const float fc = NormToHz(p.cutoff);
   const float q = QOf(p.resonance);
-  const auto XFor = [&](float f) { return L + HzToNorm(f) * (R - L); };
   const auto YFor = [&](float db) {
     return T + (kDbTop - db) / (kDbTop - kDbBot) * (B - T);
   };
+  const auto XFor = [&](float f) { return L + HzToNorm(f) * (R - L); };
 
-  TextLeft(fb, "0dB", ox + L + 3, oy + T + 10, kSecondaryFont, kMid);
-  TextLeft(fb, "20Hz", ox + L + 3, oy + B - 12, kSecondaryFont, kMid);
-  TextRight(fb, "20k", ox + R - 3, oy + B - 12, kSecondaryFont, kMid);
+  const GratLine grat[] = {
+      {(h * 17) / 100, kFaint}, {h / 2, kDim}, {(h * 83) / 100, kFaint},
+      {B, kDim}};
+  const int b = p.fb_index;
 
-  int n = 0;
+  // Erase the previous cutoff cursor (restoring the curve underneath) before
+  // updating the curve and drawing the cursor at its new position.
+  EraseOverlayRect(fb, ox, oy, w, h, p.filter_cursor[b], p.traces[1][b],
+                   grat, 4, kBright);
+
+  for (int x = 0; x < w; ++x) p.col_lo[x] = -1;
+  int prev = 0;
   for (int x = L; x <= R; ++x) {
     const float f = NormToHz(static_cast<float>(x - L) / static_cast<float>(R - L));
     const float r = f / fc;
@@ -250,14 +376,23 @@ void DrawFilterPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
     if (db > kDbTop) db = kDbTop;
     if (db < kDbBot) db = kDbBot;
     const int y = static_cast<int>(std::lround(YFor(db)));
-    p.curve_pts[n++] = Point{ox + x, oy + y};
+    if (x == L) {
+      p.col_lo[x] = y;
+      p.col_hi[x] = y;
+    } else {
+      p.col_lo[x] = std::min(prev, y);
+      p.col_hi[x] = std::max(prev, y);
+    }
+    prev = y;
   }
-  DrawPolyline(fb, p.curve_pts, n, kBright);
+  ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[1][b], grat, 4,
+               kBright);
 
-  // Cutoff cursor.
-  const int cutoff_x = ox + static_cast<int>(std::lround(XFor(fc)));
-  const int peak_y = oy + static_cast<int>(std::lround(YFor(ResToDb(p.resonance))));
-  Cursor(fb, cutoff_x - 13, peak_y - 20, 26, 40, kBright);
+  // Draw the cutoff cursor at its new (plot-local) position and remember it.
+  const int cx = static_cast<int>(std::lround(XFor(fc)));
+  const int cy = static_cast<int>(std::lround(YFor(ResToDb(p.resonance))));
+  Cursor(fb, ox + cx - 13, oy + cy - 20, 26, 40, kBright);
+  p.filter_cursor[b] = Rect{cx - 13, cy - 20, 26, 40};
 }
 
 // ---- envelope ----
@@ -307,32 +442,71 @@ float EnvLevel(std::uint32_t now, const Panel &p) {
 
 constexpr float kReleaseTau = 5.0f;
 
+// The ADSR curve's y at plot-local column x (single-valued piecewise curve).
+int EnvYAt(int x, const EnvLayout &e) {
+  if (x <= e.xA) {
+    // Attack: (L,B) -> (xA,T).
+    if (e.xA == e.L) return e.B;
+    const float u = static_cast<float>(x - e.L) / static_cast<float>(e.xA - e.L);
+    return e.B - static_cast<int>(u * (e.B - e.T));
+  }
+  if (x <= e.xD) {
+    // Decay: (xA,T) -> (xD,yS).
+    if (e.xD == e.xA) return e.T;
+    const float u = static_cast<float>(x - e.xA) / static_cast<float>(e.xD - e.xA);
+    return e.T + static_cast<int>(u * (e.yS - e.T));
+  }
+  if (x <= e.xH) return e.yS;  // Sustain plateau.
+  if (x <= e.xR) {
+    // Exponential release: (xH,yS) -> (xR,B).
+    const float u = static_cast<float>(x - e.xH) / static_cast<float>(e.xR - e.xH);
+    const float lvl = std::exp(-kReleaseTau * u);
+    return e.yS + static_cast<int>((1.0f - lvl) * (e.B - e.yS));
+  }
+  return e.B;
+}
+
 void DrawEnvPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const EnvLayout e = EnvLayoutOf(w, h, p);
 
-  DrawHLine(fb, ox + e.L, oy + e.B, e.R - e.L, kDim);
-  DrawVLine(fb, ox + e.L, oy + e.T, e.B - e.T, kDim);
+  const GratLine grat[] = {
+      {(h * 17) / 100, kFaint}, {h / 2, kDim}, {(h * 83) / 100, kFaint},
+      {e.B, kDim}};
+  const int b = p.fb_index;
+  TraceState &tr = p.traces[2][b];
 
-  // ADSR curve: attack, decay, sustain, then the exponential release.
-  int n = 0;
-  p.curve_pts[n++] = Point{ox + e.L, oy + e.B};
-  p.curve_pts[n++] = Point{ox + e.xA, oy + e.T};
-  p.curve_pts[n++] = Point{ox + e.xD, oy + e.yS};
-  p.curve_pts[n++] = Point{ox + e.xH, oy + e.yS};
-  constexpr int kSteps = 32;
-  for (int i = 1; i <= kSteps; ++i) {
-    const float u = static_cast<float>(i) / kSteps;
-    const float lvl = std::exp(-kReleaseTau * u);
-    const int x = e.xH + static_cast<int>(u * (e.xR - e.xH));
-    const int y = e.yS + static_cast<int>((1.0f - lvl) * (e.B - e.yS));
-    p.curve_pts[n++] = Point{ox + x, oy + y};
+  // Erase the previous handles + playhead (restoring the curve underneath)
+  // before updating the curve and drawing them at their new positions.
+  for (int i = 0; i < 3; ++i)
+    EraseOverlayRect(fb, ox, oy, w, h, p.env_handles[i][b], tr, grat, 4, kBright);
+  if (p.env_playhead_on[b])
+    EraseOverlayRect(fb, ox, oy, w, h, p.env_playhead[b], tr, grat, 4, kBright);
+
+  for (int x = 0; x < w; ++x) p.col_lo[x] = -1;
+  int prev = 0;
+  for (int x = e.L; x <= e.R; ++x) {
+    const int y = EnvYAt(x, e);
+    if (x == e.L) {
+      p.col_lo[x] = y;
+      p.col_hi[x] = y;
+    } else {
+      p.col_lo[x] = std::min(prev, y);
+      p.col_hi[x] = std::max(prev, y);
+    }
+    prev = y;
   }
-  DrawPolyline(fb, p.curve_pts, n, kBright);
+  ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, tr, grat, 4, kBright);
 
-  // Handles.
-  Cursor(fb, ox + e.xA - 13, oy + e.T - 13, 26, 26, kBright);
-  Cursor(fb, ox + e.xD - 13, oy + e.yS - 13, 26, 26, kBright);
-  Cursor(fb, ox + e.xR - 13, oy + e.B - 13, 26, 26, kBright);
+  // Handles (plot-local rects remembered for the next frame's erase).
+  const Rect ha{e.xA - 13, e.T - 13, 26, 26};
+  const Rect hd{e.xD - 13, e.yS - 13, 26, 26};
+  const Rect hr{e.xR - 13, e.B - 13, 26, 26};
+  Cursor(fb, ox + ha.x, oy + ha.y, ha.w, ha.h, kBright);
+  Cursor(fb, ox + hd.x, oy + hd.y, hd.w, hd.h, kBright);
+  Cursor(fb, ox + hr.x, oy + hr.y, hr.w, hr.h, kBright);
+  p.env_handles[0][b] = ha;
+  p.env_handles[1][b] = hd;
+  p.env_handles[2][b] = hr;
 
   // Playhead.
   const std::uint32_t now = NowMs();
@@ -372,7 +546,13 @@ void DrawEnvPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
       py = e.B - static_cast<int>(lvl * (e.B - e.T));
     }
   }
-  if (px >= 0) FillRect(fb, ox + px - 2, oy + py - 2, 4, 4, kBright);
+  if (px >= 0) {
+    FillRect(fb, ox + px - 2, oy + py - 2, 4, 4, kBright);
+    p.env_playhead[b] = Rect{px - 2, py - 2, 4, 4};
+    p.env_playhead_on[b] = true;
+  } else {
+    p.env_playhead_on[b] = false;
+  }
 }
 
 // ---- output module (scope / cycle / spectrum) ----
@@ -380,49 +560,77 @@ void DrawEnvPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
 void DrawScopePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const int mid = h / 2;
   const int amp = static_cast<int>(h * 0.42f);
-  DrawHLine(fb, ox, oy + mid, w, kDim);
 
   constexpr int kStride = 48;
   float buf[256];
   p.scope_ring.ReadLast(buf, w, kStride);
 
   float peak = 0.0f;
-  int n = 0;
+  int prev = 0;
   for (int x = 0; x < w; ++x) {
     const float av = std::fabs(buf[x]);
     if (av > peak) peak = av;
-    p.curve_pts[n++] = Point{ox + x, oy + mid - static_cast<int>(std::lround(buf[x] * amp))};
+    const int y = mid - static_cast<int>(std::lround(buf[x] * amp));
+    if (x == 0) {
+      p.col_lo[x] = y;
+      p.col_hi[x] = y;
+    } else {
+      p.col_lo[x] = std::min(prev, y);
+      p.col_hi[x] = std::max(prev, y);
+    }
+    prev = y;
   }
   p.scope_peak = peak;
-  DrawPolyline(fb, p.curve_pts, n, kBright);
+
+  const GratLine grat[] = {
+      {(h * 17) / 100, kFaint}, {h / 2, kDim}, {(h * 83) / 100, kFaint}};
+  ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[3][p.fb_index],
+               grat, 3, kBright);
 }
 
 void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const int mid = h / 2;
   const int amp = static_cast<int>(h * 0.42f);
-  DrawHLine(fb, ox, oy + mid, w, kDim);
 
   const int period = static_cast<int>(engine::kSampleRate / p.freq);
-  if (period < 8) return;
   const int count = 3 * period;
-  if (count > kCycleBufSize) return;
-  p.scope_ring.ReadLast(p.cycle_buf, count, 1);
+  if (period >= 8 && count <= kCycleBufSize) {
+    p.scope_ring.ReadLast(p.cycle_buf, count, 1);
 
-  int trigger = -1;
-  for (int i = 1; i < count; ++i) {
-    if (p.cycle_buf[i - 1] < 0.0f && p.cycle_buf[i] >= 0.0f) {
-      trigger = i;
-      break;
+    int trigger = -1;
+    for (int i = 1; i < count; ++i) {
+      if (p.cycle_buf[i - 1] < 0.0f && p.cycle_buf[i] >= 0.0f) {
+        trigger = i;
+        break;
+      }
     }
+    if (trigger >= 0 && trigger + period <= count) {
+      int prev = 0;
+      for (int x = 0; x < w; ++x) {
+        const int idx = trigger + x * period / w;
+        const int y = mid - static_cast<int>(std::lround(p.cycle_buf[idx] * amp));
+        if (x == 0) {
+          p.col_lo[x] = y;
+          p.col_hi[x] = y;
+        } else {
+          p.col_lo[x] = std::min(prev, y);
+          p.col_hi[x] = std::max(prev, y);
+        }
+        prev = y;
+      }
+    } else {
+      // No trigger: empty curve.
+      for (int x = 0; x < w; ++x) p.col_lo[x] = -1;
+    }
+  } else {
+    // Period out of range: empty curve.
+    for (int x = 0; x < w; ++x) p.col_lo[x] = -1;
   }
-  if (trigger < 0 || trigger + period > count) return;
 
-  int n = 0;
-  for (int x = 0; x < w; ++x) {
-    const int idx = trigger + x * period / w;
-    p.curve_pts[n++] = Point{ox + x, oy + mid - static_cast<int>(std::lround(p.cycle_buf[idx] * amp))};
-  }
-  DrawPolyline(fb, p.curve_pts, n, kBright);
+  const GratLine grat[] = {
+      {(h * 17) / 100, kFaint}, {h / 2, kDim}, {(h * 83) / 100, kFaint}};
+  ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[3][p.fb_index],
+               grat, 3, kBright);
 }
 
 void DrawSpectrumPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
@@ -447,29 +655,36 @@ void DrawSpectrumPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   }
 
   const int T = 12, B = h - 18;
-  DrawHLine(fb, ox, oy + B, w, kDim);
-  DrawVLine(fb, ox, oy + B, oy + T, kDim);
-
-  if (peak < 1e-12f) return;
-
   const float db_top = 0.0f, db_bot = -90.0f;
-  for (int x = 0; x < w; ++x) {
-    const float f0 = NormToHz(static_cast<float>(x) / w);
-    const float f1 = NormToHz(static_cast<float>(x + 1) / w);
-    int b0 = static_cast<int>(f0 * kN / engine::kSampleRate);
-    int b1 = static_cast<int>(f1 * kN / engine::kSampleRate);
-    if (b0 < 1) b0 = 1;
-    if (b1 >= kBinCount) b1 = kBinCount - 1;
-    if (b1 < b0) b1 = b0;
-    float m = 0.0f;
-    for (int b = b0; b <= b1; ++b)
-      if (mag[b] > m) m = mag[b];
-    float db = 10.0f * std::log10(m / peak);
-    if (db < db_bot) db = db_bot;
-    if (db > db_top) db = db_top;
-    const int bar = static_cast<int>((db - db_bot) / (db_top - db_bot) * (B - T));
-    DrawVLine(fb, ox + x, oy + B - bar, bar, kBright);
+
+  if (peak < 1e-12f) {
+    for (int x = 0; x < w; ++x) p.col_lo[x] = -1;  // silence: no bars
+  } else {
+    for (int x = 0; x < w; ++x) {
+      const float f0 = NormToHz(static_cast<float>(x) / w);
+      const float f1 = NormToHz(static_cast<float>(x + 1) / w);
+      int b0 = static_cast<int>(f0 * kN / engine::kSampleRate);
+      int b1 = static_cast<int>(f1 * kN / engine::kSampleRate);
+      if (b0 < 1) b0 = 1;
+      if (b1 >= kBinCount) b1 = kBinCount - 1;
+      if (b1 < b0) b1 = b0;
+      float m = 0.0f;
+      for (int b = b0; b <= b1; ++b)
+        if (mag[b] > m) m = mag[b];
+      float db = 10.0f * std::log10(m / peak);
+      if (db < db_bot) db = db_bot;
+      if (db > db_top) db = db_top;
+      const int bar = static_cast<int>((db - db_bot) / (db_top - db_bot) * (B - T));
+      p.col_lo[x] = B - bar;
+      p.col_hi[x] = B;
+    }
   }
+
+  const GratLine grat[] = {
+      {(h * 17) / 100, kFaint}, {h / 2, kDim}, {(h * 83) / 100, kFaint},
+      {B, kDim}};
+  ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[3][p.fb_index],
+               grat, 4, kBright);
 }
 
 void DrawOutPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
@@ -541,6 +756,11 @@ void ReadoutText(Panel &p, int idx, char *buf, int n) {
 void DrawReadout(FrameBuffer &fb, Panel &p, int idx) {
   char buf[96];
   ReadoutText(p, idx, buf, sizeof(buf));
+  // Clear the readout band to the background before redrawing: the text is
+  // right-aligned and changes width, so a fixed band avoids stale pixels from
+  // the previous value.
+  FillRect(fb, kPx0[idx] + kPlotDX, kReadoutY, kReadoutX - kPlotDX,
+           kPrimaryFont.h, kBg);
   TextRight(fb, buf, kPx0[idx] + kReadoutX, kReadoutY, kPrimaryFont,
             idx == 3 ? kMid : kBright);
 }
@@ -594,7 +814,30 @@ void DrawModeArea(FrameBuffer &fb, Panel &p) {
   }
 }
 
+// Draws a plot's static axes (horizontal graticule handled by PlotFrame; the
+// filter/envelope/spectrum bottom axis and left axis live here, once per
+// buffer). The osc/scope mid-line is the PlotFrame's 50% line.
+void DrawPlotAxes(FrameBuffer &fb, int X) {
+  const int px = X + kPlotDX, py = kModY + kPlotDY;
+  // Filter (module 1): bottom + left axis. L=14, T=12, B=h-18.
+  {
+    const int L = 14, T = 12, B = kPlotH - 18;
+    DrawHLine(fb, px + L, py + B, (kPlotW - 14) - L, kDim);
+    DrawVLine(fb, px + L, py + T, B - T, kDim);
+  }
+  // Envelope (module 2): bottom + left axis. L=14, T=12, B=h-20.
+  {
+    const int L = 14, T = 12, B = kPlotH - 20;
+    DrawHLine(fb, px + L, py + B, (kPlotW - 14) - L, kDim);
+    DrawVLine(fb, px + L, py + T, B - T, kDim);
+  }
+}
+
 void DrawChrome(FrameBuffer &fb, Panel &p) {
+  // Paint the background once per buffer; chrome, curves, and overlays draw
+  // on top, and local clears restore this.
+  FillRect(fb, 0, 0, kFrameW, kFrameH, kBg);
+
   // Titlebar.
   FillRect(fb, kTitleX, kTitleY, kTitleW, kTitleH, kDim);
   TextLeft(fb, "SIGNAL FLOW", kTitleX + 8, kTitleY + 3, kPrimaryFont, kBright);
@@ -613,6 +856,7 @@ void DrawChrome(FrameBuffer &fb, Panel &p) {
     }
     DrawHLine(fb, X, kModY + 50, kModW, kDim);
     PlotFrame(fb, X + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH);
+    if (m == 1 || m == 2) DrawPlotAxes(fb, X);
     DrawHLine(fb, X, kModY + 298, kModW, kDim);
   }
 
@@ -652,9 +896,9 @@ void DrawDyn(DynRegion &d, FrameBuffer &fb) {
 
 #ifdef TWANG_UI_SDRAM
 /// Fixed SDRAM address for the Panel on the target. SDRAM spans
-/// 0x68000000..0x6c000000 (64 MiB); the GLCDC frame buffer occupies the first
-/// ~2.4 MB (ext-ram) and the IPC block sits at 0x68400000 (engine/ipc_shared.h),
-/// so the Panel lands at +5 MB — clear of both.
+/// 0x68000000..0x6c000000 (64 MiB); the GLCDC frame buffers occupy the first
+/// ~4.8 MB (two 2.4 MB buffers) and the IPC block sits at 0x68400000
+/// (engine/ipc_shared.h), so the Panel lands at +5 MB — clear of both.
 constexpr std::uintptr_t kPanelSdrAddr = 0x68500000UL;
 #endif
 
@@ -666,6 +910,9 @@ Panel *PanelCreate() {
 #else
   auto *p = new Panel;
 #endif
+  // Column traces start empty (no curve) in every column of every buffer.
+  std::memset(p->traces, 0xFF, sizeof(p->traces));
+
   const Rect plot_rects[4] = {
       {kPx0[0] + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH},
       {kPx0[1] + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH},
@@ -681,36 +928,49 @@ Panel *PanelCreate() {
 
 void MarkDirty(Panel *p, int idx) {
   p->plots[idx].dirty = true;
+  p->pending[idx] = 2;  // repaint into BOTH buffers (double buffering)
   p->damage.Add(p->plots[idx].rect);
 }
 
 void PanelDraw(Panel *p, FrameBuffer &fb) {
-  if (p->full_redraw) {
+  // Drain the audio thread's scope-dirty flag into the output plot's
+  // invalidation — the scope animates in steady state.
+  if (p->scope_dirty.exchange(false, std::memory_order_relaxed))
+    MarkDirty(p, 3);
+
+  const int b = p->fb_index;
+
+  if (!p->chrome_drawn[b]) {
+    // First draw of this buffer: static chrome + every plot (full render).
     DrawChrome(fb, *p);
     for (int i = 0; i < 4; ++i) {
       p->plots[i].draw(fb, p->plots[i].rect, p->plots[i].state);
+      p->pending[i] = 0;
       p->plots[i].dirty = false;
     }
-    p->full_redraw = false;
-    p->damage.Repaint();  // consume the initial damage
+    p->chrome_drawn[b] = true;
+    p->damage.Repaint();  // the full render subsumes the pending damage
+    p->fb_index ^= 1;
     return;
   }
 
   const int n = p->damage.Repaint();
-  if (n == 0) return;
-
-  // Redraw dirty plots intersecting a repaint rect.
-  for (int i = 0; i < n; ++i) {
-    const Rect &r = p->damage.Rects()[i];
-    for (int k = 0; k < 4; ++k) {
-      if (!p->plots[k].dirty) continue;
-      const Rect &pr = p->plots[k].rect;
-      const bool hit = r.x < pr.x + pr.w && pr.x < r.x + r.w &&
-                       r.y < pr.y + pr.h && pr.y < r.y + r.h;
-      if (hit) p->plots[k].draw(fb, pr, p->plots[k].state);
+  for (int k = 0; k < 4; ++k) {
+    if (p->pending[k] <= 0) continue;
+    const Rect &pr = p->plots[k].rect;
+    bool hit = false;
+    for (int i = 0; i < n && !hit; ++i) {
+      const Rect &r = p->damage.Rects()[i];
+      hit = r.x < pr.x + pr.w && pr.x < r.x + r.w && r.y < pr.y + pr.h &&
+            pr.y < r.y + r.h;
+    }
+    if (hit) {
+      p->plots[k].draw(fb, pr, p->plots[k].state);
+      --p->pending[k];
+      p->plots[k].dirty = p->pending[k] > 0;
     }
   }
-  for (int k = 0; k < 4; ++k) p->plots[k].dirty = false;
+  p->fb_index ^= 1;
 }
 
 // ---- pointer (touch/drag) ----
@@ -774,16 +1034,26 @@ void SyncFromEngine(Panel *p) {
 }
 
 void PanelPointer(Panel *p, PointerEvent e) {
-  const int X = kPx0[0];  // not used directly; see below
-
-  // Keyboard: note on/off.
-  if (e.kind == PointerKind::kPress && e.y >= kKeyY && e.y < kKeyY + 56) {
-    const int idx = (e.x - kTitleX) / kKeyW;
-    if (idx >= 0 && idx < 13) {
-      const float freq = 261.63f * std::pow(2.0f, idx / 12.0f);
-      PanelNoteOn(p, freq);
+  // Keyboard: press → note-on (track the held key); release → note-off.
+  if (e.y >= kKeyY && e.y < kKeyY + 56) {
+    if (e.kind == PointerKind::kPress) {
+      const int idx = (e.x - kTitleX) / kKeyW;
+      if (idx >= 0 && idx < 13) {
+        const float freq = 261.63f * std::pow(2.0f, idx / 12.0f);
+        PanelNoteOn(p, freq);
+        p->held_key = idx;
+      }
       return;
     }
+    if (e.kind == PointerKind::kRelease) {
+      if (p->held_key >= 0) {
+        const float freq = 261.63f * std::pow(2.0f, p->held_key / 12.0f);
+        PanelNoteOff(p, freq);
+        p->held_key = -1;
+      }
+      return;
+    }
+    return;  // kMove over the keyboard is a no-op.
   }
 
   // Locate the plot under the pointer.
@@ -825,16 +1095,14 @@ void PanelPointer(Panel *p, PointerEvent e) {
       if (e.x >= bx && e.x < bx + bw) {
         if (static_cast<int>(p->scope_mode) != i) {
           p->scope_mode = static_cast<ScopeMode>(i);
-          p->full_redraw = true;  // mode highlight is chrome
-          MarkDirty(p, 3);
+          // Mode highlight + output axes are chrome: redraw both buffers.
+          p->chrome_drawn[0] = p->chrome_drawn[1] = false;
         }
         return;
       }
       bx += bw + 6;
     }
-    return;
   }
-  (void)X;
 }
 
 void PanelNoteOn(Panel *p, float freq_hz) {
@@ -858,6 +1126,7 @@ void PanelNoteOff(Panel *p, float freq_hz) {
 
 void PanelAudioTap(Panel *p, const float *samples, int n) {
   p->scope_ring.Write(samples, n);
+  p->scope_dirty.store(true, std::memory_order_relaxed);
 }
 
 int PanelPlotDraws(const Panel *p, int idx) {

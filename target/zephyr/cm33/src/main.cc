@@ -47,7 +47,7 @@ int main(void) {
     for (;;) {
         backend.PollTouch(panel);
         spike::PanelDraw(panel, backend.fb);
-        k_sleep(K_MSEC(16));  // ~60 Hz repaint
+        backend.Present();  // flip (blocks on vsync; double buffering)
     }
     return 0;
 }
