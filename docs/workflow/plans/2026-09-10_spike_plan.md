@@ -1,6 +1,6 @@
 ---
 title: spike -- Implementation Plan
-status: issued
+status: archived
 date: 2026-09-10
 author: Dizan Vasquez
 arch-design: ../arch-designs/spike_arch-design.md
