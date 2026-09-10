@@ -76,6 +76,10 @@ target_link_libraries(live_render PRIVATE engine m pthread dl)
 add_executable(bench tools/bench.cc)
 target_link_libraries(bench PRIVATE engine)
 
+# ---- Offscreen panel screenshot: golden-image fixture (no SDL/display) ----
+add_executable(panel_shot tools/panel_shot.cc)
+target_link_libraries(panel_shot PRIVATE spike)
+
 # ---- Tests ----
 enable_testing()
 add_executable(test_engine tests/test_engine.cc)
