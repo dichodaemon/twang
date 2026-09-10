@@ -46,7 +46,7 @@ int main(void) {
 
     for (;;) {
         backend.PollTouch(panel);
-        spike::PanelDraw(panel, backend.fb);
+        spike::PanelDraw(panel, backend.fb, backend.back_);
         backend.Present();  // flip (blocks on vsync; double buffering)
     }
     return 0;

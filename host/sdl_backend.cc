@@ -68,6 +68,8 @@ bool SdlBackend::Init(int w, int h) {
   return true;
 }
 
+int SdlBackend::BackIndex() const { return impl ? impl->current : 0; }
+
 void SdlBackend::Present() {
   // Display the buffer the panel just drew into, then flip fb to the other
   // buffer for the next frame (double buffering).

@@ -41,6 +41,14 @@ constexpr int kFrameH = 600;
 constexpr int kTitleX = 16, kTitleY = 16, kTitleW = 992, kTitleH = 26;
 constexpr int kModY = 84, kModH = 340, kModW = 242;
 constexpr int kPlotDX = 6, kPlotDY = 58, kPlotW = 230, kPlotH = 232;
+
+// Silent size couplings: the column trace (TraceState, panel.h), the draw
+// scratch (col_lo/col_hi and the scope buf), and the uint8_t trace element
+// type all assume these bounds. Changing the plot size without updating them
+// corrupts memory silently — assert instead.
+static_assert(kPlotW <= 230, "TraceState::y0/y1[230] must span the plot width");
+static_assert(kPlotH <= 255, "TraceState columns are uint8_t; kPlotH must fit");
+static_assert(kPlotW <= 256, "col_lo/col_hi[256] and scope buf[256] must span kPlotW");
 constexpr int kReadoutX = kModW - 6;  // right-aligned margin
 constexpr int kReadoutY = kModY + 306;
 constexpr int kKeyY = 440;
@@ -99,9 +107,10 @@ struct Panel {
   // Damage + redraw state.
   Damage damage{kFrameW, kFrameH};
 
-  // Double buffering: which of the two buffers we draw into now, and whether
-  // static chrome (titlebar, frames, graticule, keyboard, tabs) has been drawn
-  // into each buffer. Chrome is drawn once per buffer.
+  // Double buffering: the buffer we draw into this frame, set by the backend
+  // via PanelDraw's buffer_index argument (the backend owns the swap — no
+  // independent toggle to desync). chrome_drawn[k] records whether static
+  // chrome (titlebar, frames, graticule, keyboard, tabs) is in buffer k.
   int fb_index = 0;
   bool chrome_drawn[2] = {false, false};
 
@@ -265,12 +274,22 @@ struct GratLine {
 void ColumnUpdate(FrameBuffer &fb, int ox, int oy, int w, const int *lo,
                   const int *hi, TraceState &tr, const GratLine *grat,
                   int n_grat, Color line) {
-  for (int x = 0; x < w; ++x) {
+  // Clip the column/row ranges to the framebuffer's clip rect (plot-local
+  // coords -> frame coords) so a span can never spill outside it.
+  const int x0 = std::max(0, fb.clip.x - ox);
+  const int x1 = std::min(w, fb.clip.x + fb.clip.w - ox);
+  const int y_top = fb.clip.y - oy;
+  const int y_bot = fb.clip.y + fb.clip.h - oy - 1;
+  for (int x = x0; x < x1; ++x) {
     const bool old_on = tr.y0[x] != kEmpty;
     const bool new_on = lo[x] >= 0;
     if (!old_on && !new_on) continue;
+    // Skip columns whose span is unchanged (the documented column-update
+    // optimisation): nothing to erase or redraw.
+    if (old_on && new_on && tr.y0[x] == lo[x] && tr.y1[x] == hi[x]) continue;
     if (old_on) {
-      for (int y = tr.y0[x]; y <= tr.y1[x]; ++y) {
+      for (int y = std::max<int>(tr.y0[x], y_top);
+           y <= std::min<int>(tr.y1[x], y_bot); ++y) {
         Color c = kBg;
         for (int g = 0; g < n_grat; ++g)
           if (y == grat[g].y) { c = grat[g].c; break; }
@@ -278,7 +297,8 @@ void ColumnUpdate(FrameBuffer &fb, int ox, int oy, int w, const int *lo,
       }
     }
     if (new_on) {
-      for (int y = lo[x]; y <= hi[x]; ++y)
+      for (int y = std::max<int>(lo[x], y_top);
+           y <= std::min<int>(hi[x], y_bot); ++y)
         fb.px[static_cast<std::size_t>(oy + y) * fb.stride + (ox + x)] = line;
       tr.y0[x] = static_cast<std::uint8_t>(lo[x]);
       tr.y1[x] = static_cast<std::uint8_t>(hi[x]);
@@ -295,10 +315,12 @@ void EraseOverlayRect(FrameBuffer &fb, int ox, int oy, int w, int h,
                       const Rect &r, const TraceState &tr,
                       const GratLine *grat, int n_grat, Color line) {
   if (r.w <= 0 || r.h <= 0) return;
-  const int x0 = std::max(0, r.x);
-  const int x1 = std::min(w, r.x + r.w);
-  const int y0 = std::max(0, r.y);
-  const int y1 = std::min(h, r.y + r.h);
+  // Intersect the overlay rect (plot-local) with the plot bounds AND the
+  // framebuffer's clip rect so it can never spill outside either.
+  const int x0 = std::max(std::max(0, r.x), fb.clip.x - ox);
+  const int x1 = std::min(std::min(w, r.x + r.w), fb.clip.x + fb.clip.w - ox);
+  const int y0 = std::max(std::max(0, r.y), fb.clip.y - oy);
+  const int y1 = std::min(std::min(h, r.y + r.h), fb.clip.y + fb.clip.h - oy);
   for (int x = x0; x < x1; ++x) {
     for (int y = y0; y < y1; ++y) {
       Color c = kBg;
@@ -306,9 +328,12 @@ void EraseOverlayRect(FrameBuffer &fb, int ox, int oy, int w, int h,
         if (y == grat[g].y) { c = grat[g].c; break; }
       fb.px[static_cast<std::size_t>(oy + y) * fb.stride + (ox + x)] = c;
     }
-    if (tr.y0[x] != kEmpty)
-      for (int y = tr.y0[x]; y <= tr.y1[x]; ++y)
+    if (tr.y0[x] != kEmpty) {
+      const int cy0 = std::max<int>(tr.y0[x], y0);
+      const int cy1 = std::min<int>(tr.y1[x], y1 - 1);
+      for (int y = cy0; y <= cy1; ++y)
         fb.px[static_cast<std::size_t>(oy + y) * fb.stride + (ox + x)] = line;
+    }
   }
 }
 
@@ -497,10 +522,13 @@ void DrawEnvPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   }
   ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, tr, grat, 4, kBright);
 
-  // Handles (plot-local rects remembered for the next frame's erase).
-  const Rect ha{e.xA - 13, e.T - 13, 26, 26};
-  const Rect hd{e.xD - 13, e.yS - 13, 26, 26};
-  const Rect hr{e.xR - 13, e.B - 13, 26, 26};
+  // Handles (plot-local rects remembered for the next frame's erase). The Y
+  // is clamped to >= 0: a handle at the plot top (T == 12, or sustain -> 1)
+  // would otherwise sit one row above the plot, where EraseOverlayRect (which
+  // clamps to the plot) can never reach it.
+  const Rect ha{e.xA - 13, std::max(0, e.T - 13), 26, 26};
+  const Rect hd{e.xD - 13, std::max(0, e.yS - 13), 26, 26};
+  const Rect hr{e.xR - 13, std::max(0, e.B - 13), 26, 26};
   Cursor(fb, ox + ha.x, oy + ha.y, ha.w, ha.h, kBright);
   Cursor(fb, ox + hd.x, oy + hd.y, hd.w, hd.h, kBright);
   Cursor(fb, ox + hr.x, oy + hr.y, hr.w, hr.h, kBright);
@@ -570,7 +598,7 @@ void DrawScopePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   for (int x = 0; x < w; ++x) {
     const float av = std::fabs(buf[x]);
     if (av > peak) peak = av;
-    const int y = mid - static_cast<int>(std::lround(buf[x] * amp));
+    const int y = std::clamp(mid - static_cast<int>(std::lround(buf[x] * amp)), 0, h - 1);
     if (x == 0) {
       p.col_lo[x] = y;
       p.col_hi[x] = y;
@@ -608,7 +636,7 @@ void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
       int prev = 0;
       for (int x = 0; x < w; ++x) {
         const int idx = trigger + x * period / w;
-        const int y = mid - static_cast<int>(std::lround(p.cycle_buf[idx] * amp));
+        const int y = std::clamp(mid - static_cast<int>(std::lround(p.cycle_buf[idx] * amp)), 0, h - 1);
         if (x == 0) {
           p.col_lo[x] = y;
           p.col_hi[x] = y;
@@ -930,9 +958,17 @@ void MarkDirty(Panel *p, int idx) {
   p->plots[idx].dirty = true;
   p->pending[idx] = 2;  // repaint into BOTH buffers (double buffering)
   p->damage.Add(p->plots[idx].rect);
+  // The readout text below the plot is drawn by the same hook and sits
+  // outside plots[idx].rect; track it separately so damage stays complete.
+  p->damage.Add(Rect{kPx0[idx] + kPlotDX, kReadoutY, kReadoutX - kPlotDX,
+                     kPrimaryFont.h});
 }
 
-void PanelDraw(Panel *p, FrameBuffer &fb) {
+void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
+  // Record which buffer we draw into; the backend owns the swap and passes it
+  // in, so there is no independent toggle to desync.
+  p->fb_index = buffer_index;
+
   // Drain the audio thread's scope-dirty flag into the output plot's
   // invalidation — the scope animates in steady state.
   if (p->scope_dirty.exchange(false, std::memory_order_relaxed))
@@ -943,6 +979,10 @@ void PanelDraw(Panel *p, FrameBuffer &fb) {
   if (!p->chrome_drawn[b]) {
     // First draw of this buffer: static chrome + every plot (full render).
     DrawChrome(fb, *p);
+    // The background wipe invalidates the column traces; reset them so the
+    // column-update skip does not elide a curve over the wiped background.
+    for (int i = 0; i < 4; ++i)
+      std::memset(&p->traces[i][b], 0xFF, sizeof(TraceState));
     for (int i = 0; i < 4; ++i) {
       p->plots[i].draw(fb, p->plots[i].rect, p->plots[i].state);
       p->pending[i] = 0;
@@ -950,7 +990,6 @@ void PanelDraw(Panel *p, FrameBuffer &fb) {
     }
     p->chrome_drawn[b] = true;
     p->damage.Repaint();  // the full render subsumes the pending damage
-    p->fb_index ^= 1;
     return;
   }
 
@@ -970,7 +1009,6 @@ void PanelDraw(Panel *p, FrameBuffer &fb) {
       p->plots[k].dirty = p->pending[k] > 0;
     }
   }
-  p->fb_index ^= 1;
 }
 
 // ---- pointer (touch/drag) ----
@@ -1034,26 +1072,27 @@ void SyncFromEngine(Panel *p) {
 }
 
 void PanelPointer(Panel *p, PointerEvent e) {
-  // Keyboard: press → note-on (track the held key); release → note-off.
+  // Release of a held key: note-off regardless of where the release lands —
+  // a touch that drifts off the keyboard band must still stop the note.
+  if (e.kind == PointerKind::kRelease && p->held_key >= 0) {
+    const float freq = 261.63f * std::pow(2.0f, p->held_key / 12.0f);
+    PanelNoteOff(p, freq);
+    p->held_key = -1;
+    return;
+  }
+
+  // Keyboard: press → note-on (track the held key). `e.x >= kTitleX` guards
+  // against the phantom key from C++ truncation (negative idx -> 0).
   if (e.y >= kKeyY && e.y < kKeyY + 56) {
     if (e.kind == PointerKind::kPress) {
       const int idx = (e.x - kTitleX) / kKeyW;
-      if (idx >= 0 && idx < 13) {
+      if (e.x >= kTitleX && idx < 13) {
         const float freq = 261.63f * std::pow(2.0f, idx / 12.0f);
         PanelNoteOn(p, freq);
         p->held_key = idx;
       }
-      return;
     }
-    if (e.kind == PointerKind::kRelease) {
-      if (p->held_key >= 0) {
-        const float freq = 261.63f * std::pow(2.0f, p->held_key / 12.0f);
-        PanelNoteOff(p, freq);
-        p->held_key = -1;
-      }
-      return;
-    }
-    return;  // kMove over the keyboard is a no-op.
+    return;  // kMove/kRelease over the keyboard (no held key) is a no-op.
   }
 
   // Locate the plot under the pointer.

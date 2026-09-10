@@ -36,6 +36,18 @@ int main() {
         Check(HasRect(d, 50, 50, 10, 10), "merge: disjoint rect kept");
     }
 
+    // Bridging cascade: a new rect overlapping two disjoint rects merges all
+    // three (exercises MergeInPlace's worst case, not just the pairwise union).
+    {
+        Damage d(100, 100);
+        d.Add(0, 0, 10, 10);    // A
+        d.Add(30, 0, 10, 10);   // B (disjoint from A)
+        d.Add(5, 0, 30, 10);    // C overlaps both A and B, bridging them
+        const int n = d.Repaint();
+        Check(n == 1, "bridging: three rects collapse to one");
+        Check(HasRect(d, 0, 0, 40, 10), "bridging: union spans all three");
+    }
+
     // Whole-frame fallback on overflow.
     {
         Damage d(100, 100);

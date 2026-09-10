@@ -91,6 +91,10 @@ add_executable(test_ring tests/test_ring.cc)
 target_link_libraries(test_ring PRIVATE engine)
 add_test(NAME ring COMMAND test_ring)
 
+add_executable(test_scope_ring tests/test_scope_ring.cc)
+target_link_libraries(test_scope_ring PRIVATE scope Threads::Threads)
+add_test(NAME scope_ring COMMAND test_scope_ring)
+
 add_executable(test_param_block tests/test_param_block.cc)
 target_link_libraries(test_param_block PRIVATE engine)
 add_test(NAME param_block COMMAND test_param_block)

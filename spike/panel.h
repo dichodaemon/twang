@@ -61,12 +61,15 @@ Panel *PanelCreate();
 
 /// @brief Repaints the panel into the current framebuffer.
 ///
-/// Repaints only damage[n] ∪ damage[n−1] (the two-frame rule); the first call
-/// draws the full chrome and all plots. The backend swaps buffers afterward.
+/// Repaints only damage[n] ∪ damage[n−1] (the two-frame rule); the first draw
+/// of a buffer draws the full chrome and all plots. The backend owns the
+/// buffer swap and passes the back-buffer index (0 or 1) so the panel has a
+/// single source of truth — it never toggles its own index.
 ///
 /// @param p Panel context.
 /// @param fb Framebuffer to draw into.
-void PanelDraw(Panel *p, FrameBuffer &fb);
+/// @param buffer_index Index of `fb` among the backend's two buffers (0 or 1).
+void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index);
 
 /// @brief Handles a touch/mouse event (filter XY pad, envelope handles,
 /// keyboard, output-mode buttons).

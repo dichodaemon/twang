@@ -53,7 +53,7 @@ int main() {
         backend.PollEvents(panel);
         midi.Poll(panel);
         midi.Feedback();
-        spike::PanelDraw(panel, backend.fb);
+        spike::PanelDraw(panel, backend.fb, backend.BackIndex());
         backend.Present();
     }
 

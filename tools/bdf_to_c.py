@@ -44,10 +44,13 @@ def glyph_index(codepoint):
 
 
 def parse_bdf(path):
-    """Return (fontbox, glyphs) where glyphs maps encoding -> bitmap bytes."""
+    """Return (fontbox, glyphs, glyph_bbx) where glyphs maps encoding ->
+    bitmap bytes and glyph_bbx maps encoding -> (w, h, xoff, yoff)."""
     fontbox = None
     glyphs = {}
+    glyph_bbx = {}
     encoding = None
+    bbx = None
     bitmap_rows = []
     in_bitmap = False
     with open(path, encoding="ascii") as f:
@@ -59,6 +62,10 @@ def parse_bdf(path):
             elif line.startswith("ENCODING"):
                 encoding = int(line.split()[1])
                 bitmap_rows = []
+                bbx = None
+            elif line.startswith("BBX"):
+                _, w, h, xoff, yoff = line.split()
+                bbx = (int(w), int(h), int(xoff), int(yoff))
             elif line == "BITMAP":
                 in_bitmap = True
             elif line == "ENDCHAR":
@@ -66,20 +73,28 @@ def parse_bdf(path):
                     glyphs[encoding] = b"".join(
                         bytes.fromhex(r) for r in bitmap_rows
                     )
+                    glyph_bbx[encoding] = bbx
                 in_bitmap = False
                 encoding = None
+                bbx = None
             elif in_bitmap:
                 bitmap_rows.append(line.strip())
-    return fontbox, glyphs
+    return fontbox, glyphs, glyph_bbx
 
 
-def build_atlas(fontbox, glyphs):
+def build_atlas(fontbox, glyphs, glyph_bbx):
     """Return (w, h, base, bpr, atlas_bytes)."""
     w, h, xoff, yoff = fontbox
     bpr = (w + 7) // 8
     base = h + yoff  # baseline offset from the top of the cell
     out = bytearray()
     for codepoint in list(range(FIRST, LAST + 1)) + [EXTRA]:
+        bbx = glyph_bbx.get(codepoint)
+        if bbx != fontbox:
+            raise ValueError(
+                f"glyph U+{codepoint:04X}: BBX {bbx} does not fill the font "
+                f"cell {fontbox}; this converter assumes fixed-size cells"
+            )
         data = glyphs[codepoint]
         expected = h * bpr
         if len(data) != expected:
@@ -140,8 +155,8 @@ def emit_header(atlas_meta):
 def atlas_metadata():
     meta = []
     for bdf_name, ident in ATLASES:
-        fontbox, glyphs = parse_bdf(FONT_DIR / bdf_name)
-        w, h, base, bpr, data = build_atlas(fontbox, glyphs)
+        fontbox, glyphs, glyph_bbx = parse_bdf(FONT_DIR / bdf_name)
+        w, h, base, bpr, data = build_atlas(fontbox, glyphs, glyph_bbx)
         meta.append((ident, w, h, base, bpr, data))
     return meta
 

@@ -92,9 +92,19 @@ void GlcdcBackend::PollTouch(Panel *panel) {
 }
 
 void GlcdcBackend::Present() {
+  // No cache maintenance is required before the flip: the cm33 image runs on
+  // the Cortex-M33 control core, which has no data cache (Zephyr selects
+  // CPU_HAS_DCACHE only for M52/M55/M85), so CPU writes to the SDRAM
+  // framebuffers are already visible to the GLCDC DMA. If the panel ever moves
+  // to a cached core, add sys_cache_data_flush_range(fb.px, w*h*2) here.
+
   // Flip: display the buffer the Panel just drew into, then point `fb` at the
-  // other buffer for the next frame. display_write performs the GLCDC buffer
-  // change and blocks until the next vsync (double buffering).
+  // other buffer for the next frame. display_write (display_renesas_ra.c, with
+  // CONFIG_RENESAS_RA_GLCDC_FB_NUM=0) takes the full-frame path: it sets the
+  // pending buffer to our pointer and calls R_GLCDC_BufferChange — a hardware
+  // flip, NOT a memcpy — then blocks on the line-detect semaphore (vsync).
+  // The memcpy path only exists for partial writes, which FB_NUM=0 rejects
+  // with -ENOTSUP (the app must always write full frames).
   const struct display_buffer_descriptor desc = {
       .buf_size = static_cast<std::uint32_t>(kFrameW * kFrameH * 2),
       .width = kFrameW,

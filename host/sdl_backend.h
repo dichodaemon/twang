@@ -32,6 +32,9 @@ struct SdlBackend {
   /// @brief Uploads the framebuffer to the texture and presents it.
   void Present();
 
+  /// @brief Index of the back buffer `fb` currently points at (0 or 1).
+  int BackIndex() const;
+
   /// @brief Drains SDL events: quit handling + mouse → PanelPointer.
   ///
   /// @param panel Panel to feed pointer events.

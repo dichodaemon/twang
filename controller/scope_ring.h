@@ -33,5 +33,9 @@ class ScopeRing {
 
   private:
     std::atomic<std::uint32_t> write_{0};  ///< Monotonic sample count.
-    float buf_[kCapacity] = {};            ///< Circular sample storage.
+    // atomic<float> makes each slot access well-defined under concurrent
+    // single-writer/single-reader use (no torn reads); memory_order_relaxed
+    // lowers to plain loads/stores on ARM. The write_ release/acquire pair
+    // orders publication of the samples.
+    std::atomic<float> buf_[kCapacity] = {};
 };
