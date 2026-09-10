@@ -1,0 +1,138 @@
+# Instrument palette — 8 hues × 3 levels, plus a 4-step neutral ramp.
+#
+# Derivation: each hue is defined by its `high` value. `mid` and `low` are that
+# value mixed toward `neutral.void` at 0.45 and 0.16 in LINEAR light, not sRGB.
+# Mixing in sRGB darkens too fast at the bottom and the low level goes muddy.
+#
+# Levels carry fixed roles, so any component is the same shape in every hue:
+#   background: <hue>.low   border: <hue>.mid   color: <hue>.high
+#
+# Fields per entry:
+#   hex       authored sRGB value
+#   rgb565    what the GLCDC actually scans out (r5 g6 b5, packed)
+#   actual    rgb565 expanded back to 8-bit — what you will really see
+#   contrast  WCAG ratio against neutral.void
+#
+# Total cost as a lookup table: 28 entries × 2 bytes = 56 B of .rodata.
+
+meta:
+  name: instrument-dark
+  background: void
+  bits_per_pixel: 16
+  pixel_format: rgb565
+  mix_space: linear
+  mix_factors:
+    mid: 0.45
+    low: 0.16
+  # Worst per-channel drift over the whole table after the RGB565 round trip.
+  max_quantisation_drift: 6   # out of 255
+
+roles:
+  low:  fills, inactive bars, well backgrounds, dim graticule
+  mid:  edges, rules, ticks, secondary labels
+  high: text, active state, curves, cursors
+
+hues:
+
+  phosphor:
+    use: primary display, signal traces, nominal state
+    low:  { hex: "#33704C", rgb565: 0x3389, actual: "#31714A", contrast: 3.4 }
+    mid:  { hex: "#55B37B", rgb565: 0x558F, actual: "#52B27B", contrast: 7.8 }
+    high: { hex: "#7CFFB0", rgb565: 0x7FF6, actual: "#7BFFB5", contrast: 16.1 }
+
+  acid:
+    use: biohazard, corrosive, out-of-range warning
+    low:  { hex: "#557019", rgb565: 0x5383, actual: "#527119", contrast: 3.6 }
+    mid:  { hex: "#8AB32A", rgb565: 0x8D85, actual: "#8CB229", contrast: 8.2 }
+    high: { hex: "#C6FF3D", rgb565: 0xC7E7, actual: "#C5FF3A", contrast: 17.1 }
+
+  amber:
+    use: secondary display, auxiliary readouts
+    low:  { hex: "#704D08", rgb565: 0x7261, actual: "#734D08", contrast: 2.6 }
+    mid:  { hex: "#B37D06", rgb565: 0xB3E0, actual: "#B57D00", contrast: 5.6 }
+    high: { hex: "#FFB300", rgb565: 0xFD80, actual: "#FFB200", contrast: 11.2 }
+
+  hazard:
+    use: caution, degraded state, attention without alarm
+    low:  { hex: "#703011", rgb565: 0x7182, actual: "#733110", contrast: 2.0 }
+    mid:  { hex: "#B34F1A", rgb565: 0xB263, actual: "#B54D19", contrast: 3.9 }
+    high: { hex: "#FF7326", rgb565: 0xFB84, actual: "#FF7121", contrast: 7.4 }
+
+  klaxon:
+    use: alarm, fault, destructive action
+    # Weakest hue in the table — red is inherently dark. Do not rely on the hue
+    # alone to make an alarm loud; use inverse video with klaxon.high as the
+    # FILL and neutral.void as the text.
+    low:  { hex: "#701F20", rgb565: 0x70E4, actual: "#731C21", contrast: 1.8 }
+    mid:  { hex: "#B33435", rgb565: 0xB1A6, actual: "#B53531", contrast: 3.3 }
+    high: { hex: "#FF4D4D", rgb565: 0xFA69, actual: "#FF4D4A", contrast: 6.2 }
+
+  biosign:
+    use: organic trace, scanner overlay, modulation sources
+    low:  { hex: "#4F3B70", rgb565: 0x49CE, actual: "#4A3973", contrast: 2.1 }
+    mid:  { hex: "#8161B3", rgb565: 0x8316, actual: "#8461B5", contrast: 4.1 }
+    high: { hex: "#B98CFF", rgb565: 0xBC7F, actual: "#BD8EFF", contrast: 7.9 }
+
+  coolant:
+    use: thermal, cryo, stable systems
+    low:  { hex: "#1E6270", rgb565: 0x1B0E, actual: "#196173", contrast: 2.9 }
+    mid:  { hex: "#349DB3", rgb565: 0x34F6, actual: "#319EB5", contrast: 6.4 }
+    high: { hex: "#4DE0FF", rgb565: 0x4F1F, actual: "#4AE3FF", contrast: 12.9 }
+
+  signal:
+    use: uplink, comms, external / remote sources
+    low:  { hex: "#2D4270", rgb565: 0x2A0E, actual: "#294173", contrast: 2.0 }
+    mid:  { hex: "#4B6CB3", rgb565: 0x4B76, actual: "#4A6DB5", contrast: 3.9 }
+    high: { hex: "#6E9CFF", rgb565: 0x6CFF, actual: "#6B9EFF", contrast: 7.6 }
+
+neutral:
+  void: { hex: "#05070A", rgb565: 0x0021, actual: "#000408", contrast: 1.00 }
+  iron: { hex: "#191E26", rgb565: 0x18E4, actual: "#191C21", contrast: 1.21 }
+  ash:  { hex: "#414A55", rgb565: 0x424A, actual: "#424952", contrast: 2.24 }
+  bone: { hex: "#C2CBD6", rgb565: 0xC65A, actual: "#C5CAD6", contrast: 12.30 }
+
+# Hue angles, for checking separation before assigning two hues to adjacent
+# state. amber (42) and hazard (20) are the closest pair and the most likely
+# to be confused at 8x14.
+hue_angles:
+  klaxon: 0
+  hazard: 20
+  amber: 42
+  acid: 75
+  phosphor: 150
+  coolant: 192
+  signal: 222
+  biosign: 265
+
+# Subsystem → hue assignment.
+#
+# A component or subsystem matches a hue by its semantic role (the hue's `use`
+# line), not by color preference:
+#   audio / signal path   → phosphor  (signal traces, nominal state)
+#   modulation / LFOs/env → biosign   (modulation sources)
+#   control / system      → coolant   (stable systems)
+#   MIDI / external input → signal    (uplink, comms, external sources)
+#   panel / readouts      → amber     (secondary display, auxiliary readouts)
+#
+# For diagrams, a subsystem's visual channels are: fill = <hue>.low,
+# border/stroke = <hue>.mid, label/text = <hue>.high (see `roles`).
+# Keep one hue per subsystem across every document (palette consistency).
+subsystems:
+  audio: phosphor
+  modulation: biosign
+  control: coolant
+  midi: signal
+  panel: amber
+
+notes:
+  - >
+    Quantisation is worst on blue and violet: rgb565 gives blue only 5 bits,
+    so biosign.low and coolant.low drift most. Greens survive best (6 bits).
+  - >
+    void quantises to #000408 — effectively pure black on the panel. If you
+    want the background to read as very-dark-blue rather than black, it needs
+    to be lifted above the 5-bit blue step.
+  - >
+    Contrast figures are WCAG ratios against void, computed in linear light.
+    They rank the hues correctly but were not measured on the panel; verify
+    through panel_shot at rgb565 before fixing the values.
