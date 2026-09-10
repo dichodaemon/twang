@@ -1001,6 +1001,13 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   if (p->scope_dirty.exchange(false, std::memory_order_relaxed))
     MarkDirty(p, 3);
 
+  // The envelope playhead traces the ADSR while a note is held or releasing;
+  // invalidate the env plot each frame so it animates (the scope does the same
+  // via the audio thread's flag). The curve itself is unchanged, so the
+  // column-update skip makes this cheap — only the moving playhead redraws.
+  if (p->note_on || EnvLevel(NowMs(), *p) > 0.001f)
+    MarkDirty(p, 2);
+
   const int b = p->fb_index;
 
   if (!p->chrome_drawn[b]) {

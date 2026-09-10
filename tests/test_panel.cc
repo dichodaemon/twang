@@ -95,15 +95,19 @@ int main() {
     Check(PanelPlotDraws(p, 1) == 2, "clean filter plot not redrawn");
     Check(PanelPlotDraws(p, 2) == 4, "dirty envelope plot redrawn (both buffers)");
 
-    // Steady state: a no-change frame redraws nothing.
+    // Steady state: a no-change frame redraws nothing static — the osc curve
+    // is frozen — but the envelope playhead keeps animating (time-based).
     const int osc_before = PanelPlotDraws(p, 0);
+    const int env_before_ss = PanelPlotDraws(p, 2);
     PanelDraw(p, fb0, 0);
     Check(PanelPlotDraws(p, 0) == osc_before, "steady state: no redraw");
+    Check(PanelPlotDraws(p, 2) == env_before_ss + 1,
+          "steady state: envelope playhead still animates");
 
     // Scope animation: an audio tap invalidates the output plot — the one
     // plot that animates in steady state — and redraws it into both buffers.
     const int out_before = PanelPlotDraws(p, 3);
-    const int env_before_tap = PanelPlotDraws(p, 2);
+    const int filter_before_tap = PanelPlotDraws(p, 1);
     float samples[64];
     for (int i = 0; i < 64; ++i) samples[i] = (i % 8) / 8.0f;
     PanelAudioTap(p, samples, 64);
@@ -111,8 +115,8 @@ int main() {
     PanelDraw(p, fb0, 0);
     Check(PanelPlotDraws(p, 3) == out_before + 2,
           "audio tap redraws the scope into both buffers");
-    Check(PanelPlotDraws(p, 2) == env_before_tap,
-          "audio tap leaves other plots clean");
+    Check(PanelPlotDraws(p, 1) == filter_before_tap,
+          "audio tap leaves the filter plot clean");
 
     // Filter cursor drag: moves the cutoff cursor (exercising the cursor
     // erase) and redraws the filter plot into both buffers.
