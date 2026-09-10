@@ -872,20 +872,17 @@ void DrawModeArea(FrameBuffer &fb, Panel &p) {
 // Draws a plot's static axes (horizontal graticule handled by PlotFrame; the
 // filter/envelope/spectrum bottom axis and left axis live here, once per
 // buffer). The osc/scope mid-line is the PlotFrame's 50% line.
-void DrawPlotAxes(FrameBuffer &fb, int X) {
+// Bottom + left axis for one plot. The baseline differs per module and must
+// match the GratLine the module's draw hook passes to ColumnUpdate: that array
+// is the only record of what lies under the curve, so a line drawn here but
+// absent there is erased by any column that crosses it and never restored.
+void DrawPlotAxes(FrameBuffer &fb, int X, int module) {
   const int px = X + kPlotDX, py = kModY + kPlotDY;
-  // Filter (module 1): bottom + left axis. L=14, T=12, B=h-18.
-  {
-    const int L = 14, T = 12, B = kPlotH - 18;
-    DrawHLine(fb, px + L, py + B, (kPlotW - 14) - L, kDim);
-    DrawVLine(fb, px + L, py + T, B - T, kDim);
-  }
-  // Envelope (module 2): bottom + left axis. L=14, T=12, B=h-20.
-  {
-    const int L = 14, T = 12, B = kPlotH - 20;
-    DrawHLine(fb, px + L, py + B, (kPlotW - 14) - L, kDim);
-    DrawVLine(fb, px + L, py + T, B - T, kDim);
-  }
+  const int L = 14, T = 12;
+  const int B = (module == 1) ? kPlotH - 18   // filter: DrawFilterPlot's B
+                              : kPlotH - 20;  // envelope: EnvLayout::B
+  DrawHLine(fb, px + L, py + B, (kPlotW - 14) - L, kDim);
+  DrawVLine(fb, px + L, py + T, B - T, kDim);
 }
 
 void DrawChrome(FrameBuffer &fb, Panel &p) {
@@ -911,7 +908,7 @@ void DrawChrome(FrameBuffer &fb, Panel &p) {
     }
     DrawHLine(fb, X, kModY + 50, kModW, kDim);
     PlotFrame(fb, X + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH);
-    if (m == 1 || m == 2) DrawPlotAxes(fb, X);
+    if (m == 1 || m == 2) DrawPlotAxes(fb, X, m);
     DrawHLine(fb, X, kModY + 298, kModW, kDim);
   }
 
