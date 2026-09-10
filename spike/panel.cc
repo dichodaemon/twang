@@ -639,8 +639,22 @@ void DrawDyn(DynRegion &d, FrameBuffer &fb) {
   if (d.dirty) d.draw(fb, d.rect, d.state);
 }
 
+#ifdef TWANG_UI_SDRAM
+/// Fixed SDRAM address for the Panel on the target. SDRAM spans
+/// 0x68000000..0x6c000000 (64 MiB); the GLCDC frame buffer occupies the first
+/// ~2.4 MB (ext-ram) and the IPC block sits at 0x68400000 (engine/ipc_shared.h),
+/// so the Panel lands at +5 MB — clear of both.
+constexpr std::uintptr_t kPanelSdrAddr = 0x68500000UL;
+#endif
+
 Panel *PanelCreate() {
+#ifdef TWANG_UI_SDRAM
+  // The Panel is ~160 KB of draw scratch; the M33's 640 KB SRAM is tight, so
+  // place it in SDRAM (placement new — never freed in practice).
+  auto *p = new (reinterpret_cast<void *>(kPanelSdrAddr)) Panel;
+#else
   auto *p = new Panel;
+#endif
   const Rect plot_rects[4] = {
       {kPx0[0] + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH},
       {kPx0[1] + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH},

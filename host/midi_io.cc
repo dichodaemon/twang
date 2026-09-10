@@ -7,7 +7,7 @@
 
 #include "engine.h"
 #include "midi.h"
-#include "ui.h"
+#include "panel.h"
 
 namespace {
 
@@ -67,7 +67,7 @@ void MidiIo::Init() {
     }
 }
 
-void MidiIo::Poll(Ui *ui) {
+void MidiIo::Poll(spike::Panel *panel) {
     if (!in) return;
     const engine::MidiLayout &layout = engine::kXtouchCompact;
     std::vector<unsigned char> msg;
@@ -83,11 +83,11 @@ void MidiIo::Poll(Ui *ui) {
             engine::MidiCc(layout, 0, msg[1], msg[2]);
             break;
         case 0x90:  // Note On (velocity 0 = note off)
-            if (msg[2] == 0) ui_note_off(ui, engine::MidiNoteToFreq(msg[1]));
-            else ui_note_on(ui, engine::MidiNoteToFreq(msg[1]));
+            if (msg[2] == 0) spike::PanelNoteOff(panel, engine::MidiNoteToFreq(msg[1]));
+            else spike::PanelNoteOn(panel, engine::MidiNoteToFreq(msg[1]));
             break;
         case 0x80:  // Note Off
-            ui_note_off(ui, engine::MidiNoteToFreq(msg[1]));
+            spike::PanelNoteOff(panel, engine::MidiNoteToFreq(msg[1]));
             break;
         default:
             break;

@@ -12,7 +12,9 @@
 
 #include "RtMidi.h"
 
-struct Ui;
+namespace spike {
+struct Panel;
+}
 
 /// MIDI transport state: the open ports and the feedback dedup cache.
 struct MidiIo {
@@ -25,8 +27,8 @@ struct MidiIo {
     void Init();
 
     /// @brief Drain pending MIDI messages into the engine (control thread).
-    /// @param ui UI context (notes route through ui_note_on/off).
-    void Poll(Ui *ui);
+    /// @param panel Panel context (notes route through PanelNoteOn/Off).
+    void Poll(spike::Panel *panel);
 
     /// @brief Send current parameter values back to the controller (fader
     /// positions + LED rings). Call periodically from the main loop.

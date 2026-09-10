@@ -70,12 +70,13 @@ add_library(controller STATIC controller/ui.cc)
 target_include_directories(controller PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller)
 target_link_libraries(controller PUBLIC engine scope lvgl)
 
-# ---- Desktop host: SDL + RtMidi + miniaudio wiring around the controller ----
+# ---- Desktop host: SDL + RtMidi + miniaudio wiring around the spike panel ----
 find_package(SDL2 REQUIRED)
-add_executable(host host/main.cc host/midi_io.cc)
+add_executable(host host/main.cc host/midi_io.cc host/sdl_backend.cc)
 target_include_directories(host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/host)
+target_include_directories(host PRIVATE ${SDL2_INCLUDE_DIRS})
 target_compile_options(host PRIVATE -fexceptions)  # host/midi_io.cc catches RtMidiError
-target_link_libraries(host PRIVATE controller audio rtmidi lvgl ${SDL2_LIBRARIES})
+target_link_libraries(host PRIVATE spike audio rtmidi ${SDL2_LIBRARIES})
 
 # ---- WAV renderer: hear the engine output ----
 add_executable(wav_render tools/wav_render.cc)
