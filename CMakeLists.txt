@@ -37,10 +37,15 @@ target_include_directories(audio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/audio)
 target_include_directories(audio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio)
 target_link_libraries(audio PUBLIC m pthread dl)
 
-# ---- spike: minimal RGB565 renderer (framebuffer + font + damage) ----
+# ---- scope: lvgl-free display helpers (FFT + scope ring) ----
+add_library(scope STATIC controller/fft.cc controller/scope_ring.cc)
+target_include_directories(scope PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller)
+
+# ---- spike: minimal RGB565 renderer (framebuffer + font + damage + panel) ----
 # No LVGL/SDL/OS deps; the draw layer the target (M33) builds.
-add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc)
+add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc spike/panel.cc)
 target_include_directories(spike PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/spike)
+target_link_libraries(spike PUBLIC engine scope)
 
 # ---- Vendored LVGL (git submodule) ----
 # Trim to the core library: no demos, examples, or ThorVG.
@@ -61,9 +66,9 @@ target_link_libraries(rtmidi PUBLIC ALSA::ALSA)
 
 # ---- Controller: portable display + control (LVGL UI + scope/fft helpers) ----
 # No SDL/RtMidi/miniaudio — this is the library the target (M33) builds.
-add_library(controller STATIC controller/ui.cc controller/fft.cc controller/scope_ring.cc)
+add_library(controller STATIC controller/ui.cc)
 target_include_directories(controller PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller)
-target_link_libraries(controller PUBLIC engine lvgl)
+target_link_libraries(controller PUBLIC engine scope lvgl)
 
 # ---- Desktop host: SDL + RtMidi + miniaudio wiring around the controller ----
 find_package(SDL2 REQUIRED)
@@ -127,3 +132,7 @@ add_test(NAME font COMMAND test_font)
 add_executable(test_damage tests/test_damage.cc)
 target_link_libraries(test_damage PRIVATE spike)
 add_test(NAME damage COMMAND test_damage)
+
+add_executable(test_panel tests/test_panel.cc)
+target_link_libraries(test_panel PRIVATE spike)
+add_test(NAME panel COMMAND test_panel)
