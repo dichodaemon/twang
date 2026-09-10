@@ -186,4 +186,14 @@ A desktop/plugin synth. The matrix is three dynamically sized route lists in flo
 
 The open destination model (parameter-id destinations) is what separates the general implementations from the special-cased one: Deluge and Surge get chained modulation for free because a modulator's parameters are just more destinations, while Ambika must special-case every route that falls outside its closed enum. The fixed-point vs. float choice tracks the target's FPU, not modulation semantics. And the Deluge/Surge pattern — cull by a source-patchness bitmask and evaluate once per control block — is the observed cost floor: neither computes a source nobody routes. Per-voice LFOs are computed on the audio core in all three when per-voice behavior is required; Ambika's controller-side LFOs demonstrate the bandwidth cost of the alternative.
 
----
+### 5.4. Key Follow (Keyboard Tracking)
+
+All three implement key follow (filter cutoff tracking the keyboard), but with different reference points, units, and integration. The textbook law is a fixed ratio between note pitch and cutoff: at full depth the cutoff rises one octave per keyboard octave (1:1 tracking), `f_c = f_base · 2^(depth · (n − n_root)/12)`. "Additive in pitch" and "multiplicative in Hz" are the same law in different domains — the real axis is *where* the addition happens, not whether it is an add or a multiply.
+
+| | Reference note | Unit | Mechanism |
+|---|---|---|---|
+| **Ambika** | none — note 0 is the bottom of the pitch domain | semitones, 64/semitone fixed-point | 1:1 tracking hardcoded into the cutoff destination (`voicecard/voice.cc:254`: `cutoff + pitch_value − 8192`). The `MOD_SRC_NOTE` source — note number, AC-coupled (`voice.cc:194`) — routes in the matrix to add/subtract tracking; "disable tracking by applying a negative NOTE→CUTOFF" |
+| **DelugeFirmware** | 64 (E4, the MIDI-range center) | semitones ×2, Q24 (2^25/semitone) | `PATCH_SOURCE_NOTE = (noteCode − 64) × 33554432` (`model/voice/voice.cpp:130`), a general patch source; key follow is just a cable NOTE→LPF cutoff |
+| **Surge XT** | 60 (middle C, the `keytrack_root` param) | octaves (`/12`) | `ms_keytrack = (pitch − keytrack_root) / 12` (`dsp/SurgeVoice.cpp:523`), a general mod source; filter cutoff adds `keytrack_amount × (pitch − root)` in the pitch domain (`SurgeVoice.cpp:1472`); per-osc `keytrack` bool for drone oscillators (`SurgeVoice.cpp:555`) |
+
+Only Surge has a configurable reference note and a dedicated per-filter depth; Ambika hardcodes 1:1 and expresses depth as a matrix route amount; Deluge fixes the reference at 64 (E4, not middle C) with no dedicated keytrack param. All three implement the same 1:1 ratio law — Surge and Ambika add in the pitch domain, Deluge multiplies in Q24 — and none adds in a normalized parameter domain.

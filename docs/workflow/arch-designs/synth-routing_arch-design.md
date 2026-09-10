@@ -1,6 +1,6 @@
 ---
 title: Synth Routing
-status: review
+status: draft
 date: 2026-09-10
 author: Dizan Vasquez
 design-study: ../design-studies/2026-09-10_modulation-matrix-and-routing_design-study.md
@@ -10,7 +10,7 @@ design-study: ../design-studies/2026-09-10_modulation-matrix-and-routing_design-
 
 ## 1. Objective
 
-The twang engine hardcodes its modulation — velocity→amp, envelope→cutoff, envelope→amp — as fields and branches in the render path, and it has no LFO, no modulation matrix, and no audio-routing layer. This arch-design defines the settled architecture of the **routing subsystem**: the modulation matrix (sources, destinations, routes, chained modulation) and the audio/output routing (buses, effect sends, pan/level), built on the engine's existing control (M33) / audio (M85) split. It is consumed by the engine's control-side API and audio-side render loop, and it replaces the hardcoded routes with a single data-driven mechanism.
+The twang engine hardcodes its modulation — velocity→amp, envelope→cutoff, envelope→amp — as fields and branches in the render path, and it has no LFO, no modulation matrix, no key follow, and no audio-routing layer. This arch-design specifies the settled internal architecture of the **routing subsystem**: the modulation matrix (sources, destinations, routes, combination classes, chained modulation) and the audio/output routing (buses, effect sends, pan/level), built on the engine's existing control (M33) / audio (M85) split. It is consumed by the engine's control-side API (`EngineSetParam`, `EngineSetRoute`, `EngineNoteOn/Off`) and the audio-side render loop, and it replaces the hardcoded routes with one data-driven mechanism.
 
 ## 2. Non-Goals
 
@@ -21,15 +21,17 @@ The twang engine hardcodes its modulation — velocity→amp, envelope→cutoff,
 - **Effect DSP** — reverb/delay *algorithms*; only their send routing is specified.
 - **MIDI-CC route editing** — routes are UI-editable; CC maps to params, and route addressing leaves room for CC route editing later.
 - **Tempo-sync clock transport** — the MIDI-clock → tempo-param path on the M33 is a follow-on detail.
+- **Oscillator pitchbend routing** — pitchbend is a per-part source and osc pitch is a destination, so the capability exists; whether a pitchbend→pitch route is pre-populated at init is an open question (§13).
 
 ## 3. Terminology
 
 | Term | Definition | Maps to |
 |---|---|---|
 | Route / slot | One source→destination modulation with a signed amount. Slots are fixed (16 per part). | `ModRoute`, `Part.routes[]` |
-| Source | Where a modulation value comes from (LFO, envelope, velocity, controller). | `ModSourceId` |
+| Source | Where a modulation value comes from (LFO, envelope, velocity, controller, note). | `ModSourceId` |
 | Destination | A modulatable parameter that a route targets. | `ParamId` (the modulatable subset) |
-| Combination class | How a destination combines base value + modulations: additive, multiplicative, or exponential. | `CombinationClass`, `ParamDesc` |
+| Combination class | How a destination combines its base value with accumulated modulation: additive, multiplicative, or exponential. | `CombinationClass`, `ParamDesc` |
+| Key follow | Keyboard tracking: the note pitch (in octaves from middle C) as a modulation source; routes to filter cutoff by default, combining exponentially. | `kNote`, `Part.key_follow_depth` |
 | Control step | The 16-sample (3 kHz) subdivision of a block where modulation is evaluated. | `kControlDecimation` |
 | Part state | The full per-part config (params + routes + LFO config + performance inputs), double-buffered. | `Part`, the generalized `ParamBlock` |
 | Bus | An indexed stereo accumulation buffer a voice routes into. | `Bus[]` |
@@ -40,15 +42,15 @@ The twang engine hardcodes its modulation — velocity→amp, envelope→cutoff,
 The routing subsystem lives inside `engine/`, split across the two cores it already spans:
 
 - **M33 (control)** — the allocator, MIDI, and the control-side API (`EngineSetParam`, `EngineSetRoute`, `EngineNoteOn/Off`) write into the double-buffered part state and the event ring.
-- **M85 (audio)** — `Render` snapshots the part state at each block boundary, drains events, evaluates the matrix at control rate, and routes rendered voices into buses.
+- **M85 (audio)** — `Render` snapshots the part state at each block boundary, drains events, latches per-note sources, evaluates the matrix at control rate, and routes rendered voices into buses.
 
 ```mermaid
 flowchart LR
     Control["Control core (M33)"]:::control
     Audio["Audio core (M85)"]:::audio
 
-    Control ==>|"note events (event ring)"| Audio
-    Control ==>|"params / routes / LFO config (double-buffered part state)"| Audio
+    Control ==>|"note events: velocity, note number, gate (event ring)"| Audio
+    Control ==>|"params / routes / LFO config / key-follow depth (double-buffered part state)"| Audio
 
     classDef control fill:#1E6270,stroke:#349DB3,color:#4DE0FF,stroke-width:2px
     classDef audio fill:#33704C,stroke:#55B37B,color:#7CFFB0,stroke-width:2px
@@ -59,69 +61,110 @@ flowchart LR
 
 Two transport mechanisms exist and no new one is added:
 
-- **Event ring** (SPSC) — per-note events: note-on/off, velocity. Latched into the voice at note start.
-- **Double-buffered part state** — per-part params, routes, LFO config, and performance inputs. Change-driven; snapshotted at block boundary.
+- **Event ring** (SPSC) — per-note events: note-on/off, velocity, and the note number (for key follow). Latched into the voice at note start.
+- **Double-buffered part state** — per-part params, routes, LFO config, key-follow depth, and performance inputs. Change-driven; snapshotted at block boundary.
 
 Per-voice sources (the 2 per-voice LFOs, 3 envelopes) never cross the boundary — they are computed on the M85.
 
 ## 5. Architecture
 
-The subsystem is four parts:
+The subsystem is five parts:
 
-- **Part state** — the per-part configuration (params, routes, LFO config, performance inputs). Double-buffered, snapshotted per block.
+- **Part state** — the per-part configuration (params, routes, LFO config, key-follow depth, performance inputs). Double-buffered, snapshotted per block.
 - **Source computation** — renders per-voice sources (LFOs, envelopes) and latches per-note sources (velocity, note, gate, random); the global LFO is per-part state advanced once per part per step.
-- **Matrix evaluation** — per control step, per voice: gate sources, accumulate the 16 routes into effective destination values.
+- **Matrix evaluation** — per control step, per voice: gate sources, accumulate the 16 routes into effective destination values per their combination class.
 - **Audio routing** — per-voice pan/level → indexed bus, plus per-voice/per-part sends into shared effect buses.
+- **DSP write** — fold effective destinations into the existing DSP state (filter coefficients, oscillator increment, gain, pan).
 
 ### 5.1. Decomposition
 
 | Module | Responsibility |
 |---|---|
 | `ModRoute` + `ModSourceId` + `ParamId` | The routing data model (types below). |
-| `Part` (extended) | Per-part config: float params, 16 routes, LFO config, performance inputs, sends, keytrack depth. The double-buffered snapshot unit. |
+| `Part` (extended) | Per-part config: float params, 16 routes, LFO config, key-follow depth, performance inputs, sends. The double-buffered snapshot unit. |
 | `Voice` (extended) | Per-voice state: DSP state, 2 per-voice LFO phases, per-note latched sources, per-voice send/pan/level. |
 | Matrix evaluator | Runs at control rate inside the render loop; gates sources, evaluates routes, writes effective values into filter/osc/amp. |
 | Bus + sends | Indexed stereo accumulation buffers; effect send taps. |
 
-### 5.2. Data Flow
+### 5.2. Source semantics
 
-Per control step (3 kHz), inside the existing render loop:
+Every source produces a value with a defined range, polarity, update timing, and transport. This table is normative — an implementer reads the value/range column to write the source computation.
 
-1. Gate sources on the per-part "routed" bitmask (route existence only, §5.3).
-2. Advance per-voice LFOs/envelopes; advance the global LFO once per part.
-3. For each voice, for each of the 16 routes with `source != kNone`: accumulate `amount × source_value` into the destination according to its combination class.
-4. Write effective cutoff/resonance/pitch/amp/pan into the DSP (filter coefficients, oscillator increment, gain, pan).
+| Source | Value | Range | Polarity | Timing | Transport |
+|---|---|---|---|---|---|
+| `kVelocity` | `velocity / 127` | [0, 1] | unipolar | latched at note-on | event ring (`Event.velocity`) |
+| `kNote` (key follow) | `(note − 60) / 12` octaves | ±5 oct | bipolar (octaves) | latched at note-on | event ring (note number; derived from `Event.freq`) |
+| `kGate` | 1 while held, 0 released | {0, 1} | unipolar | per-note | derived from note-on/off |
+| `kLfo0`, `kLfo1` | LFO waveform | [−1, 1] | bipolar | per-voice, each control step | M85-local |
+| `kLfo2` | LFO waveform | [−1, 1] | bipolar | per-part, each control step | M85-local |
+| `kEnv0` (amp), `kEnv1` (filter), `kEnv2` (free) | envelope level | [0, 1] | unipolar | per-voice, each control step | M85-local |
+| `kModWheel` | `CC1 / 127` | [0, 1] | unipolar | per-part, change-driven | param block |
+| `kAftertouch` | channel AT / 127 | [0, 1] | unipolar | per-part, change-driven | param block |
+| `kPitchBend` | bend amount | [−1, 1] | bipolar | per-part, change-driven | param block |
+| `kExpression` | `CC11 / 127` | [0, 1] | unipolar | per-part, change-driven | param block |
+| `kRandom` | uniform | [0, 1] | unipolar | latched at note-on (S&H) | M85-local |
+| `kConstant` | 1.0 | {1} | unipolar | static | — |
 
-### 5.3. Design Decisions
+**Key follow note number.** The engine's `Event` carries `freq` (Hz), not a MIDI note number. Key follow needs the note number, so the octave offset is derived at note-on: `midi_note = 69 + 12·log2(freq_hz / 440)`, `key_follow_octaves = (midi_note − 60) / 12`. If note-on later carries the MIDI note directly, this derivation is replaced by a direct latch — the octave offset is the value, not the mechanism.
+
+### 5.3. Destination combination classes
+
+Each destination has a combination class. The combination is `base + Σ(amount × source)` for additive, `base × Π(...)` for multiplicative, `base × 2^(Σ amount × source)` for exponential (the sum is in octaves or semitones as noted per destination).
+
+**Source-level exception:** `kNote` (key follow) is logarithmic — its value is in octaves. It always combines **exponentially**, regardless of the destination's class. This is the one deviation from a pure per-destination class: cutoff is additive for every source *except* `kNote`, which is exponential (1:1 octave tracking).
+
+> **Why exponential, not additive.** 1:1 octave tracking is a frequency *ratio* — an octave up must double Hz — so it cannot be a fixed offset in normalized cutoff space. twang stores cutoff normalized [0,1] and maps to Hz through an exponential display curve *after* the mod sum, so "additive" here would mean adding in normalized space, which is neither Hz nor pitch and does not give constant octave doubling (it would force the display curve's exponential constant into the depth). `×2^(depth × octaves)` expresses the textbook law in the Hz domain, independent of the display mapping. This is the same law Surge and Ambika implement as "add semitones in the pitch domain" — additive-in-pitch and multiplicative-in-Hz are equivalent; twang's normalized storage is what makes the Hz-domain form the clean one (see the companion report §5.4).
+
+| Destination | Class | DSP write |
+|---|---|---|
+| osc pitch coarse | exponential | `inc ×= 2^(Σ amount·src / 12)` — amount in semitones |
+| osc pitch fine | exponential | `inc ×= 2^(Σ amount·src / 1200)` — amount in cents |
+| osc wave/shape | additive | `shape += Σ amount·src`, clamp [0, 1] |
+| filter cutoff | additive (+ key follow exp) | `cutoff_norm += Σ amount·src`; then `× 2^(Σ key-follow octaves)` |
+| resonance | additive | `res += Σ amount·src`, clamp [0, 1] |
+| amp/level | multiplicative | unipolar src `×= (amount·src)`; bipolar src `×= (1 + amount·src)` |
+| pan | additive | `pan += Σ amount·src`, clamp [0, 1] (0.5 = center) |
+| LFO rate ×3 | exponential | `rate ×= 2^(Σ amount·src)` — amount in octaves |
+| env A/D/S/R ×3 | exponential | `time ×= 2^(Σ amount·src)` — amount in octaves |
+| send ×2 | multiplicative | unipolar src `×= (amount·src)` |
+
+Multiplicative has two sub-forms because a unipolar source (velocity, envelope) *attenuates* a level (`× a·s`), while a bipolar source (LFO) *tremolos around* the base (`× (1 + a·s)`). Both are one multiply-add.
+
+### 5.4. Default routes
+
+Four routes are pre-populated at `EngineInit`. The first three absorb today's hardcoded modulation and must reproduce the pre-matrix render bit-for-bit; the fourth is key follow (default off).
+
+| Slot | Route | Class | Amount | Replaces |
+|---|---|---|---|---|
+| 1 | `kVelocity → kAmp` | multiplicative | `kVoiceHeadroom` (0.25) | `Voice.gain = kVoiceHeadroom × v/127` |
+| 2 | `kEnv0 → kAmp` | multiplicative | 1.0 | `out ×= env` |
+| 3 | `kEnv1 → kCutoff` | additive | `filter_env_amount` (default 0) | `env_cutoff = cutoff + filter_env_amount × env` |
+| 4 | `kNote → kCutoff` (key follow) | exponential | `key_follow_depth` (default 0) | new — 1:1 octave tracking |
+
+### 5.5. Design Decisions
 
 | Decision | Choice | Rationale |
 |---|---|---|
 | Destination model | Open parameter-id space | Chained modulation (LFO rate / envelope time as destinations) is free; no special cases. |
 | Destination combination | Per-param class (additive / multiplicative / exponential) | Amp must scale, pitch/rate must track logarithmically; one class per param encodes this. |
+| Key follow | `kNote` source in octaves, always exponential | 1:1 octave tracking: cutoff doubles per octave at full depth. |
 | Source placement | All LFOs + envelopes on the M85 | Avoids a continuous per-step IPC stream (the pattern the engine lacks); per-voice sources stay local. |
-| Value domain | Float, unipolar [0,1] / bipolar [−1,1], normalized amount | Hardware single-precision FPU on the M85; bipolar sources are already centered at 0. |
+| Value domain | Float, unipolar [0,1] / bipolar [−1,1] / octaves (key follow) | Hardware single-precision FPU on the M85; bipolar sources are centered at 0. |
 | Culling | Source-level gating only, no per-row dirtiness | An unrouted LFO/envelope is not computed; slot count stays uncapped. |
 | Route model | Separate `ModRoute[16]` table, not flattened params | Routes are enum-typed; keeps slot count a free-standing constant. |
 | Empty-slot marker | `ModSourceId::kNone = 0` sentinel | Distinguishes "empty slot" from "present-but-silent route"; the culling bitmask keys off `source != kNone`, decoupled from amount. |
-| Cutover | 3 default routes, hardcoded fields deleted | One modulation mechanism from day one; the matrix reproduces today's sound. |
+| Cutover | 4 default routes, hardcoded fields deleted | One modulation mechanism from day one; the matrix reproduces today's sound. |
 | Audio routing | Indexed bus array | Per-part outputs and effect sends become configuration, not a rewrite. |
-
-### 5.4. Build Order
-
-The architecture is specified in full above; implementation proceeds in four phases. Detailed task sequencing belongs to the implementation plan, not this document.
-
-| Phase | Components | Result |
-|---|---|---|
-| 1 — routing foundation | `ModSourceId`/`ModRoute`/`ParamId` extension, part-state transport generalization, `EngineSetRoute`, bus indirection, 3 default routes (absorb velocity→amp, env→cutoff, env→amp) | The matrix reproduces today's sound through the routing layer; no LFOs/envelopes yet |
-| 2 — LFOs | 3 LFOs (2 per-voice + 1 per-part), shapes, rate params, source gating | LFO sources slot into the existing table |
-| 3 — envelopes ×3 + chaining | 3 envelopes, envelope times as destinations, modulate-a-modulator | Destinations widen; no structural change |
-| 4 — audio routing | N buses, 2 sends (per-voice/per-part), pan/level | The bus array was sized from day one |
 
 ## 6. Component Lifecycle
 
-- **Init** (`EngineInit`): zero the part state (all 16 routes empty via `source = kNone`), then pre-populate the 3 default routes — velocity→amp, env1(filter)→cutoff, env0(amp)→amp.
-- **Per block** (`Render`): snapshot the front part-state buffer into the audio-side parts; drain the event ring (note-on latches per-note sources).
-- **Per control step**: source gating → source advance → 16-route accumulation → write effective values.
+- **Init** (`EngineInit`): zero the part state (all 16 routes empty via `source = kNone`), then pre-populate the 4 default routes (velocity→amp, env0→amp, env1→cutoff, key follow with `key_follow_depth` default 0).
+- **Per block** (`Render`): snapshot the front part-state buffer into the audio-side parts; drain the event ring (note-on latches velocity, note number/octaves, gate, and random).
+- **Per control step** (16 samples), for each active voice:
+  1. **Gate sources** — read the per-part routed-source bitmask; skip advancing any source whose bit is clear.
+  2. **Advance sources** — advance per-voice LFOs/envelopes and (once per part) the global LFO; per-note sources are already latched.
+  3. **Accumulate** — for each of the 16 routes with `source != kNone`, add `amount × source` into the destination's accumulator per its combination class (`kNote` always exponential).
+  4. **Write** — fold effective destinations into the DSP: `UpdateFilterCoeffs` (cutoff × key-follow factor), oscillator increment (pitch), gain (amp), pan, sends.
 - **Route edit** (`EngineSetRoute`): publish into the back part-state buffer; the control side recomputes the routed-source bitmask; the change lands at the next block boundary.
 - **Shutdown**: none — the subsystem owns no heap; all state is fixed-size and part of the existing voice/part arrays.
 
@@ -132,8 +175,8 @@ The architecture is specified in full above; implementation proceeds in four pha
 ```cpp
 enum class ModSourceId : uint8_t {
     kNone = 0,      // empty-slot sentinel; zero-init marks a slot empty
-    kVelocity,      // per-note
-    kNote,          // per-note (note → keytrack)
+    kVelocity,      // per-note (velocity / 127)
+    kNote,          // per-note (key follow: octaves from middle C)
     kGate,          // per-note
     kLfo0, kLfo1,   // per-voice LFOs
     kLfo2,          // global per-part LFO
@@ -148,17 +191,17 @@ enum class ModSourceId : uint8_t {
 
 ### ParamId and CombinationClass
 
-`ParamId` is extended to cover every modulatable destination: osc pitch (coarse/fine), osc wave/shape index, filter cutoff, resonance, amp/level, pan, the 3 LFO rates, the 3 envelopes' A/D/S/R, keytrack depth, and the 2 send amounts. Each param's descriptor carries its `CombinationClass`:
+`ParamId` is extended to cover every modulatable destination: osc pitch (coarse/fine), osc wave/shape index, filter cutoff, resonance, amp/level, pan, the 3 LFO rates, the 3 envelopes' A/D/S/R, and the 2 send amounts. Each param's descriptor carries its `CombinationClass`:
 
 ```cpp
 enum class CombinationClass : uint8_t { kAdditive, kMultiplicative, kExponential };
 ```
 
-| Class | Destinations | Combination |
+| Class | Combination | Notes |
 |---|---|---|
-| `kAdditive` | cutoff, resonance, wave/shape index, pan | `effective = base + Σ(amount × source)` |
-| `kMultiplicative` | amp/level, mix levels, send amounts | `effective = base × Π(...)` |
-| `kExponential` | pitch (semitones), LFO rate, envelope times | `effective = base × 2^(Σ amount × source)` |
+| `kAdditive` | `base + Σ amount·src` | cutoff, resonance, wave/shape, pan |
+| `kMultiplicative` | `base × Π(amount·src)` unipolar; `base × Π(1 + amount·src)` bipolar | amp/level, sends |
+| `kExponential` | `base × 2^(Σ amount·src)` | pitch, LFO rate, envelope times; `kNote` always uses this |
 
 The full `ParamId` enumeration and its `ParamDesc` table live in `engine/params.h` (the existing descriptor table, extended); the arch-design's authority is the *shape* — params are float, normalized [0,1] at rest, and each modulatable param carries a combination class.
 
@@ -168,27 +211,28 @@ The full `ParamId` enumeration and its `ParamDesc` table live in `engine/params.
 struct ModRoute {
     ModSourceId source = ModSourceId::kNone;  // kNone == empty slot
     ParamId destination;                        // valid only when source != kNone
-    float amount = 0.0f;                        // normalized [-1, 1]; 0 == "present but silent"
+    float amount = 0.0f;                        // signed, normalized; 0 == "present but silent"
 };
 ```
 
-`amount` is normalized; the destination's display range is applied at evaluation, so a route is meaningful independent of its target.
+`amount` is signed and normalized; the destination's display range is applied at evaluation, so a route is meaningful independent of its target. Key follow's `amount` (`key_follow_depth`) is in [0, 1]; the octave scale lives in the `kNote` source value.
 
 ### Part (extended)
 
 ```cpp
 struct Part {
     // Float params (existing, extended): cutoff, resonance, envelope A/D/S/R ×3,
-    // osc pitch coarse/fine, wave, amp, pan, LFO rates ×3, keytrack depth, sends ×2,
+    // osc pitch coarse/fine, wave, amp, pan, LFO rates ×3, key-follow depth, sends ×2,
     // and the 4 performance inputs (modwheel, aftertouch, pitchbend, expression).
     float params[kNumParams];       // normalized [0,1]; snapshotted per block
+    float key_follow_depth;         // default-route amount for kNote → cutoff, [0,1], default 0
     LfoShape lfo_shape[3];          // triangle / saw / square / S&H
     LfoSync lfo_sync[3];            // free-run / key-sync (per LFO)
     ModRoute routes[kModSlots];     // kModSlots = 16
 };
 ```
 
-`Part` is the double-buffered snapshot unit — the thing `ParamBlock` transports is generalized from a float array to this struct.
+`key_follow_depth` is the amount of the default `kNote → kCutoff` route (slot 4). `Part` is the double-buffered snapshot unit — the thing `ParamBlock` transports is generalized from a float array to this struct.
 
 ### Voice (extended)
 
@@ -197,24 +241,31 @@ struct Voice {
     // ... existing DSP state (phase, inc, filter integrators, envelope) ...
     float lfo_phase[2];      // the 2 per-voice LFO phase accumulators
     float note, gate, vel;   // per-note latched sources (set at StartNote)
+    float key_follow;        // per-note latched octave offset (set at StartNote)
     float random;            // per-note latched random
     float pan, send[2];      // per-voice routing (send = per-voice send amounts)
 };
 ```
 
-The global LFO's phase lives in the audio-side part state (per part), not in `Voice`.
+`note` is the MIDI note number (integer-valued float), `key_follow` its octave offset from C4. The global LFO's phase lives in the audio-side part state (per part), not in `Voice`.
 
 ### Bus and sends
 
 ```cpp
+constexpr int kNumBuses = 1;   // starts at 1; N grows when per-part outputs land
+constexpr int kNumSends = 2;   // reverb, delay
+
+// Per-block stereo accumulation, cleared each block.
 struct Bus {
-    float L[N]; float R[N];     // stereo accumulation per block, indexed
-    // N buses; start at 1. Per-part 8-ch output is deferred.
+    float L[kBlockSize];
+    float R[kBlockSize];
+    float send[kNumSends][kBlockSize];  // shared effect taps
 };
 
-// 2 shared effect buses (reverb, delay); per-voice send[] and per-part send
-// params tap into them.
+Bus g_buses[kNumBuses];
 ```
+
+Each voice routes by bus index with per-voice pan/level and per-voice send amounts scaled by per-part send params. Pan uses an equal-power law: `L = level · cos((pan + 1) · π/4)`, `R = level · sin((pan + 1) · π/4)`, with `pan ∈ [−1, 1]` (0 = center). A send tap is `send[i] += sample · voice.send[i] · part.send[i]`.
 
 ## 8. Contracts
 
@@ -225,7 +276,7 @@ void EngineSetParam(int part, ParamId id, float norm);
 ```
 
 - **Precondition**: `part` in `[0, kNumParts)`, `id` a valid `ParamId`, `norm` in `[0, 1]`.
-- **Postcondition**: the param is published to the back part-state buffer; it becomes the effective base value at the next block boundary.
+- **Postcondition**: the param is published to the back part-state buffer; it becomes the effective base value at the next block boundary. Setting `key_follow_depth` changes the key-follow route amount (slot 4).
 - **Error semantics**: out-of-range `part`/`id` → no-op (matches existing behavior).
 
 ### EngineSetRoute
@@ -234,7 +285,7 @@ void EngineSetParam(int part, ParamId id, float norm);
 void EngineSetRoute(int part, int slot, ModSourceId source, ParamId dest, float amount);
 ```
 
-- **Precondition**: `slot` in `[0, kModSlots)`, `source` valid, `dest` a modulatable `ParamId`, `amount` in `[-1, 1]`.
+- **Precondition**: `slot` in `[0, kModSlots)`, `source` valid, `dest` a modulatable `ParamId`, `amount` in `[-1, 1]` (or `[0, 1]` for key follow).
 - **Postcondition**: the slot is written. `source == kNone` clears the slot. The routed-source bitmask is recomputed from route existence only (`source != kNone`), never from `amount`.
 - **Error semantics**: invalid `part`/`slot`/`dest` → no-op.
 
@@ -246,7 +297,7 @@ void EngineNoteOff(int part, float freq_hz);
 ```
 
 - **Precondition**: `part` in `[0, kNumParts)`.
-- **Postcondition (NoteOn)**: a note event with `velocity` is queued on the ring; at note start the voice latches per-note sources (velocity, note, gate, random).
+- **Postcondition (NoteOn)**: a note event with `velocity` and `freq_hz` is queued on the ring; at note start the voice latches per-note sources (velocity, note number, key-follow octaves, gate, random).
 - **Error semantics**: unchanged from today (dropped when full, no matching note → no-op).
 
 ### Render (matrix evaluation)
@@ -256,27 +307,29 @@ void Render(float *out, int frames);
 ```
 
 - **Precondition**: `out` holds `frames` floats; engine initialized.
-- **Postcondition**: `out` holds the sum of all voices, each voice's cutoff/pitch/amp/pan computed from its part's base params plus the matrix's accumulated modulation, routed into the buses; output clamped to `[-1, 1]`.
+- **Postcondition**: `out` holds the sum of all voices, each voice's cutoff/pitch/amp/pan computed from its part's base params plus the matrix's accumulated modulation (cutoff includes the key-follow factor), routed into the buses; output clamped to `[-1, 1]`.
 - **Error semantics**: none — no allocation, no failure path in the audio loop.
 
 ## 9. System Invariants
 
 - A route with `source == kNone` contributes nothing; only routes with `source != kNone` set a bit in the routed-source mask.
 - The routed-source bitmask depends only on route existence, never on `amount`; changing an amount never changes which sources are computed.
-- The three default routes (velocity→amp, env1→cutoff, env0→amp) reproduce the pre-matrix sound exactly; there is no dual path.
+- The three default routes (velocity→amp, env0→amp, env1→cutoff) reproduce the pre-matrix sound exactly; there is no dual path.
+- Key follow (`kNote`) combines exponentially on every destination; on cutoff it is a multiplicative factor on the additive cutoff result — `cutoff_Hz = NormToHz(cutoff_norm_eff) × 2^(key_follow_depth × key_follow_octaves)`.
 - Per-voice sources never cross the IPC boundary; only per-note (event ring) and per-part (double-buffered state) values do.
 - All matrix arithmetic is single-precision float; no `double`, no heap allocation, no exceptions/RTTI in the audio path.
-- `effective` destination values respect their combination class: additive sums, multiplicative products, exponential log-domain; amount is normalized and the destination range is applied at evaluation.
+- Effective destination values respect their combination class; amount is normalized and the destination range is applied at evaluation.
 
 ## 10. Test Architecture
 
 The matrix is desktop-testable through the existing engine test surface; no hardware is required.
 
-- **Golden baseline**: `EngineInit` (which pre-populates the 3 default routes) → `Render` → compare against the pre-matrix render (hash/WAV). This is the migration gate: the default routes must reproduce today's sound.
+- **Golden baseline**: `EngineInit` (which pre-populates the 4 default routes) → `Render` → compare against the pre-matrix render (hash/WAV). This is the migration gate: the default routes must reproduce today's sound.
 - **Route behavior**: set a route (`EngineSetRoute`) and render; observe the destination change proportional to `source × amount`.
 - **Empty-slot and zero-amount**: an empty slot (`kNone`) and a zero-amount route both contribute nothing, but only the zero-amount route keeps its source computed (observable via the routed-source mask or a source-render counter).
 - **Source gating**: an LFO with no route is not advanced (counter stays zero); adding a route starts it.
 - **Chaining**: envelope→LFO-rate as a destination changes the LFO's effective rate.
+- **Key follow**: at `key_follow_depth = 1`, rendering a note one octave above middle C yields a cutoff one octave higher (×2 in Hz) than the same note at middle C, all else equal.
 - **Audio routing**: pan routes a voice to the correct bus side; per-part send taps the correct effect bus.
 
 ## 11. Acceptance Criteria
@@ -288,6 +341,8 @@ The matrix is desktop-testable through the existing engine test surface; no hard
 - [ ] Given an unrouted LFO, its phase never advances (observable via counter or cycle count).
 - [ ] Given a route `env0 → lfo2 rate`, the LFO rate changes on the following control step.
 - [ ] Given a multiplicative amp route and an additive cutoff route, they combine by product and sum respectively.
+- [ ] Given `key_follow_depth = 1`, a note at MIDI 72 (C5) renders with a cutoff frequency double that of the same patch at MIDI 60 (C4).
+- [ ] Given `key_follow_depth = 0`, the cutoff frequency is identical at MIDI 72 and MIDI 60.
 - [ ] Given a voice with pan `-1`, its signal appears only in the left bus.
 - [ ] Given a part with a reverb send amount, its signal reaches the reverb bus at that level.
 - [ ] No new IPC mechanism exists beyond the event ring and the double-buffered part state.
@@ -300,7 +355,7 @@ The matrix is desktop-testable through the existing engine test surface; no hard
 |---|---|
 | `engine/params.h`, `engine/params.cc` | Extended `ParamId` + `CombinationClass` in the descriptor table |
 | `engine/engine.h` | `ModSourceId`, `ModRoute`, `CombinationClass` types; `Part`/`Voice` extension; `EngineSetRoute` declaration |
-| `engine/engine.cc` | Matrix evaluation at control rate; source gating; default-route init; bus routing |
+| `engine/engine.cc` | Matrix evaluation at control rate; source gating; default-route init; key-follow factor in `UpdateFilterCoeffs`; bus routing |
 | `engine/ipc.h` | Generalize the double-buffered transport from a float array to the `Part` struct |
 | `engine/midi.h`, `engine/midi.cc` | Route performance sources (modwheel, aftertouch, pitchbend, expression) into the part state |
 
@@ -311,3 +366,7 @@ The matrix is desktop-testable through the existing engine test surface; no hard
 | `Voice::gain` (`engine/engine.h`) | Replaced by the default velocity→amp route |
 | `filter_env_amount` (`engine/params.*`, `engine/engine.cc` `UpdateFilterCoeffs`) | Replaced by the default env1→cutoff route |
 | `kVoiceHeadroom` / `VelocityToGain` special-casing (`engine/engine.cc`) | Folded into the velocity→amp route amount |
+
+## 13. Open Questions
+
+1. **Pitchbend → osc pitch default route** — pitchbend is a source and osc pitch a destination, so the route is expressible; whether it is pre-populated at `EngineInit` (and with what semitone range) is undecided. Blocks nothing — it can be added as a default route or left to the user.

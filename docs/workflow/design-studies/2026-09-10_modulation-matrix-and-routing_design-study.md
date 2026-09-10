@@ -1,6 +1,6 @@
 ---
 title: Modulation Matrix and Routing
-status: resolved
+status: review
 date: 2026-09-10
 author: Dizan Vasquez
 ---
@@ -18,7 +18,7 @@ This study resolves the architecture for **modulation routing and the modulation
 - **3 LFOs per part** — 2 per-voice + 1 global-per-part, 0.01–100 Hz, tempo-sync optional, shapes triangle/saw/square/sample-and-hold.
 - **3 envelopes per part** — amp, filter, one free modulation envelope.
 - **16 mod slots per part.**
-- **Sources**: velocity, note→keytrack, gate, the 3 LFOs, the 3 envelopes, modwheel, channel aftertouch, pitchbend, expression, random, constant.
+- **Sources**: velocity, note→key follow, gate, the 3 LFOs, the 3 envelopes, modwheel, channel aftertouch, pitchbend, expression, random, constant.
 - **Destinations**: osc pitch (coarse/fine), osc wave/shape, filter cutoff, resonance, filter-env amount, amp, pan, LFO rates, envelope A/D/S/R.
 - **Chaining**: modulate-a-modulator is first-class; depth-of-depth is a deferred-but-encodable extension.
 
@@ -56,7 +56,7 @@ The hardcoded routes are the concrete manifestation of the problem: velocity→a
 
 **Observation.** The survey identifies this as the single most consequential choice: it is the difference between Ambika's special-cased matrix and Deluge/Surge's general one. It also determines whether the locked "modulate-a-modulator" capability is free or bolted on.
 
-**Conclusion.** Open parameter-id space, plus a per-destination **combination class** — `additive` (cutoff, resonance, wave/shape index, pan), `multiplicative` (amp/VCA, level, send amounts), `exponential` (pitch/semitones, LFO rate, envelope times). This absorbs the existing hardcoded routes directly: velocity→amp is a multiplicative amp route, env→cutoff an additive cutoff route.
+**Conclusion.** Open parameter-id space, plus a per-destination **combination class** — `additive` (cutoff, resonance, wave/shape index, pan), `multiplicative` (amp/VCA, level, send amounts), `exponential` (pitch/semitones, LFO rate, envelope times). This absorbs the existing hardcoded routes directly: velocity→amp is a multiplicative amp route, env→cutoff an additive cutoff route. One refinement from the key-follow decision (3.7): cutoff is additive for every source *except* key follow, which combines exponentially (1:1 octave tracking).
 
 ### 3.2. Source placement
 
@@ -90,13 +90,13 @@ The hardcoded routes are the concrete manifestation of the problem: velocity→a
 
 #### Option 2: Float, unipolar/bipolar split
 
-- *Properties:* Unipolar sources (velocity, envelope, gate, random, constant) ∈ [0, 1]; bipolar sources (LFOs, pitchbend, note→keytrack) ∈ [−1, +1], neutral at 0. Amount is a signed float. Combination is `base + Σ(amount × source)` for additive, `base × Π(...)` for multiplicative, log-domain for exponential.
+- *Properties:* Unipolar sources (velocity, envelope, gate, random, constant) ∈ [0, 1]; bipolar sources (LFOs, pitchbend) ∈ [−1, +1], neutral at 0; key follow (note) is logarithmic — the note offset in octaves from middle C (MIDI 60), not a normalized value. Amount is a signed float. Combination is `base + Σ(amount × source)` for additive, `base × Π(...)` for multiplicative, log-domain for exponential.
 - *Pros:* Hardware single-precision FPU on the M85 (verified §2) makes float multiply-adds free; the bipolar sources are already centered at 0, collapsing Ambika's AC-coupled branch; one multiply-add per route.
 - *Cons:* Float rounding in long accumulations (bounded at 16 slots — negligible).
 
 **Observation.** Depends on the M85's single-precision FPU (§2) — float is viable only on a core with hardware FP; without it, fixed-point (Option 1) would be forced. Interacts with evaluation (3.4): the three combination classes must be implemented in single precision only (no `double` in the render path), which the 16-slot accumulation keeps bounded.
 
-**Conclusion.** Option 2. Source values normalized to [0,1]/[−1,1]; amounts normalized, with the destination's range applied at evaluation (so a route is meaningful independent of its target). Natural units appear only at the destination's display mapping, consistent with how `ParamDesc` already separates norm from display.
+**Conclusion.** Option 2. Source values normalized to [0,1]/[−1,1] — except key follow, which is octaves from middle C — amounts normalized, with the destination's range applied at evaluation (so a route is meaningful independent of its target). Natural units appear only at the destination's display mapping, consistent with how `ParamDesc` already separates norm from display.
 
 ### 3.4. Evaluation strategy
 
@@ -176,7 +176,7 @@ The hardcoded routes are the concrete manifestation of the problem: velocity→a
 
 **Observation.** Interacts with destination model (3.1): the three default routes are only expressible because the combination classes cover velocity→amp (multiplicative) and env→cutoff (additive). Constraint: the matrix must reproduce the pre-matrix render bit-for-bit before `Voice.gain` and `filter_env_amount` are deleted, which is what makes the cutover testable on desktop.
 
-**Conclusion.** Option 1. Minor baked-in defaults: the random source is per-note (latched at `StartNote`); keytrack is note→cutoff with a per-part depth (0 = off, 1 = full), default off.
+**Conclusion.** Option 1. Minor baked-in defaults: the random source is per-note (latched at `StartNote`); **key follow** is a default route `note → cutoff` with a per-part depth `key_follow_depth` ∈ [0, 1] (0 = off, 1 = full, default off). Key follow is 1:1 octave tracking: the note source is the offset in octaves from middle C (MIDI 60), and the route combines exponentially — `cutoff_Hz = base_cutoff_Hz × 2^(key_follow_depth × (note − 60)/12)`. This deviates from 3.1's additive cutoff: cutoff is additive for every source except key follow, which is exponential.
 
 ### 3.8. Audio/output routing
 
@@ -273,6 +273,6 @@ The following are deferred by explicit decision and do not change the current ar
 
 ## 7. Deliverables
 
-- [x] **Arch-design**: [`synth-routing_arch-design.md`](../arch-designs/synth-routing_arch-design.md) — the settled internal architecture: `Part`/`Voice`/`ModRoute`/`ParamId` types, the evaluation loop, the transport contract, the source/destination/combination-class tables, and the bus/effect-send structure. This is the primary deliverable; written (status: `review`).
+- [ ] **Arch-design**: [`synth-routing_arch-design.md`](../arch-designs/synth-routing_arch-design.md) — the settled internal architecture: `Part`/`Voice`/`ModRoute`/`ParamId` types, the evaluation loop, the transport contract, the source/destination/combination-class tables, and the bus/effect-send structure. This is the primary deliverable; it is written after this study reaches `resolved`.
 - [x] **Evidence base**: [Modulation Matrix Implementations](../reports/2026-09-10_modulation-matrix-implementations_report.md) — the cited source for the reference-synth findings.
 - Implementation is intentionally **out of scope** for this study — it begins from the arch-design's plan, after Phase-0 and the Phase-3 cycle measurement confirm the per-voice budget.
