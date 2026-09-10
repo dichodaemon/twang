@@ -81,14 +81,17 @@ constexpr Color kBright = Rgb565(124, 255, 176);
 // ---- Panel struct ----
 
 struct Panel {
-  // Cached engine state + transients (control thread).
+  // Cached engine state + transients (control thread). The parameter defaults
+  // mirror engine/params.cc's g_params so the panel renders the engine's
+  // initial state before any input (the per-frame poll then keeps them in
+  // sync).
   float freq = 440.0f;
-  float cutoff = 0.5f;
+  float cutoff = 1.0f;
   float resonance = 0.0f;
-  float attack = 0.0f;
-  float decay = 0.0f;
+  float attack = 0.25f;
+  float decay = 0.6f;
   float sustain = 0.7f;
-  float release = 0.0f;
+  float release = 0.6f;
   bool note_on = false;
   std::uint32_t note_at = 0;
   std::uint32_t release_at = 0;
@@ -522,13 +525,13 @@ void DrawEnvPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   }
   ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, tr, grat, 4, kBright);
 
-  // Handles (plot-local rects remembered for the next frame's erase). The Y
-  // is clamped to >= 0: a handle at the plot top (T == 12, or sustain -> 1)
-  // would otherwise sit one row above the plot, where EraseOverlayRect (which
-  // clamps to the plot) can never reach it.
-  const Rect ha{e.xA - 13, std::max(0, e.T - 13), 26, 26};
-  const Rect hd{e.xD - 13, std::max(0, e.yS - 13), 26, 26};
-  const Rect hr{e.xR - 13, std::max(0, e.B - 13), 26, 26};
+  // Handles (plot-local rects remembered for the next frame's erase). The
+  // plot draw runs under fb.clip == the plot rect, so a handle at the plot
+  // top (T == 12, or sustain -> 1) is clipped to the plot interior rather
+  // than drawing one row above it.
+  const Rect ha{e.xA - 13, e.T - 13, 26, 26};
+  const Rect hd{e.xD - 13, e.yS - 13, 26, 26};
+  const Rect hr{e.xR - 13, e.B - 13, 26, 26};
   Cursor(fb, ox + ha.x, oy + ha.y, ha.w, ha.h, kBright);
   Cursor(fb, ox + hd.x, oy + hd.y, hd.w, hd.h, kBright);
   Cursor(fb, ox + hr.x, oy + hr.y, hr.w, hr.h, kBright);
@@ -741,40 +744,43 @@ void FmtTime(float norm, engine::ParamId id, char *buf, int n) {
     std::snprintf(buf, n, "%.2fs", s);
 }
 
-void ReadoutText(Panel &p, int idx, char *buf, int n) {
+void ReadoutText(Panel &p, int idx, char lines[2][32]) {
+  lines[0][0] = lines[1][0] = '\0';
   switch (idx) {
     case 0:  // oscillator
-      std::snprintf(buf, n, "%.0fHz", p.freq);
+      std::snprintf(lines[0], 32, "%.0fHz", p.freq);
       break;
-    case 1: {  // filter
+    case 1: {  // filter (two lines, like the mockup)
       const float hz = NormToHz(p.cutoff);
       if (hz >= 1000.0f)
-        std::snprintf(buf, n, "%.2fkHz  RES %.0f%%", hz / 1000.0f, p.resonance * 100.0f);
+        std::snprintf(lines[0], 32, "%.2fkHz", hz / 1000.0f);
       else
-        std::snprintf(buf, n, "%.0fHz  RES %.0f%%", hz, p.resonance * 100.0f);
+        std::snprintf(lines[0], 32, "%.0fHz", hz);
+      std::snprintf(lines[1], 32, "RES %.0f%%", p.resonance * 100.0f);
       break;
     }
-    case 2: {  // envelope
+    case 2: {  // envelope (two lines)
       char a[16], d[16], r[16];
       FmtTime(p.attack, engine::ParamId::kAttack, a, sizeof(a));
       FmtTime(p.decay, engine::ParamId::kDecay, d, sizeof(d));
       FmtTime(p.release, engine::ParamId::kRelease, r, sizeof(r));
-      std::snprintf(buf, n, "A %s  D %s  S %.0f%%  R %s", a, d, p.sustain * 100.0f, r);
+      std::snprintf(lines[0], 32, "A %s  D %s", a, d);
+      std::snprintf(lines[1], 32, "S %.0f%%  R %s", p.sustain * 100.0f, r);
       break;
     }
     default:  // output
       switch (p.scope_mode) {
         case ScopeMode::kScope:
           if (p.scope_peak > 0.01f)
-            std::snprintf(buf, n, "env %.0f%%", p.scope_peak * 100.0f);
+            std::snprintf(lines[0], 32, "env %.0f%%", p.scope_peak * 100.0f);
           else
-            std::snprintf(buf, n, "NO SIGNAL");
+            std::snprintf(lines[0], 32, "NO SIGNAL");
           break;
         case ScopeMode::kCycle:
-          std::snprintf(buf, n, "1 cycle  %.0fHz", p.freq);
+          std::snprintf(lines[0], 32, "1 cycle  %.0fHz", p.freq);
           break;
         case ScopeMode::kSpectrum:
-          std::snprintf(buf, n, "FFT 8192  Hann");
+          std::snprintf(lines[0], 32, "FFT 8192  Hann");
           break;
       }
       break;
@@ -782,15 +788,18 @@ void ReadoutText(Panel &p, int idx, char *buf, int n) {
 }
 
 void DrawReadout(FrameBuffer &fb, Panel &p, int idx) {
-  char buf[96];
-  ReadoutText(p, idx, buf, sizeof(buf));
-  // Clear the readout band to the background before redrawing: the text is
-  // right-aligned and changes width, so a fixed band avoids stale pixels from
-  // the previous value.
+  char lines[2][32] = {{0}, {0}};
+  ReadoutText(p, idx, lines);
+  // Clear the two-line band to the background before redrawing: the text is
+  // right-aligned and changes width, so a fixed band avoids stale pixels.
   FillRect(fb, kPx0[idx] + kPlotDX, kReadoutY, kReadoutX - kPlotDX,
-           kPrimaryFont.h, kBg);
-  TextRight(fb, buf, kPx0[idx] + kReadoutX, kReadoutY, kPrimaryFont,
-            idx == 3 ? kMid : kBright);
+           2 * kPrimaryFont.h + 2, kBg);
+  const Color c = idx == 3 ? kMid : kBright;
+  for (int i = 0; i < 2; ++i) {
+    if (lines[i][0] == '\0') break;
+    TextRight(fb, lines[i], kPx0[idx] + kReadoutX,
+              kReadoutY + i * (kPrimaryFont.h + 2), kPrimaryFont, c);
+  }
 }
 
 // ---- module draw hooks (DynRegion callbacks) ----
@@ -798,28 +807,40 @@ void DrawReadout(FrameBuffer &fb, Panel &p, int idx) {
 void PlotOsc(FrameBuffer &fb, const Rect &r, void *state) {
   auto *p = static_cast<Panel *>(state);
   ++p->draw_counts[0];
+  const Rect saved = fb.clip;
+  fb.clip = r;
   DrawOscPlot(fb, r.x, r.y, r.w, r.h, *p);
+  fb.clip = saved;
   DrawReadout(fb, *p, 0);
 }
 
 void PlotFilter(FrameBuffer &fb, const Rect &r, void *state) {
   auto *p = static_cast<Panel *>(state);
   ++p->draw_counts[1];
+  const Rect saved = fb.clip;
+  fb.clip = r;
   DrawFilterPlot(fb, r.x, r.y, r.w, r.h, *p);
+  fb.clip = saved;
   DrawReadout(fb, *p, 1);
 }
 
 void PlotEnv(FrameBuffer &fb, const Rect &r, void *state) {
   auto *p = static_cast<Panel *>(state);
   ++p->draw_counts[2];
+  const Rect saved = fb.clip;
+  fb.clip = r;
   DrawEnvPlot(fb, r.x, r.y, r.w, r.h, *p);
+  fb.clip = saved;
   DrawReadout(fb, *p, 2);
 }
 
 void PlotOut(FrameBuffer &fb, const Rect &r, void *state) {
   auto *p = static_cast<Panel *>(state);
   ++p->draw_counts[3];
+  const Rect saved = fb.clip;
+  fb.clip = r;
   DrawOutPlot(fb, r.x, r.y, r.w, r.h, *p);
+  fb.clip = saved;
   DrawReadout(fb, *p, 3);
 }
 
@@ -954,6 +975,8 @@ Panel *PanelCreate() {
   return p;
 }
 
+void SyncFromEngine(Panel *p);  // defined below (after PanelDraw)
+
 void MarkDirty(Panel *p, int idx) {
   p->plots[idx].dirty = true;
   p->pending[idx] = 2;  // repaint into BOTH buffers (double buffering)
@@ -961,13 +984,17 @@ void MarkDirty(Panel *p, int idx) {
   // The readout text below the plot is drawn by the same hook and sits
   // outside plots[idx].rect; track it separately so damage stays complete.
   p->damage.Add(Rect{kPx0[idx] + kPlotDX, kReadoutY, kReadoutX - kPlotDX,
-                     kPrimaryFont.h});
+                     2 * kPrimaryFont.h + 2});
 }
 
 void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   // Record which buffer we draw into; the backend owns the swap and passes it
   // in, so there is no independent toggle to desync.
   p->fb_index = buffer_index;
+
+  // Poll the engine for parameter changes (MIDI CC, encoders) and invalidate
+  // the affected plots before drawing.
+  SyncFromEngine(p);
 
   // Drain the audio thread's scope-dirty flag into the output plot's
   // invalidation — the scope animates in steady state.
@@ -1060,15 +1087,31 @@ void ApplyEnvDrag(Panel *p, int handle, int x, int y, int w, int h) {
   }
 }
 
-// Sync the cached state back from the engine (MIDI/drag write the engine
-// directly; the display reads back).
+// Poll the engine's parameter state and invalidate any plot whose backing
+// parameters changed. This is the single sync point: MIDI CC, encoders, and
+// any future input source write the engine directly, so the panel watches for
+// changes rather than being pushed (the drag paths are covered too).
 void SyncFromEngine(Panel *p) {
-  p->cutoff = engine::EngineGetParam(0, engine::ParamId::kCutoff);
-  p->resonance = engine::EngineGetParam(0, engine::ParamId::kResonance);
-  p->attack = engine::EngineGetParam(0, engine::ParamId::kAttack);
-  p->decay = engine::EngineGetParam(0, engine::ParamId::kDecay);
-  p->sustain = engine::EngineGetParam(0, engine::ParamId::kSustain);
-  p->release = engine::EngineGetParam(0, engine::ParamId::kRelease);
+  const float cutoff = engine::EngineGetParam(0, engine::ParamId::kCutoff);
+  const float resonance = engine::EngineGetParam(0, engine::ParamId::kResonance);
+  const float attack = engine::EngineGetParam(0, engine::ParamId::kAttack);
+  const float decay = engine::EngineGetParam(0, engine::ParamId::kDecay);
+  const float sustain = engine::EngineGetParam(0, engine::ParamId::kSustain);
+  const float release = engine::EngineGetParam(0, engine::ParamId::kRelease);
+
+  if (cutoff != p->cutoff || resonance != p->resonance) {
+    p->cutoff = cutoff;
+    p->resonance = resonance;
+    MarkDirty(p, 1);
+  }
+  if (attack != p->attack || decay != p->decay || sustain != p->sustain ||
+      release != p->release) {
+    p->attack = attack;
+    p->decay = decay;
+    p->sustain = sustain;
+    p->release = release;
+    MarkDirty(p, 2);
+  }
 }
 
 void PanelPointer(Panel *p, PointerEvent e) {
@@ -1104,21 +1147,15 @@ void PanelPointer(Panel *p, PointerEvent e) {
     const int y = e.y - pr.y;
     if (m == 1) {  // filter XY pad
       if (e.kind == PointerKind::kPress) p->filter_drag = true;
-      if (p->filter_drag && e.kind != PointerKind::kRelease) {
+      if (p->filter_drag && e.kind != PointerKind::kRelease)
         ApplyFilterDrag(x, y, pr.w, pr.h);
-        SyncFromEngine(p);
-        MarkDirty(p, 1);
-      }
       if (e.kind == PointerKind::kRelease) p->filter_drag = false;
       return;
     }
     if (m == 2) {  // envelope handles
       if (e.kind == PointerKind::kPress) p->drag_handle = HitTestEnv(x, y, pr.w, pr.h, *p);
-      if (p->drag_handle >= 0 && e.kind != PointerKind::kRelease) {
+      if (p->drag_handle >= 0 && e.kind != PointerKind::kRelease)
         ApplyEnvDrag(p, p->drag_handle, x, y, pr.w, pr.h);
-        SyncFromEngine(p);
-        MarkDirty(p, 2);
-      }
       if (e.kind == PointerKind::kRelease) p->drag_handle = -1;
       return;
     }

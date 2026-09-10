@@ -54,9 +54,13 @@ static std::uint32_t RegionHash(const std::uint16_t *buf, int x, int y,
 }
 
 // Golden-image hash of the initial (deterministic) full render.
-static constexpr std::uint32_t kExpectedHash = 0xD170C287;
+static constexpr std::uint32_t kExpectedHash = 0xC1DBB623;
 
 int main() {
+    // The panel polls the engine each frame, so the engine must be in its
+    // default state before the first render (otherwise the panel syncs to a
+    // zero-initialized engine).
+    engine::EngineInit();
     Panel *p = PanelCreate();
 
     // Two framebuffers — the panel is buffer-agnostic and draws each once.
@@ -135,10 +139,23 @@ int main() {
         RegionHash(buf0, kEnvX, kPlotY - 1, kPlotW, 1);
     Check(env_row_before == env_row_after, "env drag leaves no trail above the plot");
 
+    // Regression: an engine param change without any pointer event (e.g. a
+    // MIDI CC arriving over the wire) must still reach the display — the
+    // per-frame poll in PanelDraw detects it and redraws the affected plot.
+    const int filter_before_cc = PanelPlotDraws(p, 1);
+    engine::EngineSetParam(0, engine::ParamId::kCutoff, 0.3f);
+    PanelDraw(p, fb1, 1);
+    PanelDraw(p, fb0, 0);
+    Check(PanelPlotDraws(p, 1) == filter_before_cc + 2,
+          "engine param change (no pointer event) redraws the filter plot");
+
     // 2.2 regression: a key press followed by a release OFF the keyboard band
-    // must still note-off (the release lands in a different branch). Instant
-    // release (release=0) so note-off means immediate silence.
+    // must still note-off (the release lands in a different branch). Reset the
+    // engine (earlier tests left notes/params) and force an instant envelope
+    // so note-on is immediately audible and note-off immediately silent.
     engine::EngineInit();
+    engine::EngineSetParam(0, engine::ParamId::kAttack, 0.0f);
+    engine::EngineSetParam(0, engine::ParamId::kDecay, 0.0f);
     engine::EngineSetParam(0, engine::ParamId::kRelease, 0.0f);
     float out[64];
     const int keyX = kTitleX + 5 * kKeyW + 20;  // key 5
