@@ -52,9 +52,9 @@ void MidiCc(const MidiLayout &layout, int part, std::uint8_t cc,
     }
 }
 
-void MidiNoteOn(int part, std::uint8_t note) {
+void MidiNoteOn(int part, std::uint8_t note, std::uint8_t velocity) {
     if (part < 0 || part >= kNumParts) return;
-    EngineNoteOn(part, MidiNoteToFreq(note));
+    EngineNoteOn(part, MidiNoteToFreq(note), velocity);
 }
 
 void MidiNoteOff(int part, std::uint8_t note) {
@@ -71,7 +71,7 @@ void MidiMessage(const MidiLayout &layout, int part, std::uint8_t status,
         break;
     case 0x90:  // Note On (velocity 0 = note off)
         if (d2 == 0) MidiNoteOff(part, d1);
-        else MidiNoteOn(part, d1);
+        else MidiNoteOn(part, d1, d2);
         break;
     case 0x80:  // Note Off
         MidiNoteOff(part, d1);

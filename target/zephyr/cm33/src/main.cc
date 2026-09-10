@@ -42,7 +42,7 @@ int main(void) {
     // Smoke: a held A4 note drives the envelope playhead so the panel has
     // something to draw. (The scope tap is fed by the audio core over IPC,
     // which is not wired yet.)
-    spike::PanelNoteOn(panel, 440.0f);
+    spike::PanelNoteOn(panel, 440.0f, 127);
 
     for (;;) {
         backend.PollTouch(panel);

@@ -82,7 +82,8 @@ void PanelPointer(Panel *p, PointerEvent e);
 ///
 /// @param p Panel context.
 /// @param freq_hz Note frequency in Hz.
-void PanelNoteOn(Panel *p, float freq_hz);
+/// @param velocity MIDI velocity in [1, 127].
+void PanelNoteOn(Panel *p, float freq_hz, std::uint8_t velocity);
 
 /// @brief A note-off: releases the note and starts the playhead release.
 ///

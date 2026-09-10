@@ -82,7 +82,7 @@ int main() {
 
     // Note-on drives the envelope playhead into BOTH buffers.
     const std::uint32_t env_before = RegionHash(buf0, kEnvX, kPlotY, kPlotW, kPlotH);
-    PanelNoteOn(p, 440.0f);
+    PanelNoteOn(p, 440.0f, 127);
     PanelDraw(p, fb0, 0);  // frame 3, buffer 0 — redraws the dirty plots
     PanelDraw(p, fb1, 1);  // frame 4, buffer 1 — redraws the dirty plots
     const std::uint32_t env_after0 = RegionHash(buf0, kEnvX, kPlotY, kPlotW, kPlotH);

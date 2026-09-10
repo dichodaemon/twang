@@ -57,9 +57,17 @@ float EnvInc(float delta, float time_s) {
 // note. A few ms: long enough to avoid a click, short enough to feel instant.
 constexpr float kStealTime = 0.005f;  // 5 ms
 
-// Per-voice output gain, so a polyphonic chord sums below the ±1 clamp. A
-// stopgap: proper velocity sensitivity replaces this later.
-constexpr float kVoiceGain = 0.25f;
+// Per-voice output gain ceiling, so a polyphonic chord sums below the ±1
+// clamp. Velocity scales below it: full velocity (127) reproduces this
+// ceiling, lower velocities are quieter.
+constexpr float kVoiceHeadroom = 0.25f;
+
+// Linear MIDI velocity (1..127) → per-voice gain. Velocity is a linear
+// modulation source in Ambika/Surge/Deluge; here it scales the VCA directly
+// (no mod matrix yet).
+float VelocityToGain(std::uint8_t velocity) {
+    return kVoiceHeadroom * (static_cast<float>(velocity) / 127.0f);
+}
 
 // Move from the attack peak into decay, skipping straight to sustain if the
 // decay time is zero (instant).
@@ -76,7 +84,7 @@ void EnterDecay(Voice *v, const Part *p) {
     }
 }
 
-void StartNote(Voice *v, float freq_hz, const Part *p);  // defined below
+void StartNote(Voice *v, float freq_hz, float gain, const Part *p);  // defined below
 
 // Advance the envelope by `samples` (control step).
 void UpdateEnvelope(Voice *v, int samples, const Part *p) {
@@ -105,7 +113,7 @@ void UpdateEnvelope(Voice *v, int samples, const Part *p) {
         v->env += v->env_inc * static_cast<float>(samples);
         if (v->env <= 0.0f) {
             v->env = 0.0f;
-            StartNote(v, v->steal_freq, p);  // ramp done: retrigger the new note
+            StartNote(v, v->steal_freq, v->steal_gain, p);  // ramp done: retrigger the new note
         }
         break;
     default:  // kIdle or kSustain: hold
@@ -114,9 +122,10 @@ void UpdateEnvelope(Voice *v, int samples, const Part *p) {
 }
 
 // Start a note on the voice (audio thread).
-void StartNote(Voice *v, float freq_hz, const Part *p) {
+void StartNote(Voice *v, float freq_hz, float gain, const Part *p) {
     v->phase = 0.0f;
     v->inc = freq_hz / kSampleRate;
+    v->gain = gain;
     v->env = 0.0f;
     // Clear the filter integrators so a reused voice starts a note with no
     // leftover energy from the previous note (a fresh note = a fresh filter).
@@ -150,13 +159,14 @@ void ReleaseNote(Voice *v, const Part *p) {
 // Steal the voice for a new note (audio thread): ramp the current envelope
 // down over a few ms, then retrigger the new note. Avoids the click an
 // instant cut would cause (digest §9: "terminate", not "kill").
-void StealNote(Voice *v, float freq_hz, std::uint8_t part) {
+void StealNote(Voice *v, float freq_hz, float gain, std::uint8_t part) {
     v->part = part;
     if (v->stage == Voice::Stage::kIdle || v->env <= 0.0f) {
-        StartNote(v, freq_hz, &g_parts[part]);  // nothing to ramp: start now
+        StartNote(v, freq_hz, gain, &g_parts[part]);  // nothing to ramp: start now
         return;
     }
     v->steal_freq = freq_hz;
+    v->steal_gain = gain;
     v->stage = Voice::Stage::kSteal;
     v->env_inc = EnvInc(-v->env, kStealTime);
 }
@@ -170,10 +180,10 @@ void ApplyEvents() {
         if (e.type == Event::Type::kNoteOn) {
             if (e.part >= kNumParts) continue;
             v->part = e.part;
-            StartNote(v, e.freq, &g_parts[e.part]);
+            StartNote(v, e.freq, VelocityToGain(e.velocity), &g_parts[e.part]);
         } else if (e.type == Event::Type::kSteal) {
             if (e.part >= kNumParts) continue;
-            StealNote(v, e.freq, e.part);
+            StealNote(v, e.freq, VelocityToGain(e.velocity), e.part);
         } else {
             ReleaseNote(v, &g_parts[v->part]);
         }
@@ -206,7 +216,7 @@ void RenderBlock(float *out, int frames) {
             for (int i = 0; i < n; ++i) {
                 float saw = DspOscTick(voice);
                 float lp = DspSvfTick(voice, saw);
-                out[start + i] += lp * voice->env * kVoiceGain;
+                out[start + i] += lp * voice->env * voice->gain;
             }
         }
     }
@@ -227,13 +237,13 @@ void EngineInit() {
 
 __attribute__((weak)) void EngineEventsPending() {}
 
-void EngineNoteOn(int part, float freq_hz) {
+void EngineNoteOn(int part, float freq_hz, std::uint8_t velocity) {
     const Allocator::Decision d = g_alloc.NoteOn(part, freq_hz);
     if (d.voice < 0) return;  // dropped: full and nothing to steal
     const Event::Type type =
         d.steal ? Event::Type::kSteal : Event::Type::kNoteOn;
     g_events.Push({type, static_cast<std::uint8_t>(part),
-                   static_cast<std::uint8_t>(d.voice), freq_hz});
+                   static_cast<std::uint8_t>(d.voice), velocity, freq_hz});
     EngineEventsPending();
 }
 
@@ -241,7 +251,7 @@ void EngineNoteOff(int part, float freq_hz) {
     const int voice = g_alloc.NoteOff(part, freq_hz);
     if (voice < 0) return;  // no matching note
     g_events.Push({Event::Type::kNoteOff, static_cast<std::uint8_t>(part),
-                   static_cast<std::uint8_t>(voice), 0.0f});
+                   static_cast<std::uint8_t>(voice), 0, 0.0f});
     EngineEventsPending();
 }
 

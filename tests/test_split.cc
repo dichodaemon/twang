@@ -21,7 +21,7 @@ int main() {
             EngineSetParamDisp(0, ParamId::kCutoff, 100.0f + (i % 10) * 500.0f);
             EngineSetParamDisp(0, ParamId::kResonance, (i % 10) * 10.0f);
             const float freq = 220.0f + (i % 12) * 55.0f;
-            EngineNoteOn(0, freq);
+            EngineNoteOn(0, freq, 127);
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
             EngineNoteOff(0, freq);
             std::this_thread::sleep_for(std::chrono::milliseconds(1));

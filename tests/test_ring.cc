@@ -21,8 +21,8 @@ int main() {
 
     const int n = static_cast<int>(EventRing::kCapacity) - 1;  // max occupancy
     for (int i = 0; i < n; ++i)
-        Check(ring.Push({Event::Type::kNoteOn, 0, 0, 100.0f + i}), "push fits");
-    Check(!ring.Push({Event::Type::kNoteOn, 0, 0, 0.0f}), "full ring rejects");
+        Check(ring.Push({Event::Type::kNoteOn, 0, 0, 127, 100.0f + i}), "push fits");
+    Check(!ring.Push({Event::Type::kNoteOn, 0, 0, 127, 0.0f}), "full ring rejects");
 
     for (int i = 0; i < n; ++i) {
         Check(ring.Pop(&e), "pop succeeds");
@@ -31,7 +31,7 @@ int main() {
     }
     Check(!ring.Pop(&e), "ring drained");
 
-    ring.Push({Event::Type::kNoteOff, 0, 0, 0.0f});
+    ring.Push({Event::Type::kNoteOff, 0, 0, 0, 0.0f});
     Check(ring.Pop(&e) && e.type == Event::Type::kNoteOff,
           "note-off round-trips");
 

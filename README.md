@@ -50,7 +50,7 @@ inline constexpr int kNumVoices = 24;            // concurrent voices (fixed poo
 
 // control thread — queue events / set parameters
 void EngineInit();
-void EngineNoteOn(int part, float freq_hz);
+void EngineNoteOn(int part, float freq_hz, std::uint8_t velocity);
 void EngineNoteOff(int part, float freq_hz);
 void EngineSetParam(int part, ParamId id, float norm);     // normalized 0..1
 void EngineSetParamDisp(int part, ParamId id, float disp); // display units

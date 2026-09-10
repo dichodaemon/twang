@@ -92,7 +92,7 @@ void MidiIo::Poll(spike::Panel *panel) {
             break;
         case 0x90:  // Note On (velocity 0 = note off)
             if (msg[2] == 0) spike::PanelNoteOff(panel, engine::MidiNoteToFreq(msg[1]));
-            else spike::PanelNoteOn(panel, engine::MidiNoteToFreq(msg[1]));
+            else spike::PanelNoteOn(panel, engine::MidiNoteToFreq(msg[1]), msg[2]);
             break;
         case 0x80:  // Note Off
             spike::PanelNoteOff(panel, engine::MidiNoteToFreq(msg[1]));

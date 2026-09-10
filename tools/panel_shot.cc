@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
   // Two draws fill both buffers with chrome; extra pairs settle the plots.
   spike::PanelDraw(p, fb0, 0);
   spike::PanelDraw(p, fb1, 1);
-  spike::PanelNoteOn(p, 440.0f);
+  spike::PanelNoteOn(p, 440.0f, 127);
   for (int i = 0; i < 3; ++i) {
     spike::PanelDraw(p, fb0, 0);
     spike::PanelDraw(p, fb1, 1);

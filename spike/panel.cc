@@ -1141,7 +1141,7 @@ void PanelPointer(Panel *p, PointerEvent e) {
       const int idx = (e.x - kTitleX) / kKeyW;
       if (e.x >= kTitleX && idx < 13) {
         const float freq = 261.63f * std::pow(2.0f, idx / 12.0f);
-        PanelNoteOn(p, freq);
+        PanelNoteOn(p, freq, 127);
         p->held_key = idx;
       }
     }
@@ -1191,8 +1191,8 @@ void PanelPointer(Panel *p, PointerEvent e) {
   }
 }
 
-void PanelNoteOn(Panel *p, float freq_hz) {
-  engine::EngineNoteOn(0, freq_hz);
+void PanelNoteOn(Panel *p, float freq_hz, std::uint8_t velocity) {
+  engine::EngineNoteOn(0, freq_hz, velocity);
   p->note_on = true;
   p->note_at = NowMs();
   p->freq = freq_hz;

@@ -63,7 +63,7 @@ int main(void) {
     }
 
     engine::EngineInit();
-    engine::EngineNoteOn(0, 440.0f);  // A4 on part 0: audible test tone
+    engine::EngineNoteOn(0, 440.0f, 127);  // A4 on part 0: audible test tone
 
     // Prime the first block, then start the stream.
     void *blk;

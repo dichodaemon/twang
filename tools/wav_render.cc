@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
     EngineSetParamDisp(0, ParamId::kRelease, 0.4f);
 
     int note_frames = frames * 8 / 10;  /* held 80%, release the rest */
-    EngineNoteOn(0, 440.0f);
+    EngineNoteOn(0, 440.0f, 127);
     Render(buf.data(), note_frames);
     EngineNoteOff(0, 440.0f);
     Render(buf.data() + note_frames, frames - note_frames);

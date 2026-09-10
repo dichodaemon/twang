@@ -66,7 +66,8 @@ void MidiCc(const MidiLayout &layout, int part, std::uint8_t cc,
 /// @brief Apply a MIDI note-on (control thread).
 /// @param part Part index in [0, kNumParts).
 /// @param note MIDI note number (0..127).
-void MidiNoteOn(int part, std::uint8_t note);
+/// @param velocity MIDI velocity in [1, 127].
+void MidiNoteOn(int part, std::uint8_t note, std::uint8_t velocity);
 
 /// @brief Apply a MIDI note-off (control thread).
 /// @param part Part index in [0, kNumParts).

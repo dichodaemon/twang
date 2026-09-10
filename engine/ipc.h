@@ -26,9 +26,10 @@ struct Event {
     };
 
     Type type;
-    std::uint8_t part;   ///< Part index; meaningful for kNoteOn and kSteal.
-    std::uint8_t voice;  ///< Voice slot this event targets.
-    float freq;          ///< Note frequency in Hz; meaningful for kNoteOn/kSteal.
+    std::uint8_t part;     ///< Part index; meaningful for kNoteOn and kSteal.
+    std::uint8_t voice;    ///< Voice slot this event targets.
+    std::uint8_t velocity; ///< MIDI velocity 1..127; meaningful for kNoteOn/kSteal.
+    float freq;            ///< Note frequency in Hz; meaningful for kNoteOn/kSteal.
 };
 
 /// Lock-free single-producer / single-consumer ring of events.

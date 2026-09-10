@@ -78,7 +78,9 @@ struct Voice {
     float env_inc;  ///< Per-sample envelope increment.
     Stage stage;    ///< Envelope stage.
 
+    float gain;         ///< Per-note output gain from velocity (in [0, 1]).
     float steal_freq;   ///< Pending note frequency while ramping down (kSteal).
+    float steal_gain;   ///< Pending note gain while ramping down (kSteal).
     std::uint8_t part;  ///< Owning part index (into the parts array).
 
     // Filter-coefficient dirtiness: the env_cutoff + Q the SVF coefficients
@@ -104,7 +106,8 @@ void EngineEventsPending();
 /// @brief Queue a note-on (control thread).
 /// @param part Part index in [0, kNumParts).
 /// @param freq_hz Note frequency in Hz.
-void EngineNoteOn(int part, float freq_hz);
+/// @param velocity MIDI velocity in [1, 127] (0 = note-off, handled upstream).
+void EngineNoteOn(int part, float freq_hz, std::uint8_t velocity);
 
 /// @brief Queue a note-off (control thread), releasing the voice playing
 /// `freq_hz` in `part`.

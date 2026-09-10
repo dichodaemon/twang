@@ -32,7 +32,7 @@ static void AudioCallback(ma_device *, void *output, const void *,
         ma_uint32 n = static_cast<ma_uint32>(
             (boundary - pos) < frame_count ? (boundary - pos) : frame_count);
 
-        if (pos == 0) EngineNoteOn(0, 440.0f);
+        if (pos == 0) EngineNoteOn(0, 440.0f, 127);
         Render(dst, static_cast<int>(n));
         g_frame += n;
         dst += n;

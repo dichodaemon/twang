@@ -34,7 +34,7 @@ static void RunFull(int seconds, int voices) {
 
     EngineInit();
     PatchPluck();
-    EngineNoteOn(0, 440.0f);
+    EngineNoteOn(0, 440.0f, 127);
 
     Render(buf.data(), kBlockSize);  // warm caches
 
@@ -83,7 +83,7 @@ static void RunBreakdown(int seconds) {
     /* full voice (osc + filter + envelope + coeffs), via Render() */
     EngineInit();
     PatchPluck();
-    EngineNoteOn(0, 440.0f);
+    EngineNoteOn(0, 440.0f, 127);
     Render(buf.data(), kBlockSize);
     t0 = NowNs();
     Render(buf.data(), frames);
