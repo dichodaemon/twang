@@ -7,7 +7,7 @@
 
 #include <cstdio>
 
-#include "spike/font.h"
+#include "font.h"
 
 using namespace spike;
 

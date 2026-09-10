@@ -6,7 +6,7 @@
 // fills and lines advance contiguously along a scanline so they can use
 // 32-bit stores (two pixels per store) on aligned rows.
 
-#include "spike/fb.h"
+#include "fb.h"
 
 #include <algorithm>
 #include <cstdlib>

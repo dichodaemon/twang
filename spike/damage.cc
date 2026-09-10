@@ -1,6 +1,6 @@
 // spike/damage.cc — damage accumulation and the two-frame repaint union.
 
-#include "spike/damage.h"
+#include "damage.h"
 
 #include <algorithm>
 

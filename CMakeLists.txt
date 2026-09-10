@@ -37,6 +37,11 @@ target_include_directories(audio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/audio)
 target_include_directories(audio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio)
 target_link_libraries(audio PUBLIC m pthread dl)
 
+# ---- spike: minimal RGB565 renderer (framebuffer + font + damage) ----
+# No LVGL/SDL/OS deps; the draw layer the target (M33) builds.
+add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc)
+target_include_directories(spike PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/spike)
+
 # ---- Vendored LVGL (git submodule) ----
 # Trim to the core library: no demos, examples, or ThorVG.
 set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
@@ -110,3 +115,15 @@ add_test(NAME allocator COMMAND test_allocator)
 add_executable(test_midi tests/test_midi.cc)
 target_link_libraries(test_midi PRIVATE engine)
 add_test(NAME midi COMMAND test_midi)
+
+add_executable(test_fb tests/test_fb.cc)
+target_link_libraries(test_fb PRIVATE spike)
+add_test(NAME fb COMMAND test_fb)
+
+add_executable(test_font tests/test_font.cc)
+target_link_libraries(test_font PRIVATE spike)
+add_test(NAME font COMMAND test_font)
+
+add_executable(test_damage tests/test_damage.cc)
+target_link_libraries(test_damage PRIVATE spike)
+add_test(NAME damage COMMAND test_damage)

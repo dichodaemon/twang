@@ -11,7 +11,7 @@
 
 #include <cstdint>
 
-#include "spike/fb.h"
+#include "fb.h"
 
 namespace spike {
 

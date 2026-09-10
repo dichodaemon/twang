@@ -1,11 +1,11 @@
 // spike/font.cc — bitmap glyph blitting.
 
-#include "spike/font.h"
+#include "font.h"
 
 #include <algorithm>
 #include <cstddef>
 
-#include "spike/font_data.h"
+#include "font_data.h"
 
 namespace spike {
 

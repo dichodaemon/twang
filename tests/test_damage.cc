@@ -2,7 +2,7 @@
 
 #include <cstdio>
 
-#include "spike/damage.h"
+#include "damage.h"
 
 using namespace spike;
 

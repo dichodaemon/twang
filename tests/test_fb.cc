@@ -2,7 +2,7 @@
 
 #include <cstdio>
 
-#include "spike/fb.h"
+#include "fb.h"
 
 using namespace spike;
 
