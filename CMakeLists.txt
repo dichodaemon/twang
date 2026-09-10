@@ -55,6 +55,12 @@ target_compile_definitions(rtmidi PRIVATE __LINUX_ALSA__)
 target_compile_options(rtmidi PRIVATE -fexceptions)  # RtMidi throws RtMidiError
 target_link_libraries(rtmidi PUBLIC ALSA::ALSA)
 
+# ---- Minimal MIDI dump: raw input via RtMidi's callback API ----
+# Reference reader for diagnosing surface behaviour; agrees with aseqdump.
+add_executable(midi_dump tools/midi_dump.cc)
+target_compile_options(midi_dump PRIVATE -fexceptions)  # RtMidi throws RtMidiError
+target_link_libraries(midi_dump PRIVATE rtmidi)
+
 # ---- Desktop host: SDL + RtMidi + miniaudio wiring around the spike panel ----
 find_package(SDL2 REQUIRED)
 add_executable(host host/main.cc host/midi_io.cc host/sdl_backend.cc)

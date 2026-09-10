@@ -21,6 +21,7 @@ struct MidiIo {
     rt::midi::RtMidiIn *in = nullptr;
     rt::midi::RtMidiOut *out = nullptr;
     int last_sent[128];  ///< per feedback CC; -1 = never sent
+    bool trace = false;  ///< dump every message to stderr (TWANG_MIDI_TRACE=1)
 
     /// @brief Open the X-Touch Compact MIDI input and output; print status.
     /// No-op if no MIDI device is present.

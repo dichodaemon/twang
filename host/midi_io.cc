@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,8 @@ int FindXtouch(rt::midi::RtMidi *midi, unsigned int count) {
 
 void MidiIo::Init() {
     for (int i = 0; i < 128; ++i) last_sent[i] = -1;
+    const char *t = std::getenv("TWANG_MIDI_TRACE");
+    trace = (t != nullptr && t[0] == '1');
     try {
         in = new rt::midi::RtMidiIn();
         const unsigned int in_n = in->getPortCount();
@@ -77,6 +80,11 @@ void MidiIo::Poll(spike::Panel *panel) {
         if (msg.empty()) break;
         if (msg.size() < 3) continue;
         const std::uint8_t status = msg[0];
+        if (trace) {
+            std::fprintf(stderr, "midi <-");
+            for (unsigned char b : msg) std::fprintf(stderr, " %02X", b);
+            std::fprintf(stderr, "\n");
+        }
         if ((status & 0x0F) != layout.channel) continue;  // wrong channel
         switch (status & 0xF0) {
         case 0xB0:  // Control Change
@@ -107,7 +115,10 @@ void MidiIo::Feedback() {
             out_val = static_cast<int>(v * 127.0f + 0.5f);  // fader position
         } else {
             out_cc = b.ring_cc;
-            out_val = static_cast<int>(v * 13.0f + 0.5f);   // LED ring (14 levels)
+            // The surface maps 0..127 across the ring's 13 segments itself;
+            // sending 0..13 lit only the first tenth of it. norm 0 still sends
+            // 0 (dark ring), so a true zero is preserved.
+            out_val = static_cast<int>(v * 127.0f + 0.5f);  // LED ring
         }
         if (last_sent[out_cc] == out_val) continue;
         last_sent[out_cc] = out_val;
@@ -116,6 +127,9 @@ void MidiIo::Feedback() {
             static_cast<unsigned char>(out_cc),
             static_cast<unsigned char>(out_val),
         };
+        if (trace)
+            std::fprintf(stderr, "midi -> B%d %02X %02X\n", layout.channel,
+                         out_cc, out_val);
         out->sendMessage(&msg);
     }
 }

@@ -49,7 +49,12 @@ bool SdlBackend::Init(int w, int h) {
   impl->renderer = SDL_CreateRenderer(
       impl->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
   if (!impl->renderer)
-    impl->renderer = SDL_CreateRenderer(impl->window, -1, SDL_RENDERER_SOFTWARE);
+    // Keep vsync on the fallback: without it the host loop free-runs and
+    // anything paced by the frame rate is driven far faster than intended.
+    impl->renderer = SDL_CreateRenderer(
+        impl->window, -1, SDL_RENDERER_SOFTWARE | SDL_RENDERER_PRESENTVSYNC);
+    if (!impl->renderer)
+      impl->renderer = SDL_CreateRenderer(impl->window, -1, SDL_RENDERER_SOFTWARE);
   if (!impl->renderer) {
     std::fprintf(stderr, "sdl: SDL_CreateRenderer: %s\n", SDL_GetError());
     return false;

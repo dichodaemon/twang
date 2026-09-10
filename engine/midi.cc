@@ -11,8 +11,10 @@ const MidiBinding kXtouchCompactBindings[] = {
     {2, static_cast<std::uint8_t>(MidiMode::kAbsolute), ParamId::kDecay, 0},
     {3, static_cast<std::uint8_t>(MidiMode::kAbsolute), ParamId::kSustain, 0},
     {4, static_cast<std::uint8_t>(MidiMode::kAbsolute), ParamId::kRelease, 0},
-    {10, static_cast<std::uint8_t>(MidiMode::kRelative), ParamId::kResonance, 26},
-    {11, static_cast<std::uint8_t>(MidiMode::kRelative), ParamId::kCutoff, 27},
+    // The LED ring for an encoder is driven by sending that encoder's OWN cc
+    // back to the surface, so ring_cc == cc. (26/27 addressed nothing.)
+    {10, static_cast<std::uint8_t>(MidiMode::kRelative), ParamId::kResonance, 10},
+    {11, static_cast<std::uint8_t>(MidiMode::kRelative), ParamId::kCutoff, 11},
 };
 
 const MidiLayout kXtouchCompact = {
