@@ -87,7 +87,7 @@ The backends are outside spike:
 ## 6. Component Lifecycle
 
 - **Init**: the backend creates the framebuffer (SDRAM, double-buffered); the panel is constructed (fixed SDRAM placement on the target); static chrome is drawn once per buffer and never touched again.
-- **Per frame**: a state change appends one or more damage rects; `panel_draw` repaints `damage[n] ∪ damage[n−1]` into the back buffer and the backend swaps buffers.
+- **Per frame**: a state change appends one or more damage rects; `PanelDraw` repaints `damage[n] ∪ damage[n−1]` into the back buffer and the backend swaps buffers.
 - **Input**: the backend translates a device event into a `PointerEvent` and calls the panel's pointer handler, which mutates panel state, records damage, and triggers a repaint.
 
 ## 7. Types
@@ -149,19 +149,19 @@ For a 10-wide cell (2 bytes/row), the ten glyph bits are **left-aligned** in the
 ### Draw primitives
 
 ```cpp
-void hline     (FrameBuffer &fb, int x, int y, int w, Color c);
-void vline     (FrameBuffer &fb, int x, int y, int h, Color c);
-void fill_rect (FrameBuffer &fb, int x, int y, int w, int h, Color c);
-void glyph_run (FrameBuffer &fb, int x, int y, const char *s, int n,
-                const Font &f, Color c, int tracking);
-void polyline  (FrameBuffer &fb, const Point *pts, int n, Color c);
-void clip_rect (FrameBuffer &fb, int x, int y, int w, int h);  // set active clip
+void FillRect    (FrameBuffer &fb, int x, int y, int w, int h, Color c);
+void DrawHLine   (FrameBuffer &fb, int x, int y, int w, Color c);
+void DrawVLine   (FrameBuffer &fb, int x, int y, int h, Color c);
+void DrawGlyphRun(FrameBuffer &fb, int x, int y, const char *s, int n,
+                  const Font &f, Color c, int tracking);
+void DrawPolyline(FrameBuffer &fb, const Point *pts, int n, Color c);
+void SetClip     (FrameBuffer &fb, int x, int y, int w, int h);  // set active clip
 ```
 
 - Every primitive clips to `fb.clip ∩` the framebuffer bounds.
-- `fill_rect` and `glyph_run` are 1-bpp/no-blend — they never read the destination pixel.
-- `glyph_run` draws `n` glyphs left-to-right, advancing by `w + tracking`.
-- `polyline` is the only scattered-access primitive; it is used exclusively by the four plots.
+- `FillRect` and `DrawGlyphRun` are 1-bpp/no-blend — they never read the destination pixel.
+- `DrawGlyphRun` draws `n` glyphs left-to-right, advancing by `w + tracking`.
+- `DrawPolyline` is the only scattered-access primitive; it is used exclusively by the four plots.
 - None allocate, throw, or touch global state.
 
 ### Damage
@@ -173,7 +173,7 @@ A fixed-capacity array of `Rect`s. When the panel records a region, overlapping 
 The panel owns a small table of `DynRegion` slots (the plots and readouts). Each frame it calls `draw` only for slots whose `dirty` flag is set — redraws are driven by the parameter layer, never a global timer.
 
 ```cpp
-void dyn_draw(DynRegion &d, FrameBuffer &fb);  // calls d.draw(fb, d.rect, d.state) when d.dirty
+void DrawDyn(DynRegion &d, FrameBuffer &fb);  // calls d.draw(fb, d.rect, d.state) when d.dirty
 ```
 
 - **Column updates, not rectangles**: each plot is single-valued in *x*; store the previous vertical span per column (`TraceState`) and update only changed columns — ~30× fewer pixels than a full rect redraw.
@@ -183,13 +183,17 @@ void dyn_draw(DynRegion &d, FrameBuffer &fb);  // calls d.draw(fb, d.rect, d.sta
 ### Panel
 
 ```cpp
-Panel *panel_create();                              // returns state; never freed in practice
-void panel_draw(Panel *p, FrameBuffer &fb);         // repaint damage[n] ∪ damage[n−1]
-void panel_pointer(Panel *p, PointerEvent e);       // handle a touch/mouse event
+Panel *PanelCreate();                              // returns state; never freed in practice
+void PanelDraw(Panel *p, FrameBuffer &fb);         // repaint damage[n] ∪ damage[n−1]
+void PanelPointer(Panel *p, PointerEvent e);       // handle a touch/mouse event
+void PanelNoteOn(Panel *p, float freq_hz);         // note-on: drive engine + envelope playhead
+void PanelNoteOff(Panel *p, float freq_hz);        // note-off: release + playhead release segment
+void PanelAudioTap(Panel *p, const float *samples, int n);  // feed the scope ring (audio thread)
 ```
 
-- `panel_draw` repaints only the union of this frame's and the previous frame's damage; the backend swaps buffers afterward.
-- `panel_pointer` is the only mutation path for touch/drag state; it records damage.
+- `PanelDraw` repaints only the union of this frame's and the previous frame's damage; the backend swaps buffers afterward.
+- `PanelPointer` is the only mutation path for touch/drag state; it records damage.
+- `PanelNoteOn`/`PanelNoteOff` drive the engine and the envelope playhead; `PanelAudioTap` routes samples into the scope ring (lock-free, audio thread).
 
 ## 9. System Invariants
 
@@ -197,7 +201,7 @@ void panel_pointer(Panel *p, PointerEvent e);       // handle a touch/mouse even
 - `repaint[n] = damage[n] ∪ damage[n−1]` for every frame (double buffering).
 - No blend: primitives never read the destination.
 - spike allocates no memory in any draw primitive; all scratch is caller-provided or fixed-size.
-- The draw path is backend-agnostic: the same `panel_draw` produces identical pixels for SDL and GLCDC.
+- The draw path is backend-agnostic: the same `PanelDraw` produces identical pixels for SDL and GLCDC.
 - Static chrome is drawn once per buffer and repainted only when its region is damaged.
 - Dynamic slots follow the two-frame rule: a slot animated in frame *n* repaints in frame *n+1*.
 - Trace state is per-buffer (two copies per plot), so the erase step targets the correct previous span.
@@ -227,7 +231,7 @@ void panel_pointer(Panel *p, PointerEvent e);       // handle a touch/mouse even
 | File | Purpose |
 |---|---|
 | `spike/fb.h`, `spike/fb.cc` | `FrameBuffer`, `Rect`, `Point`, `Color`, draw primitives |
-| `spike/font.h`, `spike/font.cc` | `Font`, glyph data, `glyph_run` |
+| `spike/font.h`, `spike/font.cc` | `Font`, glyph data, `DrawGlyphRun` |
 | `spike/damage.h`, `spike/damage.cc` | damage list, merge + fallback + two-frame rule |
 | `tools/bdf_to_c.py` | Build-time BDF→C emitter; generates `spike/font_data.h` |
 | `assets/fonts/ter-u20n.bdf`, `ter-u14n.bdf` | Terminus BDF sources (OFL 1.1) |
