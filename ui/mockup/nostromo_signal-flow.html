@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Signal Flow &mdash; RA8D2 framebuffer mockup</title>
+<style>
+  html,body{margin:0;background:#141614;color:#7f8a80;
+    font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  main{max-width:1120px;margin:0 auto;padding:24px 16px 48px}
+  h1{font-size:14px;font-weight:600;color:#c9d2ca;letter-spacing:.14em;
+     text-transform:uppercase;margin:0 0 4px}
+  p.sub{margin:0 0 20px;color:#67716a}
+  #wrap{background:#000;display:inline-block;line-height:0;border:1px solid #2c332e}
+  canvas{display:block;image-rendering:pixelated}
+  .bar{display:flex;gap:8px;align-items:center;margin:16px 0 10px;flex-wrap:wrap}
+  button{font:inherit;background:#1d211e;color:#c9d2ca;border:1px solid #39413b;
+    padding:5px 12px;cursor:pointer;border-radius:2px}
+  button.on{background:#7CFFB0;color:#050A06;border-color:#7CFFB0}
+  table{border-collapse:collapse;margin-top:18px;font-size:12px}
+  th,td{text-align:left;padding:4px 18px 4px 0;border-bottom:1px solid #2c332e}
+  th{color:#c9d2ca;font-weight:600}
+  td.n{text-align:right;font-variant-numeric:tabular-nums}
+  .note{margin-top:20px;max-width:70ch;color:#67716a}
+  code{color:#9fb3a4}
+</style>
+</head>
+<body>
+<main>
+<h1>Signal Flow</h1>
+<p class="sub">1024&times;600 &middot; RGB565 &middot; Terminus 1bpp, two atlases &middot; drawn with framebuffer primitives</p>
+
+<div class="bar">
+  <button id="z1" class="on">1&times;</button>
+  <button id="z2">2&times;</button>
+  <button id="gr">Graticule</button>
+  <button id="bk">Brackets</button>
+</div>
+
+<div id="wrap"><canvas id="fb" width="1024" height="600"></canvas></div>
+
+<table id="stats">
+  <tr><th>Primitive class</th><th>Calls</th><th>Pixel writes</th><th>Access</th></tr>
+</table>
+
+<p class="note">Counts are per full repaint. <code>Contiguous</code> writes advance along a
+scanline; <code>strided</code> writes step by one row each time and cost roughly an order of
+magnitude more on external SDRAM. In steady state only the plot areas and readouts are
+dirty &mdash; the rest is drawn once per buffer.</p>
+</main>
+
+<script>
+const A20={w:10,h:20,bpr:2,data:"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgACAAIAAgACAAIAAgACAAIAAAAAAAIAAgAAAAAAAAAAAAAACIAIgAiACIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIgAiACIAIgB/ACIAIgAiAH8AIgAiACIAIgAAAAAAAAAAAAAAAAAIAAgAPgBJAEgASABIAD4ACQAJAAkASQA+AAgACAAAAAAAAAAAAAAAAAAAAHEAUQByAAIABAAEAAgACAAQABOAIoAjgAAAAAAAAAAAAAAAAAAAHAAiACIAIgAUAAgAFIAigEEAQQBBACKAHIAAAAAAAAAAAAAACAAIAAgACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAgACAAQABAAEAAQABAAEAAQAAgACAAEAAAAAAAAAAAAAAAAAAAAEAAIAAgABAAEAAQABAAEAAQABAAIAAgAEAAAAAAAAAAAAAAAAAAAAAAAAAAAACIAFAAIAH8ACAAUACIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAgACAB/AAgACAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAgACAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAIAAAAAAAAAAAAAAAAAAAAAAABAAEAAgACAAQABAAIAAgAEAAQACAAIAAAAAAAAAAAAAAAAAAAAD4AQQBBAEEAQwBFAEkAUQBhAEEAQQBBAD4AAAAAAAAAAAAAAAAAAAAIABgAKAAIAAgACAAIAAgACAAIAAgACAA+AAAAAAAAAAAAAAAAAAAAPgBBAEEAQQABAAEAAgAEAAgAEAAgAEAAfwAAAAAAAAAAAAAAAAAAAD4AQQBBAAEAAQABAB4AAQABAAEAQQBBAD4AAAAAAAAAAAAAAAAAAAABAAMABQAJABEAIQBBAEEAQQB/AAEAAQABAAAAAAAAAAAAAAAAAAAAfwBAAEAAQABAAH4AAQABAAEAAQBBAEEAPgAAAAAAAAAAAAAAAAAAAB4AIABAAEAAQAB+AEEAQQBBAEEAQQBBAD4AAAAAAAAAAAAAAAAAAAB/AEEAQQABAAIAAgAEAAQACAAIAAgACAAIAAAAAAAAAAAAAAAAAAAAPgBBAEEAQQBBAEEAPgBBAEEAQQBBAEEAPgAAAAAAAAAAAAAAAAAAAD4AQQBBAEEAQQBBAEEAPwABAAEAAQACADwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgACAAAAAAAAAAAAAgACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAgAAAAAAAAAAAAIAAgACAAQAAAAAAAAAAAAAAAAAAEAAgAEAAgAEAAgAEAAIAAQAAgABAACAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH8AAAAAAAAAfwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAgABAACAAEAAIAAQACAAQACAAQACAAQAAAAAAAAAAAAAAAAAAAABwAIgBBAEEAAQACAAQACAAIAAAAAAAIAAgAAAAAAAAAAAAAAAAAAAA/AECAQIBHgEiASIBIgEiASYBGgEAAQAA/gAAAAAAAAAAAAAAAAAAAPgBBAEEAQQBBAEEAfwBBAEEAQQBBAEEAQQAAAAAAAAAAAAAAAAAAAH4AQQBBAEEAQQB+AEEAQQBBAEEAQQBBAH4AAAAAAAAAAAAAAAAAAAA+AEEAQQBAAEAAQABAAEAAQABAAEEAQQA+AAAAAAAAAAAAAAAAAAAAfABCAEEAQQBBAEEAQQBBAEEAQQBBAEIAfAAAAAAAAAAAAAAAAAAAAH8AQABAAEAAQABAAHwAQABAAEAAQABAAH8AAAAAAAAAAAAAAAAAAAB/AEAAQABAAEAAQAB8AEAAQABAAEAAQABAAAAAAAAAAAAAAAAAAAAAPgBBAEEAQABAAEAATwBBAEEAQQBBAEEAPgAAAAAAAAAAAAAAAAAAAEEAQQBBAEEAQQBBAH8AQQBBAEEAQQBBAEEAAAAAAAAAAAAAAAAAAAAcAAgACAAIAAgACAAIAAgACAAIAAgACAAcAAAAAAAAAAAAAAAAAAAAA4ABAAEAAQABAAEAAQABAAEAIQAhACEAHgAAAAAAAAAAAAAAAAAAAEEAQQBCAEQASABQAGAAUABIAEQAQgBBAEEAAAAAAAAAAAAAAAAAAABAAEAAQABAAEAAQABAAEAAQABAAEAAQAB/AAAAAAAAAAAAAAAAAAAAQIBhgFKAUoBMgEyAQIBAgECAQIBAgECAQIAAAAAAAAAAAAAAAAAAAEEAQQBBAEEAYQBRAEkARQBDAEEAQQBBAEEAAAAAAAAAAAAAAAAAAAA+AEEAQQBBAEEAQQBBAEEAQQBBAEEAQQA+AAAAAAAAAAAAAAAAAAAAfgBBAEEAQQBBAEEAfgBAAEAAQABAAEAAQAAAAAAAAAAAAAAAAAAAAD4AQQBBAEEAQQBBAEEAQQBBAEEAQQBJAD4AAgABAAAAAAAAAAAAAAB+AEEAQQBBAEEAQQB+AGAAUABIAEQAQgBBAAAAAAAAAAAAAAAAAAAAPgBBAEEAQABAAEAAPgABAAEAAQBBAEEAPgAAAAAAAAAAAAAAAAAAAH8ACAAIAAgACAAIAAgACAAIAAgACAAIAAgAAAAAAAAAAAAAAAAAAABBAEEAQQBBAEEAQQBBAEEAQQBBAEEAQQA+AAAAAAAAAAAAAAAAAAAAQQBBAEEAQQAiACIAIgAiABQAFAAUAAgACAAAAAAAAAAAAAAAAAAAAECAQIBAgECAQIBAgECATIBMgFKAUoBhgECAAAAAAAAAAAAAAAAAAABBAEEAIgAiABQAFAAIABQAFAAiACIAQQBBAAAAAAAAAAAAAAAAAAAAQQBBACIAIgAUABQACAAIAAgACAAIAAgACAAAAAAAAAAAAAAAAAAAAH8AAQABAAEAAgAEAAgAEAAgAEAAQABAAH8AAAAAAAAAAAAAAAAAAAAcABAAEAAQABAAEAAQABAAEAAQABAAEAAcAAAAAAAAAAAAAAAAAAAAAAAgACAAEAAQAAgACAAEAAQAAgACAAEAAQAAAAAAAAAAAAAAAAAAABwABAAEAAQABAAEAAQABAAEAAQABAAEABwAAAAAAAAAAAAAAAgAFAAiAEEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH8AAAAAABAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4AAQABAD8AQQBBAEEAQQA/AAAAAAAAAAAAAAAAAAAAQABAAEAAQAB+AEEAQQBBAEEAQQBBAEEAfgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPgBBAEAAQABAAEAAQABBAD4AAAAAAAAAAAAAAAAAAAABAAEAAQABAD8AQQBBAEEAQQBBAEEAQQA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AEEAQQBBAH8AQABAAEEAPgAAAAAAAAAAAAAAAAAAAAcACAAIAAgAPgAIAAgACAAIAAgACAAIAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD8AQQBBAEEAQQBBAEEAQQA/AAEAAQA+AAAAAAAAAAAAQABAAEAAQAB+AEEAQQBBAEEAQQBBAEEAQQAAAAAAAAAAAAAAAAAAAAgACAAAAAAAGAAIAAgACAAIAAgACAAIABwAAAAAAAAAAAAAAAAAAAACAAIAAAAAAAYAAgACAAIAAgACAAIAAgACACIAIgAcAAAAAAAAAAAAQABAAEAAQABBAEIARABIAHAASABEAEIAQQAAAAAAAAAAAAAAAAAAABgACAAIAAgACAAIAAgACAAIAAgACAAIABwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH4ASQBJAEkASQBJAEkASQBJAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB+AEEAQQBBAEEAQQBBAEEAQQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPgBBAEEAQQBBAEEAQQBBAD4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH4AQQBBAEEAQQBBAEEAQQB+AEAAQABAAAAAAAAAAAAAAAAAAAAAAAA/AEEAQQBBAEEAQQBBAEEAPwABAAEAAQAAAAAAAAAAAAAAAAAAAAAATwBQAGAAQABAAEAAQABAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4AQQBAAEAAPgABAAEAQQA+AAAAAAAAAAAAAAAAAAAACAAIAAgACAA+AAgACAAIAAgACAAIAAgABwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQBBAEEAQQBBAEEAQQBBAD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEEAQQBBACIAIgAUABQACAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABBAEEAQQBJAEkASQBJAEkAPgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQBBACIAFAAIABQAIgBBAEEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEEAQQBBAEEAQQBBAEEAQQA/AAEAAQA+AAAAAAAAAAAAAAAAAAAAAAB/AAEAAgAEAAgAEAAgAEAAfwAAAAAAAAAAAAAAAAAAAAYACAAIAAgACAAIADAACAAIAAgACAAIAAYAAAAAAAAAAAAAAAAAAAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAAAAAAAAAAAAAAAAAAAMAAIAAgACAAIAAgABgAIAAgACAAIAAgAMAAAAAAAAAAAAAAAMQBJAEkARgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAgAAAAAAAAAAAAAAAAAAAAAAAAA"};
+const A14={w:8,h:14,bpr:1,data:"AAAAAAAAAAAAAAAAAAAAABAQEBAQEBAAEBAAAAAkJCQAAAAAAAAAAAAAAAAkJCR+JCR+JCQkAAAAEBB8kpCQfBISknwQEAAAZJRoCBAQICxSTAAAAAAYJCQYMEpEREQ6AAAAEBAQAAAAAAAAAAAAAAAACBAgICAgICAQCAAAAAAgEAgICAgICBAgAAAAAAAAACQYfhgkAAAAAAAAAAAAEBB8EBAAAAAAAAAAAAAAAAAAABAQIAAAAAAAAAAAfgAAAAAAAAAAAAAAAAAAAAAQEAAAAAAEBAgIEBAgIEBAAAAAADxCQkZKUmJCQjwAAAAACBgoCAgICAgIPgAAAAA8QkICBAgQIEB+AAAAADxCQgIcAgJCQjwAAAAAAgYKEiJCfgICAgAAAAB+QEBAfAICAkI8AAAAABwgQEB8QkJCQjwAAAAAfgICBAQICBAQEAAAAAA8QkJCPEJCQkI8AAAAADxCQkJCPgICBDgAAAAAAAAAEBAAAAAQEAAAAAAAAAAQEAAAABAQIAAAAAAECBAgQCAQCAQAAAAAAAAAfgAAfgAAAAAAAAAAQCAQCAQIECBAAAAAADxCQkIECAgACAgAAAAAfIKeoqKippqAfgAAAAA8QkJCQn5CQkJCAAAAAHxCQkJ8QkJCQnwAAAAAPEJCQEBAQEJCPAAAAAB4REJCQkJCQkR4AAAAAH5AQEB4QEBAQH4AAAAAfkBAQHhAQEBAQAAAAAA8QkJAQE5CQkI8AAAAAEJCQkJ+QkJCQkIAAAAAOBAQEBAQEBAQOAAAAAAOBAQEBAQEREQ4AAAAAEJESFBgYFBIREIAAAAAQEBAQEBAQEBAfgAAAACCxqqSkoKCgoKCAAAAAEJCQmJSSkZCQkIAAAAAPEJCQkJCQkJCPAAAAAB8QkJCQnxAQEBAAAAAADxCQkJCQkJCSjwCAAAAfEJCQkJ8UEhEQgAAAAA8QkBAPAICQkI8AAAAAP4QEBAQEBAQEBAAAAAAQkJCQkJCQkJCPAAAAABCQkJCQiQkJBgYAAAAAIKCgoKCkpKqxoIAAAAAQkIkJBgYJCRCQgAAAACCgkREKBAQEBAQAAAAAH4CAgQIECBAQH4AAAAAOCAgICAgICAgOAAAAABAQCAgEBAICAQEAAAAADgICAgICAgICDgAAAAQKEQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAfgAQCAAAAAAAAAAAAAAAAAAAAAAAPAI+QkJCPgAAAABAQEB8QkJCQkJ8AAAAAAAAADxCQEBAQjwAAAAAAgICPkJCQkJCPgAAAAAAAAA8QkJ+QEA8AAAAAA4QEHwQEBAQEBAAAAAAAAAAPkJCQkJCPgI8AABAQEB8QkJCQkJCAAAAABAQADAQEBAQEDgAAAAABAQADAQEBAQEREQ4AABAQEBCREhwSERCAAAAADAQEBAQEBAQEDgAAAAAAAAA/JKSkpKSkgAAAAAAAAB8QkJCQkJCAAAAAAAAADxCQkJCQjwAAAAAAAAAfEJCQkJCfEBAAAAAAAA+QkJCQkI+AgIAAAAAAF5gQEBAQEAAAAAAAAAAPkBAPAICfAAAAAAQEBB8EBAQEBAOAAAAAAAAAEJCQkJCQj4AAAAAAAAAQkJCJCQYGAAAAAAAAACCgpKSkpJ8AAAAAAAAAEJCJBgkQkIAAAAAAAAAQkJCQkJCPgI8AAAAAAB+BAgQIEB+AAAAAAwQEBAgEBAQEAwAAAAAEBAQEBAQEBAQEAAAAAAwCAgIBAgICAgwAAAAYpKMAAAAAAAAAAAAAAAAAAAAABAQAAAAAAAA"};
+const FIRST=0x20, LAST=0x7E, EXTRA=0xB7, NGL=(LAST-FIRST+1)+1;
+
+function decode(a){
+  const bin=atob(a.data), u=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i);
+  a.bytes=u; return a;
+}
+decode(A20); decode(A14);
+function gidx(c){ if(c>=FIRST&&c<=LAST) return c-FIRST; if(c===EXTRA) return NGL-1; return 0; }
+
+const BG=[5,10,6], FAINT=[13,53,32], DIM=[27,98,56], MID=[63,191,120], BR=[124,255,176];
+
+const cv=document.getElementById('fb'), ctx=cv.getContext('2d');
+const img=ctx.createImageData(1024,600), px=img.data;
+const S={fillCalls:0,fillPx:0,hCalls:0,hPx:0,vCalls:0,vPx:0,gCalls:0,gPx:0,lCalls:0,lPx:0};
+
+function put(x,y,c){
+  if(x<0||y<0||x>=1024||y>=600) return;
+  const o=(y*1024+x)*4; px[o]=c[0]; px[o+1]=c[1]; px[o+2]=c[2]; px[o+3]=255;
+}
+function clear(c){ for(let i=0;i<px.length;i+=4){px[i]=c[0];px[i+1]=c[1];px[i+2]=c[2];px[i+3]=255;} }
+
+/* --- primitives: these mirror the six calls in the engine spec --- */
+function fillRect(x,y,w,h,c){
+  S.fillCalls++; S.fillPx+=w*h;
+  for(let j=0;j<h;j++) for(let i=0;i<w;i++) put(x+i,y+j,c);
+}
+function hline(x,y,w,c){ S.hCalls++; S.hPx+=w; for(let i=0;i<w;i++) put(x+i,y,c); }
+function vline(x,y,h,c){ S.vCalls++; S.vPx+=h; for(let j=0;j<h;j++) put(x,y+j,c); }
+function line(x0,y0,x1,y1,c){
+  S.lCalls++;
+  let dx=Math.abs(x1-x0), dy=-Math.abs(y1-y0);
+  let sx=x0<x1?1:-1, sy=y0<y1?1:-1, err=dx+dy;
+  for(;;){ put(x0,y0,c); S.lPx++;
+    if(x0===x1&&y0===y1) break;
+    const e2=2*err;
+    if(e2>=dy){err+=dy;x0+=sx;}
+    if(e2<=dx){err+=dx;y0+=sy;}
+  }
+}
+function polyline(pts,c){ for(let i=0;i<pts.length-1;i++) line(pts[i][0],pts[i][1],pts[i+1][0],pts[i+1][1],c); }
+function glyph(a,code,x,y,c){
+  const gi=gidx(code), off=gi*a.h*a.bpr;
+  for(let r=0;r<a.h;r++){
+    let bits=0;
+    for(let k=0;k<a.bpr;k++) bits=(bits<<8)|a.bytes[off+r*a.bpr+k];
+    if(!bits) continue;
+    const nb=a.bpr*8;
+    for(let b=0;b<a.w;b++) if((bits>>(nb-1-b))&1){ put(x+b,y+r,c); S.gPx++; }
+  }
+}
+function text(a,s,x,y,c,tr){
+  S.gCalls++; const adv=a.w+(tr||0);
+  for(let i=0;i<s.length;i++) glyph(a,s.charCodeAt(i),x+i*adv,y,c);
+}
+function rtext(a,s,xr,y,c,tr){ const adv=a.w+(tr||0); text(a,s,xr-s.length*adv,y,c,tr); }
+function brackets(x,y,w,h,c,leg,th,off){
+  leg=leg||10; th=th||2; off=off||6;
+  fillRect(x-off,y-off,leg,th,c);          fillRect(x+w+off-leg,y-off,leg,th,c);
+  fillRect(x-off,y+h+off-th,leg,th,c);     fillRect(x+w+off-leg,y+h+off-th,leg,th,c);
+  fillRect(x-off,y-off,th,leg,c);          fillRect(x+w+off-th,y-off,th,leg,c);
+  fillRect(x-off,y+h+off-leg,th,leg,c);    fillRect(x+w+off-th,y+h+off-leg,th,leg,c);
+}
+function cursor(x,y,w,h,c){
+  fillRect(x,y,7,2,c); fillRect(x+w-7,y,7,2,c);
+  fillRect(x,y+h-2,7,2,c); fillRect(x+w-7,y+h-2,7,2,c);
+  fillRect(x,y,2,7,c); fillRect(x+w-2,y,2,7,c);
+  fillRect(x,y+h-7,2,7,c); fillRect(x+w-2,y+h-7,2,7,c);
+}
+
+let showGrat=true, showBrk=true;
+
+function panelHeader(x,y,w,label){
+  const bw=label.length*A20.w+12;
+  fillRect(x,y,bw,22,DIM);
+  text(A20,label,x+6,y+1,BR);
+  hline(x+bw+6,y+20,w-bw-6,DIM); hline(x+bw+6,y+21,w-bw-6,DIM);
+}
+
+function plotFrame(x,y,w,h){
+  if(!showGrat) return;
+  hline(x,y+Math.round(h*0.17),w,FAINT);
+  hline(x,y+Math.round(h*0.50),w,DIM);
+  hline(x,y+Math.round(h*0.83),w,FAINT);
+}
+
+function draw(){
+  for(const k in S) S[k]=0;
+  clear(BG);
+
+  /* title bar */
+  fillRect(16,16,992,26,DIM);
+  text(A20,'SIGNAL FLOW',24,19,BR);
+  rtext(A20,'VOICE 01/16  NOMINAL',1000,19,MID);
+
+  /* four panels */
+  const PY=84, PH=340, PW=242;
+  const px0=[16,266,516,766];
+  const labels=['OSCILLATOR','FILTER','ENVELOPE','OUTPUT'];
+  const modes=['POLYBLEP SAW','TPT SVF LOWPASS','ADSR',null];
+  const reads=[['440Hz'],['20.00kHz','RES 0%'],['A9 D250','S70 R250'],['NO SIGNAL']];
+
+  for(let p=0;p<4;p++){
+    const X=px0[p];
+    if(showBrk) brackets(X,PY,PW,PH,MID);
+    panelHeader(X,PY,PW,labels[p]);
+
+    if(modes[p]) text(A14,modes[p],X+6,PY+29,MID);
+    else {
+      fillRect(X+6,PY+26,50,18,BR); text(A14,'SCOPE',X+9,PY+28,BG);
+      text(A14,'CYCLE SPEC',X+62,PY+28,MID);
+    }
+    hline(X,PY+50,PW,DIM);
+
+    const GX=X+6, GY=PY+58, GW=230, GH=232;
+    plotFrame(GX,GY,GW,GH);
+
+    if(p===0){
+      polyline([[GX+4,GY+206],[GX+70,GY+18],[GX+70,GY+206],[GX+136,GY+18],
+                [GX+136,GY+206],[GX+202,GY+18],[GX+202,GY+206],[GX+226,GY+116]],BR);
+    } else if(p===1){
+      text(A14,'0dB',GX+3,GY+22,MID);
+      text(A14,'20Hz',GX+3,GY+214,MID);
+      rtext(A14,'20k',GX+227,GY+214,MID);
+      polyline([[GX+6,GY+52],[GX+128,GY+52],[GX+166,GY+70],[GX+190,GY+108],[GX+204,GY+152]],BR);
+      vline(GX+198,GY,8,MID); vline(GX+198,GY+GH-8,8,MID);
+      cursor(GX+186,GY+112,26,40,BR);
+    } else if(p===2){
+      polyline([[GX+6,GY+212],[GX+30,GY+18],[GX+92,GY+108],[GX+148,GY+108],
+                [GX+172,GY+142],[GX+212,GY+208]],BR);
+      cursor(GX+18,GY+6,26,26,BR);
+      cursor(GX+80,GY+96,26,26,BR);
+      cursor(GX+200,GY+196,26,26,BR);
+    } else {
+      hline(GX+4,GY+116,GW-8,BR); hline(GX+4,GY+117,GW-8,BR);
+    }
+
+    hline(X,PY+298,PW,DIM);
+    const r=reads[p];
+    for(let i=0;i<r.length;i++)
+      rtext(A20,r[i],X+PW-6,PY+306+i*22, p===3?MID:BR);
+  }
+
+  /* keyboard */
+  const KY=440, KW=Math.floor(992/13);
+  hline(16,KY,992,DIM);
+  const keys=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B','C'];
+  const black=[false,true,false,true,false,false,true,false,true,false,true,false,false];
+  for(let i=0;i<13;i++){
+    const X=16+i*KW;
+    if(black[i]) fillRect(X,KY+1,KW,54,DIM);
+    text(A20,keys[i],X+Math.floor((KW-keys[i].length*A20.w)/2),KY+19,black[i]?BR:MID);
+  }
+  hline(16,KY+56,992,DIM);
+
+  /* nav */
+  const NY=512, tabs=['SIGNAL','MATRIX','PATCH','ARP','SYS'];
+  hline(16,NY,992,DIM);
+  for(let i=0;i<5;i++){
+    const cx=16+i*198+99, act=(i===0);
+    text(A20,tabs[i],cx-Math.floor(tabs[i].length*A20.w/2),NY+12,act?BR:MID);
+    if(act) fillRect(cx-62,NY+38,124,3,BR);
+  }
+  hline(16,NY+44,992,DIM);
+  text(A14,'ENC1 CUTOFF   ENC2 RES   ENC3 ENV AMT   ENC4 LEVEL',16,NY+54,DIM);
+
+  ctx.putImageData(img,0,0);
+  report();
+}
+
+function row(t,name,calls,pxc,acc){
+  const tr=document.createElement('tr');
+  tr.innerHTML='<td>'+name+'</td><td class="n">'+calls.toLocaleString()+
+    '</td><td class="n">'+pxc.toLocaleString()+'</td><td>'+acc+'</td>';
+  t.appendChild(tr);
+}
+function report(){
+  const t=document.getElementById('stats');
+  while(t.rows.length>1) t.deleteRow(1);
+  row(t,'fillRect',S.fillCalls,S.fillPx,'contiguous');
+  row(t,'hline',S.hCalls,S.hPx,'contiguous');
+  row(t,'glyph runs',S.gCalls,S.gPx,'contiguous, short');
+  row(t,'vline',S.vCalls,S.vPx,'strided');
+  row(t,'polyline',S.lCalls,S.lPx,'scattered');
+  const tot=S.fillPx+S.hPx+S.gPx+S.vPx+S.lPx;
+  const bad=S.vPx+S.lPx;
+  row(t,'TOTAL',S.fillCalls+S.hCalls+S.gCalls+S.vCalls+S.lCalls,tot,
+      (100*bad/tot).toFixed(2)+'% strided or scattered');
+}
+
+function zoom(n){
+  cv.style.width=(1024*n)+'px'; cv.style.height=(600*n)+'px';
+  document.getElementById('z1').className=n===1?'on':'';
+  document.getElementById('z2').className=n===2?'on':'';
+}
+document.getElementById('z1').onclick=()=>zoom(1);
+document.getElementById('z2').onclick=()=>zoom(2);
+document.getElementById('gr').onclick=e=>{showGrat=!showGrat;e.target.className=showGrat?'':'on';draw();};
+document.getElementById('bk').onclick=e=>{showBrk=!showBrk;e.target.className=showBrk?'':'on';draw();};
+
+zoom(1); draw();
+</script>
+</body>
+</html>
