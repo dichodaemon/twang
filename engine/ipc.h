@@ -63,11 +63,14 @@ class EventRing {
 ///
 /// The control thread keeps the authoritative set in `pending_` (whole `Part`
 /// structs — params, key-follow depth, and routes). Publishing copies it into
-/// the back buffer and flips `front_`. The audio thread snapshots the front
-/// buffer into the parts at each block boundary. A `reading_` flag lets the
-/// writer wait (spin, control thread only) until the audio thread finishes
-/// reading a buffer before it reuses that buffer — the audio thread itself
-/// never blocks.
+/// the back buffer and advances the monotonic `front_` counter (the published
+/// buffer index is `front_ & 1`). The audio thread snapshots the front buffer
+/// into the parts at each block boundary. A `reading_` flag lets the writer
+/// wait (spin, control thread only) until the audio thread finishes reading a
+/// buffer before it reuses that buffer — the audio thread itself never blocks.
+/// `front_` is a monotonic counter (not a single bit) so a claim-recheck can
+/// distinguish "never moved" from "published twice and came back" (the ABA
+/// hazard); `last_front_` lets `Commit` skip the copy when nothing changed.
 class ParamBlock {
   public:
     /// @brief Update one normalized parameter for a part and publish the set.
@@ -108,10 +111,11 @@ class ParamBlock {
     /// Control thread only (single writer).
     void Publish();
 
-    Part pending_[kNumParts];       ///< control-thread authoritative state
-    Part buf_[2][kNumParts];        ///< shared: audio reads buf_[front_]
-    std::atomic<int> front_{0};     ///< published buffer index
-    std::atomic<int> reading_{-1};  ///< buffer the audio thread is reading (-1 = none)
+    Part pending_[kNumParts];              ///< control-thread authoritative state
+    Part buf_[2][kNumParts];               ///< shared: audio reads buf_[front_ & 1]
+    std::atomic<std::uint32_t> front_{0};  ///< monotonic publish counter; buffer = front_ & 1
+    std::atomic<int> reading_{-1};         ///< buffer the audio thread is reading (-1 = none)
+    std::uint32_t last_front_{0};          ///< generation last committed (audio thread only)
 };
 
 }  // namespace engine

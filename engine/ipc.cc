@@ -38,27 +38,34 @@ void ParamBlock::SetRoute(int part, int slot, ModSourceId src, ParamId dst,
 }
 
 void ParamBlock::Publish() {
-    int back = 1 - front_.load(std::memory_order_acquire);
+    const std::uint32_t f = front_.load(std::memory_order_seq_cst);
+    const int back = static_cast<int>((f + 1u) & 1u);  // buffer to publish into
     // Wait until the audio thread finishes reading `back` (it only ever reads
     // the published buffer, so `back` is free once `reading_` moves off it).
     // The audio thread never blocks; only the control thread spins here, and
     // only when it laps a slow reader (rare, ~100 ns in practice).
-    while (reading_.load(std::memory_order_acquire) == back) {
+    while (reading_.load(std::memory_order_seq_cst) == back) {
     }
     for (int p = 0; p < kNumParts; ++p) buf_[back][p] = pending_[p];
-    front_.store(back, std::memory_order_release);
+    front_.store(f + 1u, std::memory_order_seq_cst);
 }
 
 void ParamBlock::Commit(Part *parts) {
-    int f;
+    std::uint32_t f = front_.load(std::memory_order_seq_cst);
+    if (f == last_front_) return;  // nothing published since the last commit
+
+    // Claim the published buffer, then verify the counter has not advanced.
+    // The monotonic counter distinguishes "published twice and came back" from
+    // "never moved" (the ABA case a single-bit index cannot see). seq_cst
+    // orders the reading_ store before the front_ re-load, so the writer
+    // observes our claim before it can reuse the buffer (StoreLoad).
     do {
-        f = front_.load(std::memory_order_acquire);
-        reading_.store(f, std::memory_order_release);
-        // If the writer flipped `front_` while we were claiming, retry: the
-        // buffer we just marked could be mid-rewrite by the writer.
-    } while (front_.load(std::memory_order_acquire) != f);
-    for (int p = 0; p < kNumParts; ++p) parts[p] = buf_[f][p];
-    reading_.store(-1, std::memory_order_release);
+        f = front_.load(std::memory_order_seq_cst);
+        reading_.store(static_cast<int>(f & 1u), std::memory_order_seq_cst);
+    } while (front_.load(std::memory_order_seq_cst) != f);
+    for (int p = 0; p < kNumParts; ++p) parts[p] = buf_[f & 1u][p];
+    reading_.store(-1, std::memory_order_seq_cst);
+    last_front_ = f;
 }
 
 void ParamBlock::Reset(const ParamDesc *table) {
@@ -73,6 +80,7 @@ void ParamBlock::Reset(const ParamDesc *table) {
     }
     front_.store(0, std::memory_order_relaxed);
     reading_.store(-1, std::memory_order_relaxed);
+    last_front_ = ~0u;  // "nothing committed yet" — force the first Commit to copy
 }
 
 }  // namespace engine
