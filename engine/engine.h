@@ -52,7 +52,7 @@ enum class ParamId : std::uint8_t {
 /// How a destination combines its base value with accumulated modulation.
 enum class CombinationClass : std::uint8_t {
     kAdditive,        ///< base + sum(amount*source).
-    kMultiplicative,  ///< base * prod(amount*source) (unipolar) or prod(1+amount*source) (bipolar).
+    kMultiplicative,  ///< base * prod(1+amount*(src-1)) (unipolar) or prod(1+amount*src) (bipolar).
     kExponential,     ///< base * 2^(sum(amount*source)).
 };
 
@@ -70,6 +70,30 @@ enum class ModSourceId : std::uint8_t {
     kModWheel, kAftertouch, kPitchBend, kExpression,  ///< per-part performance.
     kRandom,         ///< per-note latched random.
     kConstant,       ///< static 1.0.
+};
+
+/// Polarity of each modulation source: true = bipolar (centered at 0, range
+/// [-1, 1]), false = unipolar (range [0, 1]). Indexed by ModSourceId — must
+/// stay in sync with the enum order above. Drives the multiplicative fold's
+/// sub-form: a unipolar source attenuates (x(1 + amount*(src-1))), a bipolar
+/// source tremolos around the base (x(1 + amount*src)).
+inline constexpr bool kSourceBipolar[] = {
+    false,  // kNone
+    false,  // kVelocity
+    true,   // kNote
+    false,  // kGate
+    true,   // kLfo0
+    true,   // kLfo1
+    true,   // kLfo2
+    false,  // kEnv0
+    false,  // kEnv1
+    false,  // kEnv2
+    false,  // kModWheel
+    false,  // kAftertouch
+    true,   // kPitchBend
+    false,  // kExpression
+    false,  // kRandom
+    false,  // kConstant
 };
 
 /// One source->destination modulation route with a signed amount.

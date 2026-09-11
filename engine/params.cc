@@ -31,7 +31,7 @@ constexpr ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)] = {
           offsetof(Part, params) + 5 * sizeof(float),
           CombinationClass::kExponential },
     [static_cast<std::size_t>(ParamId::kAmp)] =
-        { "amp", "%", 0.0f, 100.0f, 1.0f, ParamCurve::kLinear,
+        { "amp", "%", 0.0f, 100.0f, 0.25f, ParamCurve::kLinear,
           offsetof(Part, params) + 6 * sizeof(float),
           CombinationClass::kMultiplicative },
     [static_cast<std::size_t>(ParamId::kPitchCoarse)] =

@@ -277,11 +277,20 @@ void RenderBlock(float *out, int frames) {
                 // applied exponentially in Hz via the named key_follow_depth
                 // field (source-level exception, arch-design §5.3).
                 if (r.source == ModSourceId::kNote) continue;
-                const float contrib = r.amount * ReadSource(r.source, part, voice);
+                const float src = ReadSource(r.source, part, voice);
+                const float contrib = r.amount * src;
                 switch (r.destination) {
-                case ParamId::kAmp:
-                    amp_eff *= contrib;  // multiplicative
+                case ParamId::kAmp: {
+                    // Multiplicative: a unipolar source attenuates
+                    // (x(1 + amount*(src-1))), a bipolar source tremolos around
+                    // the base (x(1 + amount*src)). amount=0 is neutral in both.
+                    const float factor =
+                        kSourceBipolar[static_cast<std::size_t>(r.source)]
+                            ? 1.0f + contrib
+                            : 1.0f + r.amount * (src - 1.0f);
+                    amp_eff *= factor;
                     break;
+                }
                 case ParamId::kCutoff:
                     cutoff_eff += contrib;  // additive
                     break;
@@ -326,12 +335,14 @@ void EngineInit() {
 
     // Pre-populate the 5 default routes (arch-design §5.4). Slots 0-2 absorb
     // today's hardcoded modulation (velocity->amp, env0->amp, env1->cutoff);
-    // slot 3 (key follow) is enabled at half depth (0.5) and slot 4
-    // (pitchbend) is off (amount 0) so it contributes nothing at rest. Slot
-    // 3's amount is a seed only — key-follow depth is read from the named
-    // Part::key_follow_depth field, not this route's amount.
+    // velocity->amp uses full depth (1.0) with the 4-voice headroom carried in
+    // the kAmp base level (default 0.25). Slot 3 (key follow) is enabled at
+    // half depth (0.5) and slot 4 (pitchbend) is off (amount 0) so it
+    // contributes nothing at rest. Slot 3's amount is a seed only — key-follow
+    // depth is read from the named Part::key_follow_depth field, not this
+    // route's amount.
     for (int p = 0; p < kNumParts; ++p) {
-        EngineSetRoute(p, 0, ModSourceId::kVelocity, ParamId::kAmp, 0.25f);
+        EngineSetRoute(p, 0, ModSourceId::kVelocity, ParamId::kAmp, 1.0f);
         EngineSetRoute(p, 1, ModSourceId::kEnv0, ParamId::kAmp, 1.0f);
         EngineSetRoute(p, 2, ModSourceId::kEnv1, ParamId::kCutoff, 0.0f);
         EngineSetRoute(p, 3, ModSourceId::kNote, ParamId::kCutoff, 0.5f);

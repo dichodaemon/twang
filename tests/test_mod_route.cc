@@ -157,6 +157,47 @@ int main() {
     //    env2, do not exist yet; there is nothing to advance). Lands as an
     //    observable check when LFOs arrive in phase 2.
 
+    // 6. A zero-amount route to a MULTIPLICATIVE destination (amp) is neutral,
+    //    not silence: the uniform-depth fold gives factor 1 exactly at
+    //    amount 0, so the render is bit-identical to the baseline.
+    {
+        EngineInit();
+        FlatEnvelope();
+        std::vector<float> base = RenderNote(kDur, 440.0f, 127);
+
+        EngineInit();
+        FlatEnvelope();
+        EngineSetRoute(0, 5, ModSourceId::kEnv0, ParamId::kAmp, 0.0f);
+        std::vector<float> zero = RenderNote(kDur, 440.0f, 127);
+
+        Check(base == zero, "zero-amount amp route is neutral (bit-exact)");
+    }
+
+    // 7. A bipolar source into a multiplicative destination tremolos around
+    //    the base (x(1 + amount*src)) rather than attenuating toward zero:
+    //    at center (src = 0) it is neutral, at full bend (src = +1) it doubles
+    //    the amp.
+    {
+        EngineInit();
+        FlatEnvelope();
+        EngineSetRoute(0, 5, ModSourceId::kPitchBend, ParamId::kAmp, 1.0f);
+        EngineSetParam(0, ParamId::kPitchBend, 0.5f);  // center: src = 0
+        std::vector<float> center = RenderNote(kDur, 440.0f, 127);
+
+        EngineInit();
+        FlatEnvelope();
+        EngineSetRoute(0, 5, ModSourceId::kPitchBend, ParamId::kAmp, 1.0f);
+        EngineSetParam(0, ParamId::kPitchBend, 1.0f);  // full up: src = +1
+        std::vector<float> up = RenderNote(kDur, 440.0f, 127);
+
+        EngineInit();
+        FlatEnvelope();
+        std::vector<float> base = RenderNote(kDur, 440.0f, 127);
+
+        Check(base == center, "bipolar center is neutral");
+        Check(Peak(up) > Peak(center), "bipolar full-up tremolos above center");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

@@ -69,8 +69,8 @@ int main() {
     Check(g_params[static_cast<std::size_t>(ParamId::kAmp)].comb ==
               CombinationClass::kMultiplicative,
           "amp class multiplicative");
-    Check(g_params[static_cast<std::size_t>(ParamId::kAmp)].def == 1.0f,
-          "amp def 1.0");
+    Check(g_params[static_cast<std::size_t>(ParamId::kAmp)].def == 0.25f,
+          "amp def 0.25 (headroom)");
     Check(g_params[static_cast<std::size_t>(ParamId::kPitchCoarse)].comb ==
               CombinationClass::kExponential,
           "pitch_coarse class exponential");
