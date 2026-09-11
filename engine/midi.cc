@@ -76,6 +76,10 @@ void MidiMessage(const MidiLayout &layout, int part, std::uint8_t status,
     case 0x80:  // Note Off
         MidiNoteOff(part, d1);
         break;
+    case 0xE0:  // Pitch Bend: 14-bit bend (d1 | d2<<7), center 0x2000.
+        EngineSetParam(part, ParamId::kPitchBend,
+                       static_cast<float>(d1 | (d2 << 7)) / 16383.0f);
+        break;
     default:
         break;  // ignore other message types
     }

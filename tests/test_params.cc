@@ -65,6 +65,29 @@ int main() {
     ParamFormat(&p, ParamId::kCutoff, buf, sizeof(buf));
     Check(buf[0] != '\0', "ParamFormat non-empty");
 
+    /* phase-1 matrix params: combination class + default */
+    Check(g_params[static_cast<std::size_t>(ParamId::kAmp)].comb ==
+              CombinationClass::kMultiplicative,
+          "amp class multiplicative");
+    Check(g_params[static_cast<std::size_t>(ParamId::kAmp)].def == 1.0f,
+          "amp def 1.0");
+    Check(g_params[static_cast<std::size_t>(ParamId::kPitchCoarse)].comb ==
+              CombinationClass::kExponential,
+          "pitch_coarse class exponential");
+    Check(g_params[static_cast<std::size_t>(ParamId::kPitchCoarse)].def == 0.5f,
+          "pitch_coarse def 0.5");
+    Check(g_params[static_cast<std::size_t>(ParamId::kPitchBend)].comb ==
+              CombinationClass::kAdditive,
+          "pitchbend class additive");
+    Check(g_params[static_cast<std::size_t>(ParamId::kPitchBend)].def == 0.5f,
+          "pitchbend def 0.5");
+    Check(g_params[static_cast<std::size_t>(ParamId::kKeyFollowDepth)].comb ==
+              CombinationClass::kAdditive,
+          "key_follow class additive");
+    Check(g_params[static_cast<std::size_t>(ParamId::kKeyFollowDepth)].def ==
+              0.0f,
+          "key_follow def 0.0");
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

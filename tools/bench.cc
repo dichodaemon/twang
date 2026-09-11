@@ -21,7 +21,7 @@ static double NowNs() {
 static void PatchPluck() {
     EngineSetParam(0, ParamId::kCutoff, 0.4f);
     EngineSetParam(0, ParamId::kResonance, 0.25f);
-    EngineSetParam(0, ParamId::kFilterEnvAmount, 0.5f);
+    EngineSetRoute(0, 2, ModSourceId::kEnv1, ParamId::kCutoff, 0.5f);
     EngineSetParamDisp(0, ParamId::kAttack, 0.01f);
     EngineSetParamDisp(0, ParamId::kDecay, 0.3f);
     EngineSetParam(0, ParamId::kSustain, 0.6f);

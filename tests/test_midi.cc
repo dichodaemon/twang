@@ -87,6 +87,17 @@ int main() {
         if (std::fabs(buf[i]) > peak) peak = std::fabs(buf[i]);
     Check(peak > 0.001f, "dispatch Note On produces audio");
 
+    // Pitchbend (0xE0) -> kPitchBend: 14-bit bend (d1 | d2<<7), center 0x2000.
+    MidiMessage(kXtouchCompact, 0, 0xE0, 0x00, 0x00);  // bend = 0 (full down)
+    Check(EngineGetParam(0, ParamId::kPitchBend) == 0.0f,
+          "pitchbend full down -> 0");
+    MidiMessage(kXtouchCompact, 0, 0xE0, 0x00, 0x40);  // bend = 0x2000 (center)
+    Check(Near(EngineGetParam(0, ParamId::kPitchBend), 0.5f),
+          "pitchbend center -> 0.5");
+    MidiMessage(kXtouchCompact, 0, 0xE0, 0x7F, 0x7F);  // bend = 16383 (full up)
+    Check(EngineGetParam(0, ParamId::kPitchBend) == 1.0f,
+          "pitchbend full up -> 1");
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

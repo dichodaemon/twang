@@ -37,6 +37,14 @@ int main() {
     Check(ParamGet(&p, ParamId::kCutoff) == 0.25f, "cutoff updated");
     Check(ParamGet(&p, ParamId::kResonance) == 0.75f, "resonance updated");
 
+    // Route round-trip: SetRoute then Commit carries the route into the Part.
+    block.SetRoute(0, 2, ModSourceId::kEnv1, ParamId::kCutoff, 0.5f);
+    block.Commit(&p);
+    Check(p.routes[2].source == ModSourceId::kEnv1 &&
+              p.routes[2].destination == ParamId::kCutoff &&
+              p.routes[2].amount == 0.5f,
+          "route round-trip through Commit");
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;
