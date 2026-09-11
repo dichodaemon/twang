@@ -14,18 +14,6 @@
 
 namespace engine {
 
-/// Identifies a synthesizer parameter.
-enum class ParamId : std::uint8_t {
-    kCutoff = 0,       ///< Filter cutoff.
-    kResonance,        ///< Filter resonance.
-    kFilterEnvAmount,  ///< Filter envelope depth.
-    kAttack,           ///< Attack time.
-    kDecay,            ///< Decay time.
-    kSustain,          ///< Sustain level.
-    kRelease,          ///< Release time.
-    kCount,            ///< Parameter count (not a parameter).
-};
-
 /// How a normalized value maps to its display value.
 enum class ParamCurve : std::uint8_t {
     kLinear = 0,   ///< Linear mapping.

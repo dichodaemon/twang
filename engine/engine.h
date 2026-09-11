@@ -30,8 +30,56 @@ inline constexpr int kNumParts = 4;
 /// Number of concurrent voices (the fixed, statically-allocated pool).
 inline constexpr int kNumVoices = 24;
 
-// Parameter identifier; defined in params.h.
-enum class ParamId : std::uint8_t;
+/// Identifies a synthesizer parameter (see params.h for the descriptor table).
+enum class ParamId : std::uint8_t {
+    kCutoff = 0,       ///< Filter cutoff.
+    kResonance,        ///< Filter resonance.
+    kFilterEnvAmount,  ///< Filter envelope depth.
+    kAttack,           ///< Attack time.
+    kDecay,            ///< Decay time.
+    kSustain,          ///< Sustain level.
+    kRelease,          ///< Release time.
+    kCount,            ///< Parameter count (not a parameter).
+};
+
+/// How a destination combines its base value with accumulated modulation.
+enum class CombinationClass : std::uint8_t {
+    kAdditive,        ///< base + sum(amount*source).
+    kMultiplicative,  ///< base * prod(amount*source) (unipolar) or prod(1+amount*source) (bipolar).
+    kExponential,     ///< base * 2^(sum(amount*source)).
+};
+
+/// Identifies a modulation source.
+enum class ModSourceId : std::uint8_t {
+    kNone = 0,       ///< empty-slot sentinel; zero-init marks a slot empty.
+    kVelocity,       ///< per-note velocity (velocity / 127).
+    kNote,           ///< per-note key follow (octaves from middle C).
+    kGate,           ///< per-note gate (1 held, 0 released).
+    kLfo0, kLfo1,    ///< per-voice LFOs.
+    kLfo2,           ///< global per-part LFO.
+    kEnv0,           ///< amp envelope.
+    kEnv1,           ///< filter envelope.
+    kEnv2,           ///< free mod envelope.
+    kModWheel, kAftertouch, kPitchBend, kExpression,  ///< per-part performance.
+    kRandom,         ///< per-note latched random.
+    kConstant,       ///< static 1.0.
+};
+
+/// One source->destination modulation route with a signed amount.
+struct ModRoute {
+    ModSourceId source = ModSourceId::kNone;  ///< kNone == empty slot.
+    ParamId destination;                      ///< valid only when source != kNone.
+    float amount = 0.0f;                      ///< signed; 0 == "present but silent".
+};
+
+/// Number of modulation route slots per part.
+inline constexpr int kModSlots = 16;
+
+/// Number of float params[] members per part (grows in phases 2-4).
+inline constexpr int kNumParams = 9;
+
+/// Number of output buses.
+inline constexpr int kNumBuses = 1;
 
 /// One part: the shared, per-part parameter bank addressed by the descriptor
 /// table. Every voice bound to a part reads the same bank, so a part is a
