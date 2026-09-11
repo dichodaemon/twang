@@ -338,7 +338,7 @@ the two IPC hazards and the two matrix defects are real — but the central fix
 | 2 | Dekker lacks StoreLoad ordering | Real | `release`/`acquire` does not order store→load; on ARM the claim can sink past the verify |
 | 3 | `Publish` copies 672 B per param-write | Real, minor | ~170 word writes on the non-RT M33; wasteful, not dangerous |
 | 4 | `Commit` copies every block | Real, minor | 492 KB/s steady state; fix comes free with the ABA fix |
-| 5 | `amount=0` silences multiplicative dst | Real, but doc/acceptance bug, not code | code matches §5.3 formula; doc + criterion contradict the formula |
+| 5 | `amount=0` silences multiplicative dst | Real; resolved by uniform-depth fold (§A.4) | formula `×a·s` contradicts doc + criterion |
 | 6 | Bipolar sources use unipolar form | Real, blocks phase 2 | §5.3 requires `×(1+a·s)`; code has only `×a·s`; no polarity modelled |
 | 7 | `CombinationClass` declared, never read | Real | `comb` populated in `params.cc`, never read; the switch hardcodes it |
 | 8 | Unhandled dst silently ignored | Real, low | `default: break` drops resonance/env-time routes |
@@ -369,6 +369,14 @@ The seqlock's claimed benefits do not require it:
   current design already has the correct split: the writer spins on the non-RT
   M33, the reader never blocks on the RT M85.
 
+*(Reviewer's concession, 2026-09-11.)* §4.3 as written is a data race — the
+torn read has already happened before the generation check, and in C++ that is
+UB whether or not the result is discarded. Linux's seqlock is legal under LKMM,
+not under the C++ abstract machine. The legal-but-heavier variant is
+per-element atomics: 42 relaxed `std::atomic<std::uint32_t>` words (168 B ÷ 4),
+which lower to plain loads/stores on ARM — but A.3.1 achieves the same
+correctness for less.
+
 ### A.3 Recommended implementation
 
 1. **Fix the handshake (replaces §4.1 + §4.2 + §4.5, one change).** Make
@@ -378,6 +386,11 @@ The seqlock's claimed benefits do not require it:
    reader's re-check fails and it retries) and closes the StoreLoad gap (seq_cst
    total order). Change detection becomes `if (f != last_front_)`. The writer
    still spins; the reader still never blocks.
+
+   *(Measured, 2026-09-11.)* Implemented as specified and stressed: zero reader
+   retries from 479/s up to 35.6 M publishes/s. On the M85, `seq_cst` is a
+   `dmb ish` per barrier, not free as on x86 — five barriers per block at
+   750 blocks/s is negligible, but the host measurement understates the cost.
 2. **Add polarity + bipolar multiplicative form (§5.2/6).** A `constexpr bool
    kSourceBipolar[]` indexed by `ModSourceId` (the arch-design source table
    already labels polarity), and in the fold a bipolar source into a
@@ -394,31 +407,45 @@ The seqlock's claimed benefits do not require it:
    (a stored route can't silently do nothing), and reword "never blocks" to
    "never takes a lock; bounded claim-retry".
 
-### A.4 Design decision — §5.1 is a doc/acceptance bug, not a code bug
+### A.4 Design decision — §5.1 resolved by the uniform-depth fold
 
-The code correctly implements §5.3's `base × Π(amount·src)`, which gives `×0`
-at `amount=0`. The arch-design is internally inconsistent:
+The code implements §5.3's `base × Π(amount·src)`, which gives `×0` at
+`amount=0`. The arch-design is internally inconsistent:
 
 - §5.3 formula → `amount=0` ⇒ silence
 - `ModRoute` doc `0 == "present but silent"` ⇒ implies neutral
 - §10 criterion "`amount==0` ⇒ rendering unchanged" ⇒ neutral
 
-The clean "amount=0 always neutral" model (`×(1 + a(s−1))` for unipolar) is
-incompatible with the velocity→amp default: that route must reach gain 0 at
-velocity 0, which `×(1+a(s−1))` cannot do. The `amount=0.25` currently conflates
-the headroom (0.25) with the velocity depth; that conflation is what makes
-"amount" non-uniform.
+Two resolutions. The first — re-scope the docs so multiplicative `amount` is a
+*gain* (0=mute, 1=full-scale) — keeps the formula and accepts non-uniform
+`amount`. The second — uniform-depth — makes `amount=0` neutral everywhere, so
+the doc and criterion become true as written.
 
-**Recommendation:** accept the formula, fix the docs/criterion — document that
-multiplicative `amount` is a *gain* (unipolar: 0=mute, 1=full-scale; bipolar:
-0=neutral) and re-scope the "amount==0 unchanged" criterion to additive/
-exponential only. The alternative (uniform-depth semantics) is a larger
-redesign of velocity→amp that would invalidate the signed-off migration gate.
+*Correction to the original A.4:* the uniform-depth form `×(1 + a(s−1))` **can**
+reach gain 0 — at `a=1`, `1 + 1·(0−1) = 0`. What it cannot do is carry headroom
+and depth in one `a`, so the headroom moves out of the route into the base
+level. Concretely: `params[kAmp]` default 1.0 → 0.25, route-0 amount 0.25 → 1.0,
+and the unipolar multiplicative fold becomes `×(1 + amount·(src − 1))`. Then
+`0.25 × (1 + 1·(s−1)) = 0.25·s`, the same as today.
+
+Output is unchanged to ~7 decimals (max relative error 4.7×10⁻⁷, at the lowest
+velocities where `1 + (s−1)` loses low mantissa bits to cancellation — 42 of
+127 velocity values differ in the float fold). The error is 0.004 LSB, far
+below the 16-bit quantization step (3.05×10⁻⁵), so the 16-bit render — and the
+aural migration gate — is bit-identical. **Not** float-bit-identical: the fold
+itself differs by ≤1 ULP at low velocities.
+
+**Recommendation (revised):** adopt the uniform-depth fold + headroom move
+(three lines). It makes `amount` mean the same thing on every destination
+(0 = neutral), makes `ModRoute`'s doc and §10's criterion true, and preserves
+the signed-off gate. The only cost is the float fold ceasing to be bit-identical
+at low velocities — inaudible and sub-LSB. This supersedes the earlier
+"fix the docs" recommendation.
 
 ### A.5 Revised priority order
 
 1. Handshake fix (memory safety on target — first)
 2. Polarity + bipolar form (§5.2 — unblocks phase 2)
 3. `comb`-driven fold (§7 — before phase 2)
-4. §5.1 doc/criterion fix (pending the decision in A.4)
+4. §5.1 uniform-depth fold + headroom move (§A.4 — three lines, 16-bit-identical output)
 5. §4.4 batching, §8, §4.6 (hygiene/perf)
