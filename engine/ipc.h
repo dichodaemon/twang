@@ -116,7 +116,7 @@ class ParamBlock {
     Part buf_[2][kNumParts];               ///< shared: audio reads buf_[front_ & 1]
     std::atomic<std::uint32_t> front_{0};  ///< monotonic publish counter; buffer = front_ & 1
     std::atomic<int> reading_{-1};         ///< buffer the audio thread is reading (-1 = none)
-    std::uint32_t last_front_{0};          ///< generation last committed (audio thread only)
+    std::uint32_t last_front_{~0u};         ///< generation last committed (audio thread only); ~0u = nothing yet
 };
 
 }  // namespace engine

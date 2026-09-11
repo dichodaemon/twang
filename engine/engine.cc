@@ -400,10 +400,10 @@ float EngineGetParam(int part, ParamId id) {
     return g_param_block.Get(part, id);
 }
 
-void EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
+bool EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
                     float amount) {
-    if (part < 0 || part >= kNumParts) return;
-    if (slot < 0 || slot >= kModSlots) return;
+    if (part < 0 || part >= kNumParts) return false;
+    if (slot < 0 || slot >= kModSlots) return false;
     // dst must be a phase-1 destination the matrix folds. Named fields
     // (kKeyFollowDepth), performance inputs (kPitchBend), and kCount are not
     // destinations; resonance / envelope-time / send destinations land in
@@ -414,9 +414,10 @@ void EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
     case ParamId::kPitchCoarse:
         break;
     default:
-        return;
+        return false;
     }
     g_param_block.SetRoute(part, slot, src, dst, amount);
+    return true;
 }
 
 void Render(float *out, int frames) {
