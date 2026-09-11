@@ -22,10 +22,12 @@ float QFromResonance(float resonance) {
 }
 
 void UpdateFilterCoeffs(Voice *v, const Part *p) {
-    float env_cutoff = p->cutoff + p->filter_env_amount * v->env;
+    float env_cutoff = p->params[static_cast<std::size_t>(ParamId::kCutoff)] +
+                       p->filter_env_amount * v->env;
     if (env_cutoff > 1.0f) env_cutoff = 1.0f;
     if (env_cutoff < 0.0f) env_cutoff = 0.0f;
-    const float q = QFromResonance(p->resonance);
+    const float q = QFromResonance(
+        p->params[static_cast<std::size_t>(ParamId::kResonance)]);
 
     // Exact skip: env_cutoff and q are deterministic floats, so bit-identical
     // inputs imply bit-identical fc (ParamNormToDisp) and SVF coefficients
@@ -75,12 +77,14 @@ void EnterDecay(Voice *v, const Part *p) {
     v->env = 1.0f;
     float decay_s = ParamGetDisp(p, ParamId::kDecay);
     if (decay_s <= 0.0f) {
-        v->env = p->sustain;
+        v->env = p->params[static_cast<std::size_t>(ParamId::kSustain)];
         v->stage = Voice::Stage::kSustain;
         v->env_inc = 0.0f;
     } else {
         v->stage = Voice::Stage::kDecay;
-        v->env_inc = EnvInc(-(1.0f - p->sustain), decay_s);
+        v->env_inc = EnvInc(
+            -(1.0f - p->params[static_cast<std::size_t>(ParamId::kSustain)]),
+            decay_s);
     }
 }
 
@@ -95,8 +99,9 @@ void UpdateEnvelope(Voice *v, int samples, const Part *p) {
         break;
     case Voice::Stage::kDecay:
         v->env += v->env_inc * static_cast<float>(samples);
-        if (v->env <= p->sustain) {
-            v->env = p->sustain;
+        if (v->env <=
+            p->params[static_cast<std::size_t>(ParamId::kSustain)]) {
+            v->env = p->params[static_cast<std::size_t>(ParamId::kSustain)];
             v->stage = Voice::Stage::kSustain;
             v->env_inc = 0.0f;
         }

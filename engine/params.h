@@ -22,13 +22,14 @@ enum class ParamCurve : std::uint8_t {
 
 /// Static description of one parameter.
 struct ParamDesc {
-    const char *name;    ///< Parameter name.
-    const char *unit;    ///< Display unit, e.g. "Hz", "%", "s".
-    float disp_min;      ///< Display value at normalized 0.
-    float disp_max;      ///< Display value at normalized 1.
-    float def;           ///< Default normalized value.
-    ParamCurve curve;    ///< Display mapping curve.
-    std::size_t offset;  ///< offsetof(Part, field) — the target slot.
+    const char *name;       ///< Parameter name.
+    const char *unit;       ///< Display unit, e.g. "Hz", "%", "s".
+    float disp_min;         ///< Display value at normalized 0.
+    float disp_max;         ///< Display value at normalized 1.
+    float def;              ///< Default normalized value.
+    ParamCurve curve;       ///< Display mapping curve.
+    std::size_t offset;     ///< offsetof(Part, field) — the target slot.
+    CombinationClass comb;  ///< How routes combine into this destination.
 };
 
 /// The single source of truth for the parameter surface.

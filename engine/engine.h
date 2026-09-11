@@ -31,14 +31,22 @@ inline constexpr int kNumParts = 4;
 inline constexpr int kNumVoices = 24;
 
 /// Identifies a synthesizer parameter (see params.h for the descriptor table).
+///
+/// The first kNumParams members map 1:1 to Part::params[] indices (the flat
+/// normalized parameter bank). kKeyFollowDepth and kFilterEnvAmount address
+/// named Part fields via offsetof and are NOT part of params[].
 enum class ParamId : std::uint8_t {
-    kCutoff = 0,       ///< Filter cutoff.
-    kResonance,        ///< Filter resonance.
-    kFilterEnvAmount,  ///< Filter envelope depth.
-    kAttack,           ///< Attack time.
-    kDecay,            ///< Decay time.
-    kSustain,          ///< Sustain level.
-    kRelease,          ///< Release time.
+    kCutoff = 0,       ///< Filter cutoff (params[0]).
+    kResonance,        ///< Filter resonance (params[1]).
+    kAttack,           ///< Attack time (params[2]).
+    kDecay,            ///< Decay time (params[3]).
+    kSustain,          ///< Sustain level (params[4]).
+    kRelease,          ///< Release time (params[5]).
+    kAmp,              ///< Amp/level base (params[6]).
+    kPitchCoarse,      ///< Osc pitch coarse, bipolar ±24 semitones (params[7]).
+    kPitchBend,        ///< Pitchbend performance input, 0.5 = center (params[8]).
+    kKeyFollowDepth,   ///< Key-follow depth, [0,1] (named field).
+    kFilterEnvAmount,  ///< Filter envelope depth (legacy named field; removed in task 2.5).
     kCount,            ///< Parameter count (not a parameter).
 };
 
@@ -87,14 +95,14 @@ inline constexpr int kNumBuses = 1;
 ///
 /// Plain old data (memcpy-able); lives in a fixed array in TCM on the target.
 struct Part {
-    // Parameters (all normalized 0..1; see params.h)
-    float cutoff;             ///< Filter cutoff.
-    float resonance;          ///< Filter resonance.
-    float filter_env_amount;  ///< Filter envelope depth.
-    float attack;             ///< Attack time.
-    float decay;              ///< Decay time.
-    float sustain;            ///< Sustain level.
-    float release;            ///< Release time.
+    // Parameters (all normalized 0..1; see params.h). The first kNumParams
+    // floats are the flat params[] bank: cutoff, resonance, attack, decay,
+    // sustain, release, amp, pitch_coarse, pitchbend. filter_env_amount and
+    // key_follow_depth are named fields addressed via offsetof (not params[]).
+    float params[kNumParams];
+    float filter_env_amount;    ///< Legacy filter-envelope depth (removed in task 2.5).
+    float key_follow_depth;     ///< Key-follow depth for kNote→cutoff, [0,1], default 0.
+    ModRoute routes[kModSlots]; ///< Modulation routes; zero-init == all empty.
 };
 
 /// One synthesizer voice: the per-note DSP state, bound to a part.
