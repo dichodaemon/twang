@@ -119,27 +119,28 @@ Each destination has a combination class. The combination is `base + Σ(amount �
 | osc pitch coarse | exponential | `inc ×= 2^(Σ amount·src / 12)` — amount in semitones |
 | osc pitch fine | exponential | `inc ×= 2^(Σ amount·src / 1200)` — amount in cents |
 | osc wave/shape | additive | `shape += Σ amount·src`, clamp [0, 1] |
-| filter cutoff | additive (+ key follow exp) | `cutoff_norm += Σ amount·src`; then `× 2^(Σ key-follow octaves)` |
+| filter cutoff | additive (+ key follow exp) | `cutoff_norm += Σ amount·src`; then `cutoff_Hz = NormToHz(cutoff_norm_eff) × 2^(Σ key-follow octaves)` |
 | resonance | additive | `res += Σ amount·src`, clamp [0, 1] |
 | amp/level | multiplicative | unipolar src `×= (amount·src)`; bipolar src `×= (1 + amount·src)` |
 | pan | additive | `pan += Σ amount·src`, clamp [0, 1] (0.5 = center) |
 | LFO rate ×3 | exponential | `rate ×= 2^(Σ amount·src)` — amount in octaves |
-| env A/D/S/R ×3 | exponential | `time ×= 2^(Σ amount·src)` — amount in octaves |
+| env A/D/R ×3 | exponential | `time ×= 2^(Σ amount·src)` — amount in octaves |
+| env sustain ×3 | multiplicative | unipolar src `×= (amount·src)`; bipolar src `×= (1 + amount·src)` |
 | send ×2 | multiplicative | unipolar src `×= (amount·src)` |
 
 Multiplicative has two sub-forms because a unipolar source (velocity, envelope) *attenuates* a level (`× a·s`), while a bipolar source (LFO) *tremolos around* the base (`× (1 + a·s)`). Both are one multiply-add.
 
 ### 5.4. Default routes
 
-Five routes are pre-populated at `EngineInit`. The first three absorb today's hardcoded modulation and must reproduce the pre-matrix render bit-for-bit; the fourth (key follow) and fifth (pitchbend) are off by default so they contribute nothing at rest.
+Five routes are pre-populated at `EngineInit`. The first three absorb today's hardcoded modulation and must reproduce the pre-matrix sound (verified by aural sign-off, not a golden hash); the fourth (key follow) and fifth (pitchbend) are off by default so they contribute nothing at rest.
 
-| Slot | Route | Class | Amount | Replaces |
+| Slot (0-based) | Route | Class | Amount | Replaces |
 |---|---|---|---|---|
-| 1 | `kVelocity → kAmp` | multiplicative | `kVoiceHeadroom` (0.25) | `Voice.gain = kVoiceHeadroom × v/127` |
-| 2 | `kEnv0 → kAmp` | multiplicative | 1.0 | `out ×= env` |
-| 3 | `kEnv1 → kCutoff` | additive | `filter_env_amount` (default 0) | `env_cutoff = cutoff + filter_env_amount × env` |
-| 4 | `kNote → kCutoff` (key follow) | exponential | `key_follow_depth` (default 0) | new — 1:1 octave tracking |
-| 5 | `kPitchBend → osc pitch coarse` | exponential | 0 (off by default) | new — bend range in semitones |
+| 0 | `kVelocity → kAmp` | multiplicative | `kVoiceHeadroom` (0.25) | `Voice.gain = kVoiceHeadroom × v/127` |
+| 1 | `kEnv0 → kAmp` | multiplicative | 1.0 | `out ×= env` |
+| 2 | `kEnv1 → kCutoff` | additive | `filter_env_amount` (default 0) | `env_cutoff = cutoff + filter_env_amount × env` |
+| 3 | `kNote → kCutoff` (key follow) | exponential | `key_follow_depth` (default 0) | new — 1:1 octave tracking |
+| 4 | `kPitchBend → osc pitch coarse` | exponential | 0 (off by default) | new — bend range in semitones |
 
 Pitchbend is off by default because a wheel can sit off-center or emit a stray value; amount 0 means even a non-centered bend detunes nothing. Raising the amount to 2 enables the standard ±2-semitone range.
 
@@ -235,7 +236,7 @@ struct Part {
 };
 ```
 
-`key_follow_depth` is the amount of the default `kNote → kCutoff` route (slot 4). `Part` is the double-buffered snapshot unit — the thing `ParamBlock` transports is generalized from a float array to this struct.
+`key_follow_depth` is the key-follow depth of the default `kNote → kCutoff` route (slot 3): a dedicated named field read directly by the matrix, not the route's generic `amount`. `Part` is the double-buffered snapshot unit — the thing `ParamBlock` transports is generalized from a float array to this struct.
 
 ### Voice (extended)
 
@@ -279,7 +280,7 @@ void EngineSetParam(int part, ParamId id, float norm);
 ```
 
 - **Precondition**: `part` in `[0, kNumParts)`, `id` a valid `ParamId`, `norm` in `[0, 1]`.
-- **Postcondition**: the param is published to the back part-state buffer; it becomes the effective base value at the next block boundary. Setting `key_follow_depth` changes the key-follow route amount (slot 4).
+- **Postcondition**: the param is published to the back part-state buffer; it becomes the effective base value at the next block boundary. Setting `key_follow_depth` changes the key-follow depth applied by the default `kNote → kCutoff` route (slot 3).
 - **Error semantics**: out-of-range `part`/`id` → no-op (matches existing behavior).
 
 ### EngineSetRoute
@@ -317,7 +318,7 @@ void Render(float *out, int frames);
 
 - A route with `source == kNone` contributes nothing; only routes with `source != kNone` set a bit in the routed-source mask.
 - The routed-source bitmask depends only on route existence, never on `amount`; changing an amount never changes which sources are computed.
-- The three migration routes (velocity→amp, env0→amp, env1→cutoff) reproduce the pre-matrix sound exactly; there is no dual path. Key follow and pitchbend default off (amount 0) and contribute nothing at rest.
+- The three migration routes (velocity→amp, env0→amp, env1→cutoff) reproduce the pre-matrix sound (aural sign-off); there is no dual path. Key follow and pitchbend default off (amount 0) and contribute nothing at rest.
 - Key follow (`kNote`) combines exponentially on every destination; on cutoff it is a multiplicative factor on the additive cutoff result — `cutoff_Hz = NormToHz(cutoff_norm_eff) × 2^(key_follow_depth × key_follow_octaves)`.
 - Per-voice sources never cross the IPC boundary; only per-note (event ring) and per-part (double-buffered state) values do.
 - All matrix arithmetic is single-precision float; no `double`, no heap allocation, no exceptions/RTTI in the audio path.
@@ -327,7 +328,7 @@ void Render(float *out, int frames);
 
 The matrix is desktop-testable through the existing engine test surface; no hardware is required.
 
-- **Golden baseline**: `EngineInit` (which pre-populates the 5 default routes) → `Render` → compare against the pre-matrix render (hash/WAV). This is the migration gate: the default routes must reproduce today's sound.
+- **Migration gate**: `EngineInit` (which pre-populates the 5 default routes) → `Render` → the default routes reproduce today's sound. Verified by user aural sign-off (`wav_render` before/after, same patch/note) plus the existing behavioral tests (`test_engine` peak/rms/tail/velocity-loudness). No golden hash.
 - **Pitchbend default**: at amount 0, a non-zero bend value changes nothing; at amount 2, full bend shifts pitch ±2 semitones.
 - **Route behavior**: set a route (`EngineSetRoute`) and render; observe the destination change proportional to `source × amount`.
 - **Empty-slot and zero-amount**: an empty slot (`kNone`) and a zero-amount route both contribute nothing, but only the zero-amount route keeps its source computed (observable via the routed-source mask or a source-render counter).
@@ -338,7 +339,7 @@ The matrix is desktop-testable through the existing engine test surface; no hard
 
 ## 11. Acceptance Criteria
 
-- [ ] Given the default routes, the rendered output is bit-identical to the pre-matrix render (no audible or hash regression).
+- [ ] Given the default routes, the rendered output reproduces the pre-matrix sound (user aural sign-off; the existing behavioral tests still pass).
 - [ ] Given a route `lfo0 → cutoff, amount 0.5`, the effective cutoff tracks the LFO value scaled by 0.5.
 - [ ] Given a slot with `source == kNone`, rendering is unchanged from an empty slot.
 - [ ] Given a route with `amount == 0`, rendering is unchanged but the source remains computed.
@@ -379,9 +380,9 @@ Planning seed, not architecture. This appendix records the build order the imple
 
 | Phase | Scope | Depends on | Verify gate |
 |---|---|---|---|
-| 1 — routing foundation | generalized part-state transport, `ModSourceId`/`ModRoute`/`ParamId`, matrix evaluation at control rate, source gating, bus indirection, and the 5 default routes — velocity→amp, env0→amp, env1→cutoff, key follow (`kNote → cutoff`), and pitchbend (`kPitchBend → osc pitch coarse`) | nothing | the 5 default routes reproduce today's sound (engine golden hash); key follow and pitchbend default off (amount 0) so they are no-ops at rest |
+| 1 — routing foundation | generalized part-state transport, `ModSourceId`/`ModRoute`/`ParamId`, matrix evaluation at control rate, source gating, bus indirection, and the 5 default routes — velocity→amp, env0→amp, env1→cutoff, key follow (`kNote → cutoff`), and pitchbend (`kPitchBend → osc pitch coarse`) | nothing | the 5 default routes reproduce today's sound (user aural sign-off); key follow and pitchbend default off (amount 0) so they are no-ops at rest |
 | 2 — LFOs | 3 LFOs (2 per-voice + 1 per-part), LFO rate params, source gating | phase-1 route table | LFO sources slot into the table; an unrouted LFO is not advanced |
 | 3 — envelopes ×3 + chaining | 3 envelopes, envelope-time destinations, modulate-a-modulator | phase-1 destinations + phase-2 sources | envelope-time destinations modulate (chaining acceptance criterion) |
 | 4 — audio routing | N buses, 2 sends (per-voice/per-part), pan/level | phase-1 bus indirection | per-voice pan/level + per-part sends (acceptance criteria) |
 
-Key follow and pitchbend both sit in the foundation: `kNote` is a per-note source latched at note-on, and pitchbend is a per-part source arriving change-driven — neither needs an LFO or envelope. Both default to amount 0, so neither moves the golden baseline; they become audible only when their amount is raised.
+Key follow and pitchbend both sit in the foundation: `kNote` is a per-note source latched at note-on, and pitchbend is a per-part source arriving change-driven — neither needs an LFO or envelope. Both default to amount 0, so neither moves the baseline; they become audible only when their amount is raised.
