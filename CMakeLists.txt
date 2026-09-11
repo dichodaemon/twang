@@ -121,6 +121,10 @@ add_executable(test_midi tests/test_midi.cc)
 target_link_libraries(test_midi PRIVATE engine)
 add_test(NAME midi COMMAND test_midi)
 
+add_executable(test_mod_route tests/test_mod_route.cc)
+target_link_libraries(test_mod_route PRIVATE engine)
+add_test(NAME mod_route COMMAND test_mod_route)
+
 add_executable(test_fb tests/test_fb.cc)
 target_link_libraries(test_fb PRIVATE spike)
 add_test(NAME fb COMMAND test_fb)

@@ -16,29 +16,71 @@ EventRing &g_events = Shared().events;       // control → audio events (shared
 ParamBlock &g_param_block = Shared().params; // control → audio params (shared)
 Allocator g_alloc;            // control-core voice ownership (allocator)
 
+// Per-block stereo accumulation. Phase 1 is mono: voices accumulate into
+// g_buses[0].L and Render downmixes to the mono `out`; the R side and the
+// per-voice pan/level/send taps are phase 4.
+struct Bus {
+    float L[kBlockSize];
+    float R[kBlockSize];
+};
+Bus g_buses[kNumBuses];
+
 // DSP-specific mapping: normalized resonance -> Q (not the display %).
 float QFromResonance(float resonance) {
     return 0.5f + resonance * resonance * 20.0f;  // Q 0.5 .. 20.5
 }
 
-void UpdateFilterCoeffs(Voice *v, const Part *p) {
-    float env_cutoff = p->params[static_cast<std::size_t>(ParamId::kCutoff)] +
-                       p->filter_env_amount * v->env;
-    if (env_cutoff > 1.0f) env_cutoff = 1.0f;
-    if (env_cutoff < 0.0f) env_cutoff = 0.0f;
+// Read a modulation source's value for the current control step.
+//
+// Phase 1 computes seven sources — velocity, note (key follow), gate, env0,
+// env1, pitchbend, constant. The remaining sources (LFOs, env2, random,
+// performance CCs) return their rest value (0/neutral) and are unreachable
+// because no phase-1 route references them, so source gating never advances
+// them (arch-design §5.5 "Culling").
+float ReadSource(ModSourceId src, const Part *p, const Voice *v) {
+    switch (src) {
+    case ModSourceId::kVelocity:
+        return v->vel / 127.0f;
+    case ModSourceId::kNote:
+        return v->key_follow;  // octaves from C4
+    case ModSourceId::kGate:
+        return v->gate;
+    case ModSourceId::kEnv0:
+    case ModSourceId::kEnv1:
+        return v->env;  // phase 1: the single envelope reads as both
+    case ModSourceId::kPitchBend:
+        return 2.0f *
+                   p->params[static_cast<std::size_t>(ParamId::kPitchBend)] -
+               1.0f;
+    case ModSourceId::kConstant:
+        return 1.0f;
+    default:
+        return 0.0f;
+    }
+}
+
+void UpdateFilterCoeffs(Voice *v, const Part *p, float cutoff_norm_eff,
+                        float key_follow_factor) {
     const float q = QFromResonance(
         p->params[static_cast<std::size_t>(ParamId::kResonance)]);
 
-    // Exact skip: env_cutoff and q are deterministic floats, so bit-identical
-    // inputs imply bit-identical fc (ParamNormToDisp) and SVF coefficients
-    // (DspSvfSetFq). Avoids the pow + tan for an unchanged filter (static
-    // cutoff, or an envelope held at sustain).
-    if (env_cutoff == v->last_env_cutoff && q == v->last_q) return;
-    v->last_env_cutoff = env_cutoff;
+    // Exact skip: cutoff_norm_eff, key_follow_factor and q are deterministic
+    // floats, so bit-identical inputs imply bit-identical fc (ParamNormToDisp)
+    // and SVF coefficients (DspSvfSetFq). Avoids the pow + tan for an
+    // unchanged filter (static cutoff, or an envelope held at sustain).
+    if (cutoff_norm_eff == v->last_env_cutoff &&
+        key_follow_factor == v->last_key_follow && q == v->last_q)
+        return;
+    v->last_env_cutoff = cutoff_norm_eff;
+    v->last_key_follow = key_follow_factor;
     v->last_q = q;
 
+    // Key follow applies in the Hz domain, after the cutoff display mapping
+    // (arch-design §9): fc = NormToHz(cutoff_norm_eff) × 2^key_follow_factor.
     const float fc = ParamNormToDisp(
-        &g_params[static_cast<std::size_t>(ParamId::kCutoff)], env_cutoff);
+                         &g_params[static_cast<std::size_t>(ParamId::kCutoff)],
+                         cutoff_norm_eff) *
+                     std::exp2f(key_follow_factor);
     DspSvfSetFq(v, fc, q);
 }
 
@@ -59,18 +101,6 @@ float EnvInc(float delta, float time_s) {
 // note. A few ms: long enough to avoid a click, short enough to feel instant.
 constexpr float kStealTime = 0.005f;  // 5 ms
 
-// Per-voice output gain ceiling, so a polyphonic chord sums below the ±1
-// clamp. Velocity scales below it: full velocity (127) reproduces this
-// ceiling, lower velocities are quieter.
-constexpr float kVoiceHeadroom = 0.25f;
-
-// Linear MIDI velocity (1..127) → per-voice gain. Velocity is a linear
-// modulation source in Ambika/Surge/Deluge; here it scales the VCA directly
-// (no mod matrix yet).
-float VelocityToGain(std::uint8_t velocity) {
-    return kVoiceHeadroom * (static_cast<float>(velocity) / 127.0f);
-}
-
 // Move from the attack peak into decay, skipping straight to sustain if the
 // decay time is zero (instant).
 void EnterDecay(Voice *v, const Part *p) {
@@ -88,7 +118,7 @@ void EnterDecay(Voice *v, const Part *p) {
     }
 }
 
-void StartNote(Voice *v, float freq_hz, float gain, const Part *p);  // defined below
+void StartNote(Voice *v, float freq_hz, float velocity, const Part *p);  // defined below
 
 // Advance the envelope by `samples` (control step).
 void UpdateEnvelope(Voice *v, int samples, const Part *p) {
@@ -118,7 +148,7 @@ void UpdateEnvelope(Voice *v, int samples, const Part *p) {
         v->env += v->env_inc * static_cast<float>(samples);
         if (v->env <= 0.0f) {
             v->env = 0.0f;
-            StartNote(v, v->steal_freq, v->steal_gain, p);  // ramp done: retrigger the new note
+            StartNote(v, v->steal_freq, v->steal_vel, p);  // ramp done: retrigger the new note
         }
         break;
     default:  // kIdle or kSustain: hold
@@ -127,10 +157,13 @@ void UpdateEnvelope(Voice *v, int samples, const Part *p) {
 }
 
 // Start a note on the voice (audio thread).
-void StartNote(Voice *v, float freq_hz, float gain, const Part *p) {
+void StartNote(Voice *v, float freq_hz, float velocity, const Part *p) {
     v->phase = 0.0f;
     v->inc = freq_hz / kSampleRate;
-    v->gain = gain;
+    v->vel = velocity;
+    v->note = 69.0f + 12.0f * std::log2f(freq_hz / 440.0f);
+    v->key_follow = (v->note - 60.0f) / 12.0f;  // octaves from C4
+    v->gate = 1.0f;
     v->env = 0.0f;
     // Clear the filter integrators so a reused voice starts a note with no
     // leftover energy from the previous note (a fresh note = a fresh filter).
@@ -150,6 +183,7 @@ void StartNote(Voice *v, float freq_hz, float gain, const Part *p) {
 // Release the current note (audio thread).
 void ReleaseNote(Voice *v, const Part *p) {
     if (v->stage == Voice::Stage::kIdle) return;
+    v->gate = 0.0f;
     float release_s = ParamGetDisp(p, ParamId::kRelease);
     if (release_s <= 0.0f) {
         v->env = 0.0f;
@@ -164,14 +198,14 @@ void ReleaseNote(Voice *v, const Part *p) {
 // Steal the voice for a new note (audio thread): ramp the current envelope
 // down over a few ms, then retrigger the new note. Avoids the click an
 // instant cut would cause (digest §9: "terminate", not "kill").
-void StealNote(Voice *v, float freq_hz, float gain, std::uint8_t part) {
+void StealNote(Voice *v, float freq_hz, float velocity, std::uint8_t part) {
     v->part = part;
     if (v->stage == Voice::Stage::kIdle || v->env <= 0.0f) {
-        StartNote(v, freq_hz, gain, &g_parts[part]);  // nothing to ramp: start now
+        StartNote(v, freq_hz, velocity, &g_parts[part]);  // nothing to ramp: start now
         return;
     }
     v->steal_freq = freq_hz;
-    v->steal_gain = gain;
+    v->steal_vel = velocity;
     v->stage = Voice::Stage::kSteal;
     v->env_inc = EnvInc(-v->env, kStealTime);
 }
@@ -185,10 +219,10 @@ void ApplyEvents() {
         if (e.type == Event::Type::kNoteOn) {
             if (e.part >= kNumParts) continue;
             v->part = e.part;
-            StartNote(v, e.freq, VelocityToGain(e.velocity), &g_parts[e.part]);
+            StartNote(v, e.freq, e.velocity, &g_parts[e.part]);
         } else if (e.type == Event::Type::kSteal) {
             if (e.part >= kNumParts) continue;
-            StealNote(v, e.freq, VelocityToGain(e.velocity), e.part);
+            StealNote(v, e.freq, e.velocity, e.part);
         } else {
             ReleaseNote(v, &g_parts[v->part]);
         }
@@ -198,7 +232,10 @@ void ApplyEvents() {
 void RenderBlock(float *out, int frames) {
     g_param_block.Commit(g_parts);  // snapshot params into all parts
 
-    for (int i = 0; i < frames; ++i) out[i] = 0.0f;
+    for (int i = 0; i < frames; ++i) {
+        g_buses[0].L[i] = 0.0f;
+        g_buses[0].R[i] = 0.0f;
+    }
 
     // Drain note events at control-step granularity (16 samples = 0.33 ms)
     // rather than once per block: a note-on is applied within one control
@@ -216,17 +253,61 @@ void RenderBlock(float *out, int frames) {
             const Part *part = &g_parts[voice->part];
 
             UpdateEnvelope(voice, n, part);
-            UpdateFilterCoeffs(voice, part);
 
+            // Matrix evaluation (control rate): fold the 16 routes into
+            // effective amp / cutoff / pitch for this voice.
+            float amp_eff =
+                part->params[static_cast<std::size_t>(ParamId::kAmp)];
+            float cutoff_eff =
+                part->params[static_cast<std::size_t>(ParamId::kCutoff)];
+            float pitch_semitones =
+                (part->params[static_cast<std::size_t>(ParamId::kPitchCoarse)] -
+                 0.5f) *
+                48.0f;
+            float pitch_route = 0.0f;
+            for (int slot = 0; slot < kModSlots; ++slot) {
+                const ModRoute &r = part->routes[slot];
+                if (r.source == ModSourceId::kNone) continue;  // empty slot
+                // kNote (key follow) never accumulates: its octave offset is
+                // applied exponentially in Hz via the named key_follow_depth
+                // field (source-level exception, arch-design §5.3).
+                if (r.source == ModSourceId::kNote) continue;
+                const float contrib = r.amount * ReadSource(r.source, part, voice);
+                switch (r.destination) {
+                case ParamId::kAmp:
+                    amp_eff *= contrib;  // multiplicative
+                    break;
+                case ParamId::kCutoff:
+                    cutoff_eff += contrib;  // additive
+                    break;
+                case ParamId::kPitchCoarse:
+                    pitch_route += contrib;  // exponential (semitones)
+                    break;
+                default:
+                    break;  // deferred destinations (resonance/env times/etc., phases 2-4)
+                }
+            }
+            if (cutoff_eff > 1.0f) cutoff_eff = 1.0f;
+            if (cutoff_eff < 0.0f) cutoff_eff = 0.0f;
+            const float pitch_factor =
+                std::exp2f((pitch_semitones + pitch_route) / 12.0f);
+            const float key_follow_factor =
+                part->key_follow_depth * voice->key_follow;
+
+            UpdateFilterCoeffs(voice, part, cutoff_eff, key_follow_factor);
+
+            const float base_inc = voice->inc;
+            voice->inc = base_inc * pitch_factor;
             for (int i = 0; i < n; ++i) {
                 float saw = DspOscTick(voice);
                 float lp = DspSvfTick(voice, saw);
-                out[start + i] += lp * voice->env * voice->gain;
+                g_buses[0].L[start + i] += lp * amp_eff;
             }
+            voice->inc = base_inc;
         }
     }
 
-    for (int i = 0; i < frames; ++i) out[i] = Clamp(out[i]);
+    for (int i = 0; i < frames; ++i) out[i] = Clamp(g_buses[0].L[i]);
 }
 
 }  // namespace
@@ -237,6 +318,20 @@ void EngineInit() {
     g_alloc.Reset();
     g_events.Reset();
     g_param_block.Reset(g_params);
+
+    // Pre-populate the 5 default routes (arch-design §5.4). Slots 0-2 absorb
+    // today's hardcoded modulation (velocity->amp, env0->amp, env1->cutoff);
+    // slot 3 (key follow) and slot 4 (pitchbend) are off by default (amount 0)
+    // so they contribute nothing at rest. Slot 3's amount is a seed only —
+    // key-follow depth is read from the named Part::key_follow_depth field,
+    // not this route's amount.
+    for (int p = 0; p < kNumParts; ++p) {
+        EngineSetRoute(p, 0, ModSourceId::kVelocity, ParamId::kAmp, 0.25f);
+        EngineSetRoute(p, 1, ModSourceId::kEnv0, ParamId::kAmp, 1.0f);
+        EngineSetRoute(p, 2, ModSourceId::kEnv1, ParamId::kCutoff, 0.0f);
+        EngineSetRoute(p, 3, ModSourceId::kNote, ParamId::kCutoff, 0.0f);
+        EngineSetRoute(p, 4, ModSourceId::kPitchBend, ParamId::kPitchCoarse, 0.0f);
+    }
     g_param_block.Commit(g_parts);
 }
 
@@ -282,7 +377,7 @@ void EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
     if (part < 0 || part >= kNumParts) return;
     if (slot < 0 || slot >= kModSlots) return;
     // dst must be a modulatable destination (a params[] member). Named fields
-    // (kKeyFollowDepth, kFilterEnvAmount) and kCount are not destinations.
+    // (kKeyFollowDepth) and kCount are not destinations.
     if (static_cast<int>(dst) >= kNumParams) return;
     g_param_block.SetRoute(part, slot, src, dst, amount);
 }

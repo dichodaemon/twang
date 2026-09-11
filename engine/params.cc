@@ -45,9 +45,6 @@ constexpr ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)] = {
     [static_cast<std::size_t>(ParamId::kKeyFollowDepth)] =
         { "key_follow", "%", 0.0f, 100.0f, 0.0f, ParamCurve::kLinear,
           offsetof(Part, key_follow_depth), CombinationClass::kAdditive },
-    [static_cast<std::size_t>(ParamId::kFilterEnvAmount)] =
-        { "filter_env", "%", 0.0f, 100.0f, 0.0f, ParamCurve::kLinear,
-          offsetof(Part, filter_env_amount), CombinationClass::kAdditive },
 };
 
 int ParamCount() { return static_cast<int>(ParamId::kCount); }

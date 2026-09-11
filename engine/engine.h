@@ -33,8 +33,8 @@ inline constexpr int kNumVoices = 24;
 /// Identifies a synthesizer parameter (see params.h for the descriptor table).
 ///
 /// The first kNumParams members map 1:1 to Part::params[] indices (the flat
-/// normalized parameter bank). kKeyFollowDepth and kFilterEnvAmount address
-/// named Part fields via offsetof and are NOT part of params[].
+/// normalized parameter bank). kKeyFollowDepth addresses a named Part field
+/// via offsetof and is NOT part of params[].
 enum class ParamId : std::uint8_t {
     kCutoff = 0,       ///< Filter cutoff (params[0]).
     kResonance,        ///< Filter resonance (params[1]).
@@ -46,7 +46,6 @@ enum class ParamId : std::uint8_t {
     kPitchCoarse,      ///< Osc pitch coarse, bipolar ±24 semitones (params[7]).
     kPitchBend,        ///< Pitchbend performance input, 0.5 = center (params[8]).
     kKeyFollowDepth,   ///< Key-follow depth, [0,1] (named field).
-    kFilterEnvAmount,  ///< Filter envelope depth (legacy named field; removed in task 2.5).
     kCount,            ///< Parameter count (not a parameter).
 };
 
@@ -97,10 +96,9 @@ inline constexpr int kNumBuses = 1;
 struct Part {
     // Parameters (all normalized 0..1; see params.h). The first kNumParams
     // floats are the flat params[] bank: cutoff, resonance, attack, decay,
-    // sustain, release, amp, pitch_coarse, pitchbend. filter_env_amount and
-    // key_follow_depth are named fields addressed via offsetof (not params[]).
+    // sustain, release, amp, pitch_coarse, pitchbend. key_follow_depth is a
+    // named field addressed via offsetof (not params[]).
     float params[kNumParams];
-    float filter_env_amount;    ///< Legacy filter-envelope depth (removed in task 2.5).
     float key_follow_depth;     ///< Key-follow depth for kNote→cutoff, [0,1], default 0.
     ModRoute routes[kModSlots]; ///< Modulation routes; zero-init == all empty.
 };
@@ -134,16 +132,21 @@ struct Voice {
     float env_inc;  ///< Per-sample envelope increment.
     Stage stage;    ///< Envelope stage.
 
-    float gain;         ///< Per-note output gain from velocity (in [0, 1]).
+    float vel;          ///< Per-note velocity (raw 1..127); REPLACES gain.
+    float note;         ///< Per-note MIDI note number (integer-valued float).
+    float key_follow;   ///< Per-note octave offset from C4 (latched at note-on).
+    float gate;         ///< Per-note gate (1 held, 0 released).
     float steal_freq;   ///< Pending note frequency while ramping down (kSteal).
-    float steal_gain;   ///< Pending note gain while ramping down (kSteal).
+    float steal_vel;    ///< Pending note velocity while ramping down (kSteal).
     std::uint8_t part;  ///< Owning part index (into the parts array).
 
-    // Filter-coefficient dirtiness: the env_cutoff + Q the SVF coefficients
-    // were last computed for. UpdateFilterCoeffs skips the pow/tan recompute
-    // when both are unchanged. -1 on the cutoff is the "never matches"
-    // sentinel StartNote sets to force the first recompute of a note.
+    // Filter-coefficient dirtiness: the effective cutoff, key-follow factor,
+    // and Q the SVF coefficients were last computed for. UpdateFilterCoeffs
+    // skips the pow/tan recompute when all are unchanged. -1 on the cutoff is
+    // the "never matches" sentinel StartNote sets to force the first recompute
+    // of a note.
     float last_env_cutoff;
+    float last_key_follow;
     float last_q;
 };
 
