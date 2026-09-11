@@ -401,8 +401,11 @@ correctness for less.
    truth before phase 2 adds destinations. Not a pure table edit: the switch must
    still select the accumulator (`amp_eff`/`cutoff_eff`/`pitch_route`); `comb`
    selects the operator (`*=`/`+=`/exp-accumulate).
-4. **Optional perf (§4.4):** additive `Flush()` + dirty flag so `Set`/`SetRoute`
-   batch into `pending_` and publish once per control cycle. Low urgency.
+4. **Correctness (§4.4, re-scoped from perf):** `Flush()` + dirty flag so
+   `Set`/`SetRoute` batch into `pending_` and publish once. Re-scoped: without
+   it a multi-field update is observable half-applied by the audio thread
+   (measured ~50% for a two-field update; a preset load exposes up to 25
+   intermediate states). Required before patch/preset loading lands.
 5. **Hygiene (§8, §4.6):** reject unimplemented destinations at `EngineSetRoute`
    (a stored route can't silently do nothing), and reword "never blocks" to
    "never takes a lock; bounded claim-retry".
@@ -448,4 +451,4 @@ at low velocities — inaudible and sub-LSB. This supersedes the earlier
 2. Polarity + bipolar form (§5.2 — unblocks phase 2)
 3. `comb`-driven fold (§7 — before phase 2)
 4. §5.1 uniform-depth fold + headroom move (§A.4 — three lines, 16-bit-identical output)
-5. §4.4 batching, §8, §4.6 (hygiene/perf)
+5. §4.4 batching (correctness, before patch loading), §8, §4.6 (hygiene/perf)
