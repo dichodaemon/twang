@@ -42,8 +42,8 @@ void ParamBlock::Publish() {
     const int back = static_cast<int>((f + 1u) & 1u);  // buffer to publish into
     // Wait until the audio thread finishes reading `back` (it only ever reads
     // the published buffer, so `back` is free once `reading_` moves off it).
-    // The audio thread never blocks; only the control thread spins here, and
-    // only when it laps a slow reader (rare, ~100 ns in practice).
+    // The audio thread never takes a lock; only the control thread spins here,
+    // and only when it laps a slow reader (rare, ~100 ns in practice).
     while (reading_.load(std::memory_order_seq_cst) == back) {
     }
     for (int p = 0; p < kNumParts; ++p) buf_[back][p] = pending_[p];

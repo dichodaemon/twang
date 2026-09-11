@@ -404,9 +404,18 @@ void EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
                     float amount) {
     if (part < 0 || part >= kNumParts) return;
     if (slot < 0 || slot >= kModSlots) return;
-    // dst must be a modulatable destination (a params[] member). Named fields
-    // (kKeyFollowDepth) and kCount are not destinations.
-    if (static_cast<int>(dst) >= kNumParams) return;
+    // dst must be a phase-1 destination the matrix folds. Named fields
+    // (kKeyFollowDepth), performance inputs (kPitchBend), and kCount are not
+    // destinations; resonance / envelope-time / send destinations land in
+    // phases 2-4. Reject them so a stored route can never silently do nothing.
+    switch (dst) {
+    case ParamId::kCutoff:
+    case ParamId::kAmp:
+    case ParamId::kPitchCoarse:
+        break;
+    default:
+        return;
+    }
     g_param_block.SetRoute(part, slot, src, dst, amount);
 }
 

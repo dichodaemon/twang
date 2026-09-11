@@ -67,7 +67,8 @@ class EventRing {
 /// buffer index is `front_ & 1`). The audio thread snapshots the front buffer
 /// into the parts at each block boundary. A `reading_` flag lets the writer
 /// wait (spin, control thread only) until the audio thread finishes reading a
-/// buffer before it reuses that buffer — the audio thread itself never blocks.
+/// buffer before it reuses that buffer — the audio thread never takes a lock
+/// (it may retry its claim while the control thread publishes).
 /// `front_` is a monotonic counter (not a single bit) so a claim-recheck can
 /// distinguish "never moved" from "published twice and came back" (the ABA
 /// hazard); `last_front_` lets `Commit` skip the copy when nothing changed.
