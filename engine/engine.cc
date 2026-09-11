@@ -279,26 +279,38 @@ void RenderBlock(float *out, int frames) {
                 if (r.source == ModSourceId::kNote) continue;
                 const float src = ReadSource(r.source, part, voice);
                 const float contrib = r.amount * src;
+
+                // Destination -> accumulator. The fold operator is read from
+                // the destination's combination class so g_params stays the
+                // single source of truth for how a destination combines
+                // (arch-design §5.3); the switch only selects which accumulator
+                // a destination folds into (grows in phases 2-4).
+                float *acc;
                 switch (r.destination) {
-                case ParamId::kAmp: {
-                    // Multiplicative: a unipolar source attenuates
-                    // (x(1 + amount*(src-1))), a bipolar source tremolos around
-                    // the base (x(1 + amount*src)). amount=0 is neutral in both.
+                case ParamId::kAmp:         acc = &amp_eff; break;
+                case ParamId::kCutoff:      acc = &cutoff_eff; break;
+                case ParamId::kPitchCoarse: acc = &pitch_route; break;
+                default:                    continue;  // deferred destination
+                }
+
+                switch (g_params[static_cast<std::size_t>(r.destination)].comb) {
+                case CombinationClass::kMultiplicative: {
+                    // A unipolar source attenuates (x(1 + amount*(src-1))), a
+                    // bipolar source tremolos around the base (x(1 + amount*src)).
+                    // amount=0 is neutral in both.
                     const float factor =
                         kSourceBipolar[static_cast<std::size_t>(r.source)]
                             ? 1.0f + contrib
                             : 1.0f + r.amount * (src - 1.0f);
-                    amp_eff *= factor;
+                    *acc *= factor;
                     break;
                 }
-                case ParamId::kCutoff:
-                    cutoff_eff += contrib;  // additive
+                case CombinationClass::kAdditive:
+                case CombinationClass::kExponential:
+                    // Both accumulate by sum; exponential applies exp2f after
+                    // the loop (pitch), additive clamps after the loop (cutoff).
+                    *acc += contrib;
                     break;
-                case ParamId::kPitchCoarse:
-                    pitch_route += contrib;  // exponential (semitones)
-                    break;
-                default:
-                    break;  // deferred destinations (resonance/env times/etc., phases 2-4)
                 }
             }
             if (cutoff_eff > 1.0f) cutoff_eff = 1.0f;
