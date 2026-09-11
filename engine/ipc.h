@@ -59,13 +59,15 @@ class EventRing {
     Event buf_[kCapacity];
 };
 
-/// Double-buffered parameter block.
+/// Single-writer / single-reader parameter block, double-buffered.
 ///
-/// The control thread keeps the authoritative set in `pending_` and publishes
-/// it wholesale into the back buffer, then flips the front index. The audio
-/// thread snapshots the front buffer into the parts at each block boundary.
-/// Publishing the full set keeps the front buffer a consistent snapshot even
-/// though the control updates one parameter at a time.
+/// The control thread keeps the authoritative set in `pending_` (whole `Part`
+/// structs — params, key-follow depth, and routes). Publishing copies it into
+/// the back buffer and flips `front_`. The audio thread snapshots the front
+/// buffer into the parts at each block boundary. A `reading_` flag lets the
+/// writer wait (spin, control thread only) until the audio thread finishes
+/// reading a buffer before it reuses that buffer — the audio thread itself
+/// never blocks.
 class ParamBlock {
   public:
     /// @brief Update one normalized parameter for a part and publish the set.
@@ -80,8 +82,18 @@ class ParamBlock {
     /// @param id Parameter identifier.
     /// @return Value in [0, 1].
     float Get(int part, ParamId id) const {
-        return pending_[slot(part, static_cast<int>(id))];
+        return ParamGet(&pending_[part], id);
     }
+
+    /// @brief Set one modulation route for a part and publish the set.
+    /// Control thread only (single writer).
+    /// @param part Part index in [0, kNumParts).
+    /// @param slot Route slot in [0, kModSlots).
+    /// @param src Modulation source; kNone clears the slot.
+    /// @param dst Destination parameter (a params[] member).
+    /// @param amount Signed normalized amount in [-1, 1].
+    void SetRoute(int part, int slot, ModSourceId src, ParamId dst,
+                  float amount);
 
     /// @brief Snapshot the front buffer into all parts (audio thread).
     /// @param parts Destination part array (holds at least `kNumParts`).
@@ -92,19 +104,14 @@ class ParamBlock {
     void Reset(const ParamDesc *table);
 
   private:
-    static constexpr int kParamCount = static_cast<int>(ParamId::kCount);
-    static constexpr int kSlots = kNumParts * kParamCount;
+    /// @brief Copy `pending_` into the back buffer and flip the front index.
+    /// Control thread only (single writer).
+    void Publish();
 
-    /// @brief Linearize (part, param) into the flat slot index.
-    static int slot(int part, int i);
-
-    float pending_[kSlots];  ///< control-thread-only authoritative set
-
-    struct ParamValues {
-        std::atomic<float> v[kSlots];
-    };
-    ParamValues buf_[2];         ///< shared: audio reads buf_[front_]
-    std::atomic<int> front_{0};  ///< which buffer the audio reads
+    Part pending_[kNumParts];       ///< control-thread authoritative state
+    Part buf_[2][kNumParts];        ///< shared: audio reads buf_[front_]
+    std::atomic<int> front_{0};     ///< published buffer index
+    std::atomic<int> reading_{-1};  ///< buffer the audio thread is reading (-1 = none)
 };
 
 }  // namespace engine

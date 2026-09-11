@@ -277,6 +277,16 @@ float EngineGetParam(int part, ParamId id) {
     return g_param_block.Get(part, id);
 }
 
+void EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
+                    float amount) {
+    if (part < 0 || part >= kNumParts) return;
+    if (slot < 0 || slot >= kModSlots) return;
+    // dst must be a modulatable destination (a params[] member). Named fields
+    // (kKeyFollowDepth, kFilterEnvAmount) and kCount are not destinations.
+    if (static_cast<int>(dst) >= kNumParams) return;
+    g_param_block.SetRoute(part, slot, src, dst, amount);
+}
+
 void Render(float *out, int frames) {
     for (int done = 0; done < frames; done += kBlockSize) {
         int n = kBlockSize;

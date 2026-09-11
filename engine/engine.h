@@ -190,6 +190,15 @@ void EngineSetParamDisp(int part, ParamId id, float disp);
 /// @return Value in [0, 1].
 float EngineGetParam(int part, ParamId id);
 
+/// @brief Set one modulation route for a part (control thread).
+/// @param part Part index in [0, kNumParts).
+/// @param slot Route slot in [0, kModSlots).
+/// @param src Modulation source; kNone clears the slot.
+/// @param dst Destination parameter (phase-1 set: kCutoff, kAmp, kPitchCoarse).
+/// @param amount Signed normalized amount in [-1, 1] (key follow [0, 1]).
+void EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
+                    float amount);
+
 /// @brief Render `frames` mono samples into `out` (audio thread).
 ///
 /// Drains pending events and parameters at each block boundary. Output is

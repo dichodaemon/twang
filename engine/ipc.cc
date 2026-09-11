@@ -27,33 +27,52 @@ void EventRing::Reset() {
 }
 
 void ParamBlock::Set(int part, ParamId id, float norm) {
-    pending_[slot(part, static_cast<int>(id))] = norm;
-    int back = 1 - front_.load(std::memory_order_relaxed);
-    for (int i = 0; i < kSlots; ++i)
-        buf_[back].v[i].store(pending_[i], std::memory_order_relaxed);
+    ParamSet(&pending_[part], id, norm);
+    Publish();
+}
+
+void ParamBlock::SetRoute(int part, int slot, ModSourceId src, ParamId dst,
+                          float amount) {
+    pending_[part].routes[slot] = {src, dst, amount};
+    Publish();
+}
+
+void ParamBlock::Publish() {
+    int back = 1 - front_.load(std::memory_order_acquire);
+    // Wait until the audio thread finishes reading `back` (it only ever reads
+    // the published buffer, so `back` is free once `reading_` moves off it).
+    // The audio thread never blocks; only the control thread spins here, and
+    // only when it laps a slow reader (rare, ~100 ns in practice).
+    while (reading_.load(std::memory_order_acquire) == back) {
+    }
+    for (int p = 0; p < kNumParts; ++p) buf_[back][p] = pending_[p];
     front_.store(back, std::memory_order_release);
 }
 
 void ParamBlock::Commit(Part *parts) {
-    int front = front_.load(std::memory_order_acquire);
-    for (int p = 0; p < kNumParts; ++p)
-        for (int i = 0; i < kParamCount; ++i)
-            ParamSet(&parts[p], static_cast<ParamId>(i),
-                     buf_[front].v[slot(p, i)].load(std::memory_order_relaxed));
+    int f;
+    do {
+        f = front_.load(std::memory_order_acquire);
+        reading_.store(f, std::memory_order_release);
+        // If the writer flipped `front_` while we were claiming, retry: the
+        // buffer we just marked could be mid-rewrite by the writer.
+    } while (front_.load(std::memory_order_acquire) != f);
+    for (int p = 0; p < kNumParts; ++p) parts[p] = buf_[f][p];
+    reading_.store(-1, std::memory_order_release);
 }
 
 void ParamBlock::Reset(const ParamDesc *table) {
-    for (int p = 0; p < kNumParts; ++p)
-        for (int i = 0; i < kParamCount; ++i) {
-            pending_[slot(p, i)] = table[i].def;
-            buf_[0].v[slot(p, i)].store(table[i].def,
-                                        std::memory_order_relaxed);
-            buf_[1].v[slot(p, i)].store(table[i].def,
-                                        std::memory_order_relaxed);
-        }
+    for (int p = 0; p < kNumParts; ++p) {
+        pending_[p] = Part{};
+        for (int i = 0; i < static_cast<int>(ParamId::kCount); ++i)
+            ParamSet(&pending_[p], static_cast<ParamId>(i), table[i].def);
+    }
+    for (int p = 0; p < kNumParts; ++p) {
+        buf_[0][p] = pending_[p];
+        buf_[1][p] = pending_[p];
+    }
     front_.store(0, std::memory_order_relaxed);
+    reading_.store(-1, std::memory_order_relaxed);
 }
-
-int ParamBlock::slot(int part, int i) { return part * kParamCount + i; }
 
 }  // namespace engine
