@@ -1,6 +1,6 @@
 ---
 title: Synth Routing (Phase 1: Foundation) -- Implementation Plan
-status: approved
+status: issued
 date: 2026-09-11
 author: Dizan Vasquez
 arch-design: ../arch-designs/synth-routing_arch-design.md
