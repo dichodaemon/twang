@@ -45,7 +45,7 @@ enum class ParamId : std::uint8_t {
     kAmp,              ///< Amp/level base (params[6]).
     kPitchCoarse,      ///< Osc pitch coarse, bipolar ±24 semitones (params[7]).
     kPitchBend,        ///< Pitchbend performance input, 0.5 = center (params[8]).
-    kKeyFollowDepth,   ///< Key-follow depth, [0,1] (named field).
+    kKeyFollowDepth,   ///< Key-follow depth, [0,1] (named field; default 0.5).
     kCount,            ///< Parameter count (not a parameter).
 };
 
@@ -99,7 +99,7 @@ struct Part {
     // sustain, release, amp, pitch_coarse, pitchbend. key_follow_depth is a
     // named field addressed via offsetof (not params[]).
     float params[kNumParams];
-    float key_follow_depth;     ///< Key-follow depth for kNote→cutoff, [0,1], default 0.
+    float key_follow_depth;     ///< Key-follow depth for kNote→cutoff, [0,1], default 0.5.
     ModRoute routes[kModSlots]; ///< Modulation routes; zero-init == all empty.
 };
 

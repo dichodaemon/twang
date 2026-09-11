@@ -85,8 +85,8 @@ int main() {
               CombinationClass::kAdditive,
           "key_follow class additive");
     Check(g_params[static_cast<std::size_t>(ParamId::kKeyFollowDepth)].def ==
-              0.0f,
-          "key_follow def 0.0");
+              0.5f,
+          "key_follow def 0.5");
 
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);

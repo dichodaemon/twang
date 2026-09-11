@@ -43,7 +43,7 @@ constexpr ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)] = {
           offsetof(Part, params) + 8 * sizeof(float),
           CombinationClass::kAdditive },
     [static_cast<std::size_t>(ParamId::kKeyFollowDepth)] =
-        { "key_follow", "%", 0.0f, 100.0f, 0.0f, ParamCurve::kLinear,
+        { "key_follow", "%", 0.0f, 100.0f, 0.5f, ParamCurve::kLinear,
           offsetof(Part, key_follow_depth), CombinationClass::kAdditive },
 };
 

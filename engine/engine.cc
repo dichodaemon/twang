@@ -77,10 +77,15 @@ void UpdateFilterCoeffs(Voice *v, const Part *p, float cutoff_norm_eff,
 
     // Key follow applies in the Hz domain, after the cutoff display mapping
     // (arch-design §9): fc = NormToHz(cutoff_norm_eff) × 2^key_follow_factor.
-    const float fc = ParamNormToDisp(
-                         &g_params[static_cast<std::size_t>(ParamId::kCutoff)],
-                         cutoff_norm_eff) *
-                     std::exp2f(key_follow_factor);
+    // Clamp to the cutoff display max so key follow can never push fc above
+    // Nyquist (fs/2): beyond it tan(π·fc/fs) turns negative and destabilizes
+    // the SVF (the envelope-held filter would produce NaN).
+    float fc = ParamNormToDisp(
+                   &g_params[static_cast<std::size_t>(ParamId::kCutoff)],
+                   cutoff_norm_eff) *
+               std::exp2f(key_follow_factor);
+    const float fc_max = g_params[static_cast<std::size_t>(ParamId::kCutoff)].disp_max;
+    if (fc > fc_max) fc = fc_max;
     DspSvfSetFq(v, fc, q);
 }
 
@@ -321,15 +326,15 @@ void EngineInit() {
 
     // Pre-populate the 5 default routes (arch-design §5.4). Slots 0-2 absorb
     // today's hardcoded modulation (velocity->amp, env0->amp, env1->cutoff);
-    // slot 3 (key follow) and slot 4 (pitchbend) are off by default (amount 0)
-    // so they contribute nothing at rest. Slot 3's amount is a seed only —
-    // key-follow depth is read from the named Part::key_follow_depth field,
-    // not this route's amount.
+    // slot 3 (key follow) is enabled at half depth (0.5) and slot 4
+    // (pitchbend) is off (amount 0) so it contributes nothing at rest. Slot
+    // 3's amount is a seed only — key-follow depth is read from the named
+    // Part::key_follow_depth field, not this route's amount.
     for (int p = 0; p < kNumParts; ++p) {
         EngineSetRoute(p, 0, ModSourceId::kVelocity, ParamId::kAmp, 0.25f);
         EngineSetRoute(p, 1, ModSourceId::kEnv0, ParamId::kAmp, 1.0f);
         EngineSetRoute(p, 2, ModSourceId::kEnv1, ParamId::kCutoff, 0.0f);
-        EngineSetRoute(p, 3, ModSourceId::kNote, ParamId::kCutoff, 0.0f);
+        EngineSetRoute(p, 3, ModSourceId::kNote, ParamId::kCutoff, 0.5f);
         EngineSetRoute(p, 4, ModSourceId::kPitchBend, ParamId::kPitchCoarse, 0.0f);
     }
     g_param_block.Commit(g_parts);
