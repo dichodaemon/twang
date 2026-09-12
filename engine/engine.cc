@@ -97,6 +97,13 @@ float Clamp(float x) {
 
 constexpr float kLn2 = 0.6931471805599453f;
 
+// DriveCurve maps the normalized drive depth [0,1] to an input gain, unity at
+// 0 and a 1->10 (20 dB) span. The exact curve and ceiling are tuning
+// (output-stage arch-design §8); this pins a sane starting point.
+float DriveCurve(float drive_eff) {
+    return std::exp2f(drive_eff * std::log2f(10.0f));
+}
+
 // The antiderivative F(x) = log(cosh(x)) over x ∈ [-kFTableMax, kFTableMax],
 // 256 entries, linear interpolation (output-stage arch-design §6.4). The
 // values are authored literals (C++17 has no constexpr log/cosh); test_shaper
