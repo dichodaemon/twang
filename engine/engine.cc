@@ -508,19 +508,24 @@ float EngineGetMeter() {
 
 void EngineInit() {
     for (int i = 0; i < kNumParts; ++i) g_parts[i] = Part{};
-    for (int i = 0; i < kNumVoices; ++i) g_voices[i] = Voice{};
+    for (int i = 0; i < kNumVoices; ++i) g_voices[i] = Voice{};  // shaper {0,0}
+    for (int p = 0; p < kNumParts; ++p) {
+        g_drive_in_use[p] = false;
+        g_prev_drive_in_use[p] = false;
+    }
+    Shared().meter.store(0.0f, std::memory_order_relaxed);
     g_alloc.Reset();
     g_events.Reset();
     g_param_block.Reset(g_params);
 
     // Pre-populate the 5 default routes (arch-design §5.4). Slots 0-2 absorb
     // today's hardcoded modulation (velocity->amp, env0->amp, env1->cutoff);
-    // velocity->amp uses full depth (1.0) with the 4-voice headroom carried in
-    // the kAmp base level (default 0.25). Slot 3 (key follow) is enabled at
-    // half depth (0.5) and slot 4 (pitchbend) is off (amount 0) so it
-    // contributes nothing at rest. Slot 3's amount is a seed only — key-follow
-    // depth is read from the named Part::key_follow_depth field, not this
-    // route's amount.
+    // velocity->amp uses full depth (1.0). kAmp is a pure level (default 1.0)
+    // — the polyphony headroom now lives on the bus (kBusGain 0.125), not in
+    // kAmp. Slot 3 (key follow) is enabled at half depth (0.5) and slot 4
+    // (pitchbend) is off (amount 0) so it contributes nothing at rest. Slot 3's
+    // amount is a seed only — key-follow depth is read from the named
+    // Part::key_follow_depth field, not this route's amount.
     for (int p = 0; p < kNumParts; ++p) {
         EngineSetRoute(p, 0, ModSourceId::kVelocity, ParamId::kAmp, 1.0f);
         EngineSetRoute(p, 1, ModSourceId::kEnv0, ParamId::kAmp, 1.0f);
