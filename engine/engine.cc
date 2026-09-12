@@ -407,6 +407,24 @@ float AntiderivativeEval(CurveShape s, float x) {
     return 0.0f;
 }
 
+float ShaperProcess(Voice *v, float x) {
+    const float xp = v->shaper.xp;
+    const float dx = x - xp;
+    const float fx = AntiderivativeEval(CurveShape::kSoftSat, x);  // F(x)
+    float y;
+    if (std::fabs(dx) < kAdaaEps) {
+        // Midpoint fallback: the quotient's limit as dx -> 0. A larger epsilon
+        // is better than a divide-by-zero-only guard — the quotient cancels
+        // catastrophically at low frequencies (output-stage arch-design §6.4).
+        y = CurveEval(CurveShape::kSoftSat, (x + xp) * 0.5f);
+    } else {
+        y = (fx - v->shaper.Fp) / dx;
+    }
+    v->shaper.xp = x;
+    v->shaper.Fp = fx;
+    return y;
+}
+
 void EngineInit() {
     for (int i = 0; i < kNumParts; ++i) g_parts[i] = Part{};
     for (int i = 0; i < kNumVoices; ++i) g_voices[i] = Voice{};
