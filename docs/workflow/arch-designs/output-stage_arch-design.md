@@ -135,8 +135,8 @@ f(x) = x·(27 + x²) / (27 + 9x²)   for |x| ≤ 3
 It is C¹: `f(0) = 0`, `f′(0) = 1`, and it reaches `±1` at `x = ±3` with zero slope (`f′(±3) = 0`), so the clamp joins with matched value and matched slope — a curvature discontinuity only, not the slope discontinuity of a hard clip. Its antiderivative is
 
 ```
-F(x) = x²/18 + (4/3)·ln(x² + 3)   for |x| ≤ 3
-     = |x| + c                      for |x| > 3,   c = (4/3)·ln 12 − 5/2 ≈ 0.813208866
+F(x) = x²/18 + (4/3)·ln((x² + 3)/3)   for |x| ≤ 3    (F(0) = 0)
+     = |x| + c                          for |x| > 3,   c = (4/3)·ln 4 − 5/2 ≈ −0.651607519
 ```
 
 The curve and its antiderivative are specified together because ADAA integrates `F`. The curve is *defined as this function*, not as an approximation of a more-accurate "true" curve — the midpoint fallback `f(mid)` (§6.4) is exact by definition, and the shaper's only numerical error is the table's interpolation of `F`. Measured anti-aliasing is within 0.2 dB of tanh at ×3 and ×10 drive, so the study's §5.2 figures carry over unchanged.
@@ -163,9 +163,9 @@ xp = x;  Fp = F(x)                       // advance state
 Two hazards are load-bearing and specified, not left to the implementer:
 
 1. **`ε` is one table cell, not a magic constant.** Linear interpolation makes `F̃` piecewise-linear, so its derivative — the ADAA quotient — is piecewise-constant. When `|dx|` is smaller than the table step `h`, both samples fall in the same cell and the quotient returns a staircase of cell-averaged curve values, not the curve itself. Routing exactly the `|dx| < h` regime to the fallback (exact, since the fallback *is* the curve) removes the staircase. Set `ε = h = 2·kFTableMax / (kFTableSize − 1)`, derived from the table size — it is also the CPU-optimal point, because the fallback (one curve evaluation) is cheaper than the quotient (two `F` lookups plus a divide). Re-derive if the shaper moves to Q31 (fixed-point cancellation differs).
-2. **State reset on note-on.** A stolen voice restarts with the previous note's trailing sample in `xp`/`Fp`, producing a ~−0.5 impulse — a click — on the first sample. Reset `xp = 0`, `Fp = F(0) = 0` in `StartNote` (which the steal path reaches after its ramp), so the first sample is computed against silence.
+2. **State reset on note-on.** A stolen voice restarts with the previous note's trailing sample in `xp`/`Fp`, producing a ~−0.5 impulse — a click — on the first sample. Reset `xp = 0`, `Fp = F(0)` in `StartNote` (which the steal path reaches after its ramp), so the first sample is computed against silence. `F(0) = 0` for the §6.3 antiderivative, so this is `Fp = 0` — but the reset must use *the table's* additive constant: a mismatched `Fp` leaves a spurious `F(0)/x` term on the first sample that diverges as `x → 0`, reintroducing exactly the click this reset exists to prevent.
 
-The `F`-table: 256 entries of `F(x) = x²/18 + (4/3)·ln(x²+3)` over `x ∈ [−3, 3]`, linear interpolation, ~1 KB. Outside the table, `F(x) = |x| + c` (`c ≈ 0.813208866`) — the closed-form asymptote, exact to float precision (the clamp makes `f` constant past ±3, so `F` is exactly linear there). The extension is required, not optional: clamping the table would freeze `F` past the edge and drive the ADAA quotient to 0 where `f` has saturated to ±1 — a silent wrong answer at high drive. The closed form is two ops (`|x| + c`), touches no `log1p`/`exp`, and needs no NaN guard.
+The `F`-table: 256 entries of `F(x) = x²/18 + (4/3)·ln((x²+3)/3)` over `x ∈ [−3, 3]`, linear interpolation, ~1 KB. Outside the table, `F(x) = |x| + c` (`c ≈ −0.651607519`) — the closed-form asymptote, exact to float precision (the clamp makes `f` constant past ±3, so `F` is exactly linear there). The extension is required, not optional: clamping the table would freeze `F` past the edge and drive the ADAA quotient to 0 where `f` has saturated to ±1 — a silent wrong answer at high drive. The closed form is two ops (`|x| + c`), touches no `log1p`/`exp`, and needs no NaN guard.
 
 ### 6.5. Design Decisions
 
@@ -227,7 +227,7 @@ struct ShaperState {
 // future set; only one shape ships.
 enum class CurveShape : uint8_t { kSoftSat = 0 };
 float CurveEval(CurveShape s, float x);            // f(x): the soft-saturation curve (clamped Padé)
-float AntiderivativeEval(CurveShape s, float x);   // F(x): x²/18 + (4/3)·ln(x²+3); |x| + c outside
+float AntiderivativeEval(CurveShape s, float x);   // F(x): x²/18 + (4/3)·ln((x²+3)/3); |x| + c outside
 ```
 
 ### Meter
@@ -257,7 +257,7 @@ inline constexpr float kBusGain    = 0.125f;  // −18 dB headroom
 inline constexpr int   kFTableSize = 256;     // antiderivative table entries
 inline constexpr float kFTableMax  = 3.0f;    // table covers x ∈ [−3, 3]; closed form outside
 inline constexpr float kAdaaEps    = 2.0f * kFTableMax / (kFTableSize - 1);  // one table cell
-inline constexpr float kFTableAsym = 0.813208866f;  // F(x) = |x| + kFTableAsym for |x| > kFTableMax
+inline constexpr float kFTableAsym = -0.651607519f;  // F(x) = |x| + kFTableAsym for |x| > kFTableMax
 ```
 
 ## 9. Contracts
