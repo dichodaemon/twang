@@ -1,6 +1,6 @@
 ---
 title: Output Stage Headroom and Distortion
-status: draft
+status: resolved
 date: 2026-09-11
 author: Dizan Vasquez
 ---
@@ -340,7 +340,7 @@ The §5.2/§5.4 figures use a 7 kHz sine chosen to fold badly; a polyBLEP saw at
 
 ## 7. Deliverables
 
-- [ ] Arch-design update: `docs/workflow/arch-designs/synth-routing_arch-design.md` — record the two-stage output architecture (bus-level protection: gain element 0.125, fixed soft saturator, hard clamp, meter; per-voice musicality: `kDrive` control, one fixed curve + dispatch, ADAA with a 1D antiderivative table) as the settled audio-routing semantics.
+- [x] Arch-design: `docs/workflow/arch-designs/output-stage_arch-design.md` (written) — the two-stage output architecture: bus-level protection (gain 0.125, fixed soft saturator, hard clamp, meter) and per-voice musicality (`kDrive`, one fixed curve + dispatch, ADAA with a 1D antiderivative table).
 - [ ] Implementation: `engine/engine.{h,cc}` — a bus gain stage (0.125), a fixed soft saturator replacing the bare `Clamp`, a hard clamp after it, and a peak metering signal (protection); a `kDrive` parameter and per-voice shaper with a curve dispatch and ADAA (1D antiderivative table) (musicality). Parameter values (curve, anti-aliasing table) are set here, not in this study.
 - [ ] Measurement: the engine's CPU budget on the M85 — `bench`'s ns/sample/voice at 24 voices (the host figure is 9.1 ns/sample/voice via `tools/bench.cc`, not a target) expressed as a fraction of the 48 kHz frame budget, *plus* a per-evaluation microbenchmark of the three AA variants — the §5.7 ordering (tabulated vs closed-form vs oversampling) differs by 10× and is what §6.3 rests on. This gates §6.3: at ~20% headroom either mechanism fits; at ~60% oversampling is out regardless of aliasing.
 - [ ] Test: `tests/test_engine.cc` — pre-clamp bus peak is observable; saturator is bounded; per-voice shaper anti-aliasing DC gain is unity and group delay is bounded and known (both mechanisms — oversampling *and* ADAA, which has ~half-sample group delay). Two ADAA-specific hazards: (1) the `|Δx| < ε` fallback is a *precision* guard, not just a divide-by-zero guard — measure 30–110 Hz SNR against a float64 reference and choose `ε` to hold ≥ ~90 dB (≈1e-3 beats 1e-6 by ~20 dB at 30 Hz; re-derive in Q31); (2) reset the ADAA state (`x[n−1]`, `F(x[n−1])`) on note-on — a voice steal must not carry the previous note's trailing sample into the first sample of the new note (a stale state word clicks).

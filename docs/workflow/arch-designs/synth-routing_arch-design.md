@@ -311,7 +311,7 @@ void Render(float *out, int frames);
 ```
 
 - **Precondition**: `out` holds `frames` floats; engine initialized.
-- **Postcondition**: `out` holds the sum of all voices, each voice's cutoff/pitch/amp/pan computed from its part's base params plus the matrix's accumulated modulation (cutoff includes the key-follow factor), routed into the buses; output clamped to `[-1, 1]`.
+- **Postcondition**: `out` holds the sum of all voices, each voice's cutoff/pitch/amp/pan computed from its part's base params plus the matrix's accumulated modulation (cutoff includes the key-follow factor), routed into the buses. The output stage (headroom/saturator/clamp/meter) applies after the bus sum — see [Output Stage](output-stage_arch-design.md).
 - **Error semantics**: none — no allocation, no failure path in the audio loop.
 
 ## 9. System Invariants
