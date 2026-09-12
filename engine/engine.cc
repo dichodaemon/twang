@@ -432,6 +432,10 @@ float ShaperProcess(Voice *v, float x) {
     return y;
 }
 
+float EngineGetMeter() {
+    return Shared().meter.exchange(0.0f, std::memory_order_relaxed);
+}
+
 void EngineInit() {
     for (int i = 0; i < kNumParts; ++i) g_parts[i] = Part{};
     for (int i = 0; i < kNumVoices; ++i) g_voices[i] = Voice{};
