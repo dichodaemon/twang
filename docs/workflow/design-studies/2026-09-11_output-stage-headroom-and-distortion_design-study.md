@@ -69,21 +69,23 @@ When the voice sum exceeds ±1.0, what non-linearity does the bus apply?
 - *Pros:* Even-harmonic character; bounded; a single function change.
 - *Cons:* The aliasing improvement over hard clamp is only 2–3 dB (§5.2). By itself it does not change the character enough to justify shipping it as "the" distortion answer.
 
-#### Option 3: Soft-clip + 2× oversampling
+#### Option 3: Soft-clip + oversampling (configurable 2×/4×)
 
-- *Properties:* A soft saturation curve evaluated at 2× the sample rate, with a half-band up/down filter pair around it, on the bus only (not per voice).
-- *Pros:* ~10 dB aliasing reduction over the 1× soft-clip (§5.2), which is what turns overdrive into saturation rather than harshness. Cost is bounded: two biquads up, two down, and a 2× inner loop — ~96k saturator evaluations/s plus filtering on the M85, affordable.
+- *Properties:* A soft saturation curve evaluated at 2× or 4× the sample rate — 4× is a cascade of two 2× half-band stages, so the factor is a stage count, not a separate design — with the half-band up/down filters around it, on the bus only (not per voice).
+- *Pros:* ~10 dB aliasing reduction over the 1× soft-clip (§5.2), which is what turns overdrive into saturation rather than harshness. Cost is bounded: two biquads up, two down, and the oversampling inner loop — ~96k saturator evaluations/s (2×) plus filtering on the M85, affordable.
 - *Cons:* Most complex of the three; more state and code.
 
-**Conclusion:** Option 3, gated on the open question in §6. The oversampling is the only option that changes the *character* of the distortion rather than nudging it; its cost is confined to the bus.
+**Conclusion:** Option 3. The oversampling is the only option that changes the *character* of the distortion rather than nudging it; its cost is confined to the bus. The factor (2× vs 4×) is configurable (§6.1), not fixed.
 
 ## 4. Design Options (composed)
 
 The recommendation composes 3.1-option 2 with 3.2-option 3:
 
 - **`kAmp`** → a part *level*, no ceiling. The headroom stops being a part parameter.
-- **Bus gain element** → a scalar gain stage on the bus, between the voice sum and the non-linearity. This is where headroom lives — a bus property, not a part property.
-- **Saturator element** → a soft non-linearity on the bus, replacing the bare `Clamp` as the primary ceiling, with oversampling filters around it to control aliasing. Whether its drive is *coupled* to the bus gain or *decoupled* into a separate drive control is an open question (§6.2).
+- **Bus gain element** → the headroom scale (0.25) on the bus, before the saturator — a bus property, not a part property.
+- **Drive control** → a gain *into* the saturator — the overdrive amount.
+- **Saturator element** → a soft non-linearity on the bus, replacing the bare `Clamp` as the primary ceiling, with oversampling filters (configurable 2×/4×) around it to control aliasing.
+- **Level control** → a gain *after* the saturator — the output volume, independent of drive (§6.2: decoupled).
 - **Hard clamp after** → retained as the DAC guarantee; it should never engage.
 - **Metering tap** → a peak signal reporting how far into the saturator the bus is (a thin bar under the output plot, or the readout line — the `CYCLE`/`SPEC` scope tabs are already used by the scope), so overdrive is intentional rather than accidental.
 
@@ -92,7 +94,7 @@ The *values* — the `kAmp` and `bus_gain` defaults, the saturator curve, the ov
 - `kAmp` default **1.0** (no ceiling).
 - `bus_gain` default **0.25**.
 - Saturator curve: **tanh-shaped**.
-- Oversampling factor: **2×** (if max drive stays near ×3; 4× if ×10 overdrive is a feature — §6.1).
+- Oversampling factor: **configurable 2×/4×** (default TBD; 2× is the conservative start — §6.1).
 
 These are a starting point, not a commitment — re-verify the factor and curve against real program material (a polyBLEP saw folds less than the 7 kHz sine used in §5.2/§5.4).
 
@@ -157,16 +159,16 @@ Cost: two biquads up, two down, and the oversampling loop — on the bus only, ~
 
 ## 6. Open Questions
 
-The architecture — bus gain element + saturator + oversampling + meter — is settled by §5. Two design questions remain; neither is a tuning value.
+The architecture — bus gain + saturator + oversampling + meter, with decoupled drive and level — is settled by §5. No design question blocks resolution; one tuning value remains open.
 
-1. **Maximum supported drive.** The oversampling factor follows the drive the stage must support (§5.4). If `bus_gain` 0.25 keeps full polyphony near ×2.6 (§5.3), 2× is right and 4× is waste; if overdrive at ×10 is a first-class feature, 2× leaves ~8 dB on the table. This decides the oversampling architecture, so it must be answered before the saturator is sized.
+1. **Oversampling factor.** ~~Fixed 2× vs 4× following a max-drive ceiling.~~ Resolved: the factor is *configurable* (2×/4×, a cascade of 2× half-band stages), so the saturator supports ~×3–×6 cleanly at 2× and ~×10 at 4× (§5.4). The remaining choice is the **default factor** — a tuning value, not a design decision — to be set against real program material; 2× is the conservative starting point.
 
-2. **Drive/level coupling.** Whether the saturator's drive is *coupled* to the bus gain (the bus gain doubles as the overdrive control) or *decoupled* (a separate drive into the saturator, with an output level after it). Coupling makes the master volume change the distortion character — quiet practice loses the saturation, loud playback overdrives uninvited. Decoupling is one extra float and one multiply, and is the conventional design, so quiet-and-dirty and loud-and-clean are both reachable. This is a design decision, not a tuning value; §4 no longer presumes it.
+2. **Drive/level coupling.** ~~Whether the saturator's drive is coupled to the bus gain or decoupled into a separate drive control.~~ Resolved: **decouple** — a separate drive control into the saturator, with an output level after it (§4), so quiet-and-dirty and loud-and-clean are both reachable.
 
 The §5.2/§5.4 figures use a 7 kHz sine chosen to fold badly; a polyBLEP saw at typical pitches folds less, so treat the numbers as an upper bound and a reliable *ranking*.
 
 ## 7. Deliverables
 
-- [ ] Arch-design update: `docs/workflow/arch-designs/synth-routing_arch-design.md` — record the output-stage architecture (bus-level gain element for headroom, soft saturator + oversampling for distortion, hard clamp as DAC guarantee, metering tap) as the settled audio-routing semantics.
-- [ ] Implementation: `engine/engine.{h,cc}` — a bus gain stage, a saturator (+ oversampling) replacing the bare `Clamp` on the bus, a hard clamp after it, and a peak metering signal. Parameter values (defaults, curve, oversampling factor) are set here, not in this study.
+- [ ] Arch-design update: `docs/workflow/arch-designs/synth-routing_arch-design.md` — record the output-stage architecture (bus-level gain element for headroom, decoupled drive and level controls, soft saturator with configurable oversampling for distortion, hard clamp as DAC guarantee, metering tap) as the settled audio-routing semantics.
+- [ ] Implementation: `engine/engine.{h,cc}` — a bus gain stage, a drive control into a saturator (with configurable 2×/4× oversampling) replacing the bare `Clamp`, a level control after it, a hard clamp after that, and a peak metering signal. Parameter values (defaults, curve, default oversampling factor) are set here, not in this study.
 - [ ] Test: `tests/test_engine.cc` — pre-clamp bus peak is observable; saturator is bounded; oversampling DC gain is unity and group delay is bounded and known.
