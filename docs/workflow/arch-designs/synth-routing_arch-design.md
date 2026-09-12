@@ -128,7 +128,7 @@ Each destination has a combination class. The combination is `base + Σ(amount �
 | env sustain ×3 | multiplicative | unipolar src `×= (1 + amount·(src−1))`; bipolar src `×= (1 + amount·src)` |
 | send ×2 | multiplicative | unipolar src `×= (1 + amount·(src−1))` |
 
-Multiplicative has two sub-forms because a unipolar source (velocity, envelope) *attenuates* a level (`× (1 + a·(s−1))`), while a bipolar source (LFO) *tremolos around* the base (`× (1 + a·s)`). Both are one multiply-add. The unipolar form is neutral at amount 0 and reaches ×1 at `s = 1` for any amount, so the 4-voice headroom lives in the destination's base level (`kAmp` default 0.25), not the route amount.
+Multiplicative has two sub-forms because a unipolar source (velocity, envelope) *attenuates* a level (`× (1 + a·(s−1))`), while a bipolar source (LFO) *tremolos around* the base (`× (1 + a·s)`). Both are one multiply-add. The unipolar form is neutral at amount 0 and reaches ×1 at `s = 1` for any amount, so `kAmp` is a pure level (default 1.0); the polyphony headroom lives on the bus (`kBusGain` 0.125, output stage), not the route amount or the `kAmp` base.
 
 ### 5.4. Default routes
 
@@ -136,7 +136,7 @@ Five routes are pre-populated at `EngineInit`. The first three absorb today's ha
 
 | Slot (0-based) | Route | Class | Amount | Replaces |
 |---|---|---|---|---|
-| 0 | `kVelocity → kAmp` | multiplicative | 1.0 (headroom in `kAmp` default 0.25) | `Voice.gain = kVoiceHeadroom × v/127` |
+| 0 | `kVelocity → kAmp` | multiplicative | 1.0 (headroom on the bus: `kBusGain` 0.125; `kAmp` default 1.0) | `Voice.gain = kVoiceHeadroom × v/127` |
 | 1 | `kEnv0 → kAmp` | multiplicative | 1.0 | `out ×= env` |
 | 2 | `kEnv1 → kCutoff` | additive | `filter_env_amount` (default 0) | `env_cutoff = cutoff + filter_env_amount × env` |
 | 3 | `kNote → kCutoff` (key follow) | exponential | `key_follow_depth` (default 0.5) | new — 1:1 octave tracking |
@@ -372,7 +372,7 @@ The matrix is desktop-testable through the existing engine test surface; no hard
 |---|---|
 | `Voice::gain` (`engine/engine.h`) | Replaced by the default velocity→amp route |
 | `filter_env_amount` (`engine/params.*`, `engine/engine.cc` `UpdateFilterCoeffs`) | Replaced by the default env1→cutoff route |
-| `kVoiceHeadroom` / `VelocityToGain` special-casing (`engine/engine.cc`) | Folded into the `kAmp` base level (default 0.25) with the velocity→amp route at full depth |
+| `kVoiceHeadroom` / `VelocityToGain` special-casing (`engine/engine.cc`) | Folded into the velocity→amp route at full depth; `kAmp` is a pure level (default 1.0), the polyphony headroom now lives on the bus (`kBusGain` 0.125, output stage) |
 
 ## Appendix A: Build Order
 

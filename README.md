@@ -57,7 +57,7 @@ void EngineSetParamDisp(int part, ParamId id, float disp); // display units
 float EngineGetParam(int part, ParamId id);                // current normalized 0..1
 
 // audio thread — render, draining events/params at each block boundary
-void Render(float *out, int frames);             // sum of active voices, clamped
+void Render(float *out, int frames);             // sum of active voices, soft-saturated then clamped
 
 // parameters — walk the table instead of hardcoding (params.h)
 int   ParamCount();
