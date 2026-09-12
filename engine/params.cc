@@ -42,6 +42,10 @@ constexpr ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)] = {
         { "pitchbend", "%", 0.0f, 100.0f, 0.5f, ParamCurve::kLinear,
           offsetof(Part, params) + 8 * sizeof(float),
           CombinationClass::kAdditive },
+    [static_cast<std::size_t>(ParamId::kDrive)] =
+        { "drive", "dB", 0.0f, 20.0f, 0.0f, ParamCurve::kExponential,
+          offsetof(Part, params) + 9 * sizeof(float),
+          CombinationClass::kAdditive },
     [static_cast<std::size_t>(ParamId::kKeyFollowDepth)] =
         { "key_follow", "%", 0.0f, 100.0f, 0.5f, ParamCurve::kLinear,
           offsetof(Part, key_follow_depth), CombinationClass::kAdditive },
