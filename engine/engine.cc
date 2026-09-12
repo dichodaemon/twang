@@ -25,6 +25,10 @@ struct Bus {
 };
 Bus g_buses[kNumBuses];
 
+// Per-part flag: is drive in use (base kDrive != 0 or a route targets it)?
+// Computed per control step in RenderBlock; gates the per-voice shaper.
+bool g_drive_in_use[kNumParts];
+
 // DSP-specific mapping: normalized resonance -> Q (not the display %).
 float QFromResonance(float resonance) {
     return 0.5f + resonance * resonance * 20.0f;  // Q 0.5 .. 20.5
@@ -102,6 +106,11 @@ constexpr float kLn2 = 0.6931471805599453f;
 // (output-stage arch-design §8); this pins a sane starting point.
 float DriveCurve(float drive_eff) {
     return std::exp2f(drive_eff * std::log2f(10.0f));
+}
+
+// Linear blend: lerp(a, b, t) = a + (b - a) * t.
+inline float Lerp(float a, float b, float t) {
+    return a + (b - a) * t;
 }
 
 // The antiderivative F(x) = log(cosh(x)) over x ∈ [-kFTableMax, kFTableMax],
@@ -382,7 +391,12 @@ void RenderBlock(float *out, int frames) {
             for (int i = 0; i < n; ++i) {
                 float saw = DspOscTick(voice);
                 float lp = DspSvfTick(voice, saw);
-                g_buses[0].L[start + i] += lp * amp_eff;
+                if (g_drive_in_use[voice->part]) {
+                    const float wet = ShaperProcess(voice, lp * gain);
+                    g_buses[0].L[start + i] += Lerp(lp, wet, depth) * amp_eff;
+                } else {
+                    g_buses[0].L[start + i] += lp * amp_eff;
+                }
             }
             voice->inc = base_inc;
         }
