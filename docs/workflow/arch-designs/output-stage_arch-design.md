@@ -67,7 +67,7 @@ A ratio `r` in decibels is `20·log10(r)`. `bus_gain = 0.125` is `20·log10(0.12
 
 | Term | Definition | Maps to |
 |---|---|---|
-| Drive | How hard the per-voice shaper is pushed: a normalized [0,1] control mapped to a linear gain. 0 = no drive. | `ParamId::kDrive`, `drive_gain` |
+| Drive | How hard the per-voice shaper is pushed: a normalized [0,1] control deriving a blend `depth` and an input `gain`. 0 = no drive (transparent). | `ParamId::kDrive`, `depth`, `gain` |
 | Shaper | The per-voice memoryless non-linearity (soft saturation), anti-aliased with ADAA. | `ShaperProcess` |
 | ADAA | Antiderivative anti-aliasing: replaces `f(x[n])` with the average of `f` over `[x[n−1], x[n]]`. | `ShaperState`, `kAdaaEps` |
 | `F`-table | 1D lookup of the antiderivative `F(x) = ∫ f(x) dx`, 256 entries, linear interpolation. | the file-static table |
@@ -75,7 +75,7 @@ A ratio `r` in decibels is `20·log10(r)`. `bus_gain = 0.125` is `20·log10(0.12
 | Bus gain | The fixed headroom scale on the summed bus, 0.125 (−18 dB). | `kBusGain` |
 | Saturator | The fixed `tanh` soft clip on the bus; no anti-aliasing. | the bus loop |
 | Hard clamp | The final `Clamp` at ±1.0 — the DAC guarantee; should never engage. | `Clamp` |
-| Meter | The peak magnitude of the saturator input over a block, reporting how far the bus is into the rail. | `g_meter` |
+| Meter | The peak magnitude of the saturator input since the last read-and-clear, reporting how far the bus is into the rail. | `g_meter` |
 
 ## 5. System Context
 
@@ -91,7 +91,7 @@ flowchart LR
     gain -. "peak" .-> meter["meter"]
 ```
 
-The shaper is a memoryless non-linearity plus a two-float ADAA state; the bus stage is memoryless. Nothing new crosses the core boundary except the meter value — a single float the M85 writes and the M33 reads for display, the first M85→M33 signal (the existing transport is M33→M85 only: event ring + double-buffered params).
+The shaper is a memoryless non-linearity plus a two-float ADAA state; the bus stage is memoryless. The meter is the first M85→M33 signal: a single `std::atomic<float>` in the shared IPC region (audio core writes, control core reads-and-clears), not a file-scope `float` — the audio core's `.bss` is invisible to the control core. It shares the cache-coherent mapping of the event ring and double-buffered params; the M85's L1 D-cache coherence against the M33's access is a target-side item to validate on hardware, not settleable on the host. Relaxed ordering is a plain 32-bit load/store on ARM, so no lock is introduced.
 
 ## 6. Architecture
 
@@ -102,12 +102,12 @@ Two stages, one per function. The study's structural point is that they are **se
 The voice's SVF output `lp` is driven into the curve, then level-scaled:
 
 ```
-x   = lp × drive_gain
-y   = ShaperProcess(voice, x)      // tanh curve, ADAA anti-aliased
-out = y × amp_eff                   // amp_eff = level (velocity × envelope × kAmp)
+depth = drive_eff                        // blend ∈ [0,1], 0 = transparent
+wet   = ShaperProcess(voice, lp × gain)  // tanh curve, ADAA anti-aliased
+out   = lerp(lp, wet, depth) × amp_eff   // amp_eff = level (velocity × envelope × kAmp)
 ```
 
-`drive_gain` is derived per control step from the effective drive — base `kDrive` plus matrix accumulation — so `envelope → drive` makes drive per-voice. The shaper is **bypassed** when the part does not use drive (`kDrive == 0` and no route targets it), so drive-off patches pay no CPU. `amp_eff` is the existing effective amp from the routing subsystem; drive and level are decoupled, so quiet-and-dirty and loud-and-clean are both reachable.
+`drive_eff` (base `kDrive` plus matrix accumulation, clamped to [0,1]) derives two quantities per control step — the blend `depth` and the input `gain` (`DriveCurve(0) = 1`) — so `envelope → drive` makes drive per-voice. At `depth = 0` the shaper is the identity (`out = lp`), so the bypass (`kDrive == 0` and no route targets it) and unity-drive paths are bit-identical and the level does not step when drive first engages — a bare `tanh(gain·x)` cannot do this (`tanh(1) = −2.4 dB`, `tanh(2) = −6.3 dB`). `amp_eff` is the existing effective amp; drive and level stay decoupled. The blend is a crossfade between the non-lowpassed dry input and the box-averaged wet signal, so the magnitude response is a monotonic lowpass that deepens with depth: flat at `depth = 0`, `−5.2 dB` at 20 kHz at `depth = 0.5`, and the full ADAA rolloff (`−11.7 dB` at 20 kHz) at `depth = 1`. It does not comb (no nulls): first-order ADAA is a two-tap box average (`cos(ωT/2)` — −1.25/−3.01/−6.02/−11.74 dB at 8/12/16/20 kHz) and the two blended paths differ in magnitude as well as phase. The full rolloff is reached only at full drive, where the saturated signal's own harmonics dominate the top octave, so the audible cost is concentrated at intermediate depths.
 
 ### 6.2. Bus protection (rail)
 
@@ -115,9 +115,10 @@ After all voices are summed into `g_buses[0].L`:
 
 ```
 for i in 0..frames:
-    s      = g_buses[0].L[i] × kBusGain     // kBusGain = 0.125 (−18 dB)
-    meter  = max(meter, |s|)                // pre-saturator peak = "into the rail"
-    out[i] = Clamp(tanh(s))                 // soft saturator, then hard clamp
+    s          = g_buses[0].L[i] × kBusGain   // kBusGain = 0.125 (−18 dB)
+    block_peak = max(block_peak, |s|)         // pre-saturator peak = "into the rail"
+    out[i]     = Clamp(tanh(s))               // soft saturator, then hard clamp
+// block end: merge block_peak into the shared meter with a relaxed CAS-max (750 RMW/s)
 ```
 
 The saturator is `tanh` — a fixed soft curve, once per sample, **no** anti-aliasing. It must rarely engage: `bus_gain` 0.125 keeps the rail at ~0.10% engagement in measured real playing, so the rarely-engaged bus curve's aliasing is inaudible, and the hard clamp is the last-resort DAC guarantee that should never fire.
@@ -148,7 +149,7 @@ Two hazards are load-bearing and specified, not left to the implementer:
 1. **`ε` is a precision guard, not just a divide-by-zero guard.** The quotient cancels catastrophically as `x → xp` — worst at low frequencies, where a sine barely moves between samples. A *larger* `ε` is better: measured float32-vs-float64, `ε = 1e-3` holds ~91 dB SNR at 30 Hz where `1e-6` drops to ~70 dB, because the midpoint fallback is more accurate than the ill-conditioned quotient. Starting value `kAdaaEps = 1e-3`; re-derive if the shaper moves to Q31 (fixed-point cancellation differs).
 2. **State reset on note-on.** A stolen voice restarts with the previous note's trailing sample in `xp`/`Fp`, producing a ~−0.5 impulse — a click — on the first sample. Reset `xp = 0`, `Fp = F(0) = 0` in `StartNote` (which the steal path reaches after its ramp), so the first sample is computed against silence.
 
-The `F`-table: 256 entries of `F(x) = log(cosh(x))` over a symmetric range covering the shaper's input domain (`drive_gain × lp`), linear interpolation, ~1 KB. Bit-indistinguishable from closed-form, and it avoids closed-form's log1p/exp (which costs ~10× a plain tanh and is worse than oversampling).
+The `F`-table: 256 entries of `F(x) = log(cosh(x))` over `x ∈ [−8, 8]`, linear interpolation, ~1 KB. Outside the table, `F(x) = |x| − log 2` — the closed-form asymptote, exact to float precision (`log(cosh x) − (|x| − log 2) = e^{−2|x|}`: `3.4e-4` at `x = 4`, `1.1e-7` at `x = 8`). The extension is required, not optional: clamping the table would freeze `F` past the edge and drive the ADAA quotient to 0 where `tanh` has saturated to ±1 — a silent wrong answer at high drive. The closed form is two ops (`|x| − log 2`), touches no `log1p`/`exp`, and needs no NaN guard.
 
 ### 6.5. Design Decisions
 
@@ -162,16 +163,17 @@ The `F`-table: 256 entries of `F(x) = log(cosh(x))` over a symmetric range cover
 | `ε` fallback | precision guard, `ε = 1e-3` | Larger guard avoids quotient cancellation at low frequencies (~20 dB better than 1e-6 at 30 Hz). |
 | ADAA state | per-voice `xp`/`Fp`, reset on note-on | 2 floats × 24 voices; reset prevents a voice-steal click. |
 | Drive/level decoupling | `kDrive` into the shaper, `amp_eff` after | Quiet-and-dirty and loud-and-clean both reachable; matches all three references. |
+| Drive shape | dry/wet blend `lerp(lp, ADAA(f(gain·lp)), depth)` | `tanh` is not transparent (`tanh(1) = −2.4 dB`), so a bare curve steps the level at the bypass boundary; the blend makes depth 0 exactly `lp`. |
 | Drive gating | shaper bypassed when the part doesn't use drive | Drive-off patches pay no CPU; the CPU bar is 24 *driven* voices. |
-| Meter | pre-saturator peak, per block | Reports how far the bus is into the rail so overdrive is intentional, not accidental. |
+| Meter | peak-hold, read-and-clear | Reports how far the bus is into the rail so overdrive is intentional, not accidental; a transient is held until the control core reads it. |
 
 ## 7. Component Lifecycle
 
 - **Init** (`EngineInit`): generate the `F`-table once (static `const`); zero `g_meter`; the per-voice shaper state is zeroed with the voices.
 - **Note-on / steal** (`StartNote`): reset the voice's `xp = 0`, `Fp = 0` — the shaper starts from silence.
-- **Per control step** (16 samples): compute `drive_eff` (base `kDrive` + matrix accumulation, additive) and `drive_gain = DriveCurve(drive_eff)`; `drive_in_use` is a per-part flag from `kDrive != 0` or any route targeting `kDrive`.
-- **Per sample, per voice** (only when `drive_in_use`): `x = lp × drive_gain`, then the ADAA step; `g_buses[0].L[i] += y × amp_eff`.
-- **Per block, after the bus sum**: bus gain → tanh saturator → hard clamp, accumulating `g_meter` as the pre-saturator peak.
+- **Per control step** (16 samples): compute `drive_eff` (base `kDrive` + matrix accumulation, additive), clamp it to `[0, 1]` (matching the `cutoff_eff` clamp), then derive `depth` and `gain = DriveCurve(drive_eff)`; `drive_in_use` is a per-part flag from `kDrive != 0` or any route targeting `kDrive`.
+- **Per sample, per voice** (only when `drive_in_use`): `wet = ShaperProcess(voice, lp × gain)`, then the blend; `g_buses[0].L[i] += lerp(lp, wet, depth) × amp_eff`.
+- **Per block, after the bus sum**: bus gain → tanh saturator → hard clamp, computing the block's pre-saturator peak; at block end, merge it into the shared `g_meter` with a relaxed CAS-max (750 RMW/s).
 - **Shutdown**: none — fixed-size state, no heap.
 
 ## 8. Types
@@ -187,7 +189,7 @@ enum class ParamId : uint8_t { ..., kDrive, ..., kCount };
 //   curve kExponential, offset offsetof(Part, params[kDrive]), comb kAdditive
 ```
 
-`comb = kAdditive` — drive accumulates by sum in the matrix. `drive_gain = DriveCurve(drive_eff)` is a monotonic map from effective drive to a linear gain with `DriveCurve(0) = 1` (unity). The exact dB curve and ceiling are tuning, not architecture.
+`comb = kAdditive` — drive accumulates by sum in the matrix. `drive_eff` (clamped to [0,1]) derives two quantities: the blend `depth` and the input `gain = DriveCurve(drive_eff)`, a monotonic map with `DriveCurve(0) = 1` (unity). The exact dB curve and ceiling are tuning, not architecture.
 
 ### ShaperState (per-voice ADAA state)
 
@@ -214,17 +216,27 @@ float AntiderivativeEval(CurveShape s, float x);   // F(x) = log(cosh(x))
 ### Meter
 
 ```cpp
-// Per-block peak of the saturator input (post bus_gain, pre tanh), in [0, ∞)
-// where 1.0 = at the rail. Written by the M85 render loop; read by the M33.
-float g_meter;
+// Peak of the saturator input (post bus_gain, pre tanh) since the last
+// read-and-clear, in [0, ∞) where 1.0 = at the rail. Lives in the shared IPC
+// region (coherent mapping, as EventRing/ParamBlock): audio core writes, control
+// core reads-and-clears.
+std::atomic<float> g_meter;
+
+// Audio core, at block end (one merge per block, 750 RMW/s):
+float cur = g_meter.load(std::memory_order_relaxed);
+while (block_peak > cur &&
+       !g_meter.compare_exchange_weak(cur, block_peak,
+                                      std::memory_order_relaxed)) {}
+static_assert(std::atomic<float>::is_always_lock_free);
 ```
 
 ### Constants
 
 ```cpp
-inline constexpr float kBusGain   = 0.125f;   // −18 dB headroom
-inline constexpr float kAdaaEps   = 1e-3f;    // precision guard (float; re-derive in Q31)
+inline constexpr float kBusGain    = 0.125f;  // −18 dB headroom
+inline constexpr float kAdaaEps    = 1e-3f;   // precision guard (float; re-derive in Q31)
 inline constexpr int   kFTableSize = 256;     // antiderivative table entries
+inline constexpr float kFTableMax  = 8.0f;    // table covers x ∈ [−8, 8]; closed form outside
 ```
 
 ## 9. Contracts
@@ -235,7 +247,7 @@ inline constexpr int   kFTableSize = 256;     // antiderivative table entries
 float ShaperProcess(Voice *v, float x);
 ```
 
-- **Precondition**: `v` is a live voice; `x = lp × drive_gain`; `v->shaper` holds valid state (reset on note-on).
+- **Precondition**: `v` is a live voice; `x = lp × gain` (the driven input); `v->shaper` holds valid state (reset on note-on).
 - **Postcondition**: returns the ADAA-anti-aliased `f(x)`; `v->shaper` advanced to `{x, F(x)}`.
 - **Bypass**: the caller skips this when `drive_in_use` is false (passes `lp` straight to the bus); `ShaperProcess` has no internal bypass branch, so the ADAA state stays continuous whenever it runs.
 
@@ -249,15 +261,15 @@ The routing subsystem's `Render` postcondition is extended: instead of "output c
 float EngineGetMeter();
 ```
 
-- **Postcondition**: returns `g_meter` — the peak pre-saturator magnitude of the most recent completed block, reset each block. Reads the shared scalar; no locking (the M33 reads at display rate, the M85 writes at block rate).
+- **Postcondition**: returns the peak pre-saturator magnitude since the last read and clears it (`exchange(0)`, relaxed). A transient is held across as many display polls as it takes to be read. The audio core accumulates via CAS-max; the control core reads-and-clears at display rate. No lock.
 
 ## 10. System Invariants
 
 - The shaper is memoryless except its two-float state, and that state is reset to `{0, 0}` on note-on (and steal), so a voice's first sample is always computed against silence.
 - `ShaperProcess` output is bounded by the curve's range — `tanh` ∈ (−1, 1) — so the shaper never pushes the bus past the curve's bound; the hard clamp is the only ±1.0 guarantee.
 - `out` never exceeds ±1.0 — the hard clamp is last and unconditional.
-- `g_meter` reflects the pre-saturator magnitude; a reading ≤ 1.0 means the saturator is in its linear region and the rail is not being meaningfully engaged.
-- When `drive_in_use` is false the shaper is skipped and contributes nothing; when true it runs every sample for that part's voices (no per-sample bypass, so the ADAA state stays continuous).
+- `g_meter` is the peak pre-saturator magnitude since the last read-and-clear (held, not reset per block); a reading ≤ 1.0 means the saturator is in its linear region and the rail is not being meaningfully engaged.
+- At `drive_eff = 0` the shaper is the identity (`out = lp`), so `drive_in_use = false` skipping it and contributing nothing is exact, not approximate; when true it runs every sample for that part's voices (no per-sample bypass, so the ADAA state stays continuous).
 - All arithmetic is single-precision float; no `double`, no heap allocation, no exceptions in the audio path. The `F`-table is `const` in `.rodata` (flash).
 
 ## 11. Test Architecture
@@ -268,7 +280,7 @@ Desktop-testable through the existing engine surface (`test_engine`, `bench`, `w
 - **`ε` precision**: 30–110 Hz sines measure SNR against a float64 reference; assert ≥ ~90 dB at `ε = 1e-3` and that `1e-6` is measurably worse — the regression that pins the guard.
 - **State reset**: render a note, steal the voice, and assert the new note's first sample shows no impulse discontinuity (compare against a fresh voice).
 - **DC input**: a constant input exercises the `|dx| < ε` fallback every sample; assert no NaN/Inf and bounded output.
-- **Bypass**: `kDrive = 0` with no drive route → output is bit-identical to the shaper-removed path, and the shaper code is not reached (observable via a counter or cycle count).
+- **Bypass**: `kDrive = 0` with no drive route → output is bit-identical to the shaper-removed path. (The CPU claim — the shaper is not reached — is measured in `bench`, not asserted in the test.)
 - **Bus protection**: drive the bus over the rail; assert `out` stays in [−1, 1] and the meter reads > 1.
 - **Migration**: `kAmp 0.25` vs `kAmp 1.0 × bus_gain 0.25` produce identical output below the rail (ratio 1.0000).
 
@@ -281,7 +293,7 @@ Desktop-testable through the existing engine surface (`test_engine`, `bench`, `w
 - [ ] Given a DC input, the shaper output is bounded and NaN-free (the `ε` fallback engages every sample).
 - [ ] Given the bus sum exceeds the rail, `out` is hard-clamped to ±1.0 and the meter reads > 1.
 - [ ] Given `kAmp 0.25` and `kAmp 1.0 × bus_gain 0.25`, output is identical below the rail (the migration is output-preserving).
-- [ ] No new IPC mechanism; no heap allocation in the audio path; the `F`-table is `const` in flash.
+- [ ] The meter is a single `std::atomic<float>` in the shared IPC region (no new IPC protocol); no heap allocation in the audio path; the `F`-table is `const` in flash.
 
 ## 13. Code Pointers
 
