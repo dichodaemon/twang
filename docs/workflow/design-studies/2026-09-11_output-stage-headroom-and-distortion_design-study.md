@@ -174,7 +174,7 @@ Both non-linearities fold back energy above Nyquist, but the budget differs: the
 
 - *Properties:* First-order ADAA — output is `(F(x[n]) − F(x[n−1])) / (x[n] − x[n−1])` with `F` the antiderivative of the curve. Three implementations: closed-form (`F = log(cosh(x))`); a 1D `F`-table (~1 KB/curve, with a `|Δx| < ε` divide fallback); or a 2D table pre-computing the whole quotient to avoid the divide (Deluge's `getTanHAntialiased` — a `lastWorkingValue` state word plus a `tanH2d[x][x_prev]` table, `util/functions.h:295`; that this is specifically ADAA is *inferred* from the shape, not named in the source).
 - *Pros:* Matches or beats 2× oversampling for a fraction of the cost (reviewer-measured: ×3 → −29.5 dB vs −31.2 dB for 2×; ×10 → −23.9 dB vs −22.6 dB). No filter design, no group delay, no ringing. The 1D `F`-table is bit-indistinguishable from closed-form at ~1 KB/curve and ~2.9× the cost of a plain tanh (§5.7).
-- *Cons:* The closed-form variant needs log1p/exp — ~10× a plain tanh, *worse than oversampling* (§5.7). The 1D table needs the `|Δx| < ε` divide fallback (a DC input hits it every sample); the 2D table avoids the divide but costs 64× the memory (~64 KB vs ~1 KB). The above numbers are reviewer-measured on the same 7 kHz sine and tanh as §5.2/§5.4 (directly comparable) — still verify against a polyBLEP saw.
+- *Cons:* The closed-form variant needs log1p/exp — ~10× a plain tanh, *worse than oversampling* (§5.7). The 1D table needs the `|Δx| < ε` divide fallback, and `ε` is a *precision* guard, not just a divide-by-zero guard — the quotient cancels as `x[n] → x[n−1]` (worst at low frequencies), so a larger `ε` is better (§7). The 2D table avoids the divide but costs 64× the memory (~64 KB vs ~1 KB). The above numbers are reviewer-measured on the same 7 kHz sine and tanh as §5.2/§5.4 (directly comparable) — still verify against a polyBLEP saw.
 
 **Conclusion (per function):** Protection takes Option 1 (none) — `bus_gain` 0.125 keeps the rail rare (§5.7), so it needs no anti-aliasing. Musicality takes Option 2 or 3, and the discriminator is CPU, not flash: flash is not tight (768 KiB; the engine is ~1% of it), but at 24 voices oversampling costs ~+141% versus +69% for tabulated ADAA — and closed-form ADAA is the expensive path at +236% (§5.7). The two mechanisms are not interchangeable across curves either — oversampling is curve-agnostic, ADAA needs a per-shape antiderivative — so the AA choice is gated by the curve choice (§6.2) and the CPU headroom measurement (§7).
 
@@ -191,7 +191,7 @@ The recommendation composes the per-function conclusions into two stages:
 
 **Musicality (per-voice):**
 - **Drive control** → `kDrive`, a per-part `ParamId` into the per-voice shaper, decoupled from output level (§3.2.1; decoupling settled in §6.4).
-- **Shaper** → one fixed curve (soft saturation) now, with the curve dispatch mechanism reserved for the eventual set (§6.2).
+- **Shaper** → one fixed curve (soft saturation) now, with the curve dispatch mechanism reserved for the eventual set (§6.2). It runs only when `kDrive > 0`, so drive-off patches pay nothing — the §7 CPU bar is 24 *driven* voices, not the engine's 24-voice baseline.
 - **Anti-aliasing** → ADAA with a 1D antiderivative table on the per-voice stage (§6.3).
 
 The *values* — the `bus_gain` default, the curve, the anti-aliasing mechanism — are parameter choices, not design decisions; §5 uses them only as evidence for the architectural choice. They are set in the implementation, but the study recommends starting values:
@@ -201,6 +201,7 @@ The *values* — the `bus_gain` default, the curve, the anti-aliasing mechanism 
 - Protection curve: **fixed tanh**.
 - Musicality curve: **one fixed curve (soft saturation) + dispatch mechanism** — §6.2.
 - Musicality anti-aliasing: **ADAA, 1D antiderivative table** — §6.3.
+- ADAA `ε` fallback: **1e-3** (a precision guard, not just a divide-by-zero guard; re-derive in Q31) — §7.
 
 These are a starting point, not a commitment — re-verify the factor and curve against real program material (a polyBLEP saw folds less than the 7 kHz sine used in §5.2/§5.4).
 
@@ -319,9 +320,9 @@ Projected at 24 voices against a 147 ns/sample engine:
 | per-voice tanh (×24) | +24% |
 | per-voice ADAA, 1D F-table | +69% |
 | per-voice ADAA, closed-form (log1p/exp) | +236% |
-| per-voice 2× oversampling | ~+141% |
+| per-voice 2× oversampling | ~+141% (modelled) |
 
-The tabulated/closed-form split matters more than ADAA-vs-oversampling: closed-form ADAA is *worse* than oversampling, because log1p/exp costs ~10× a tanh. ADAA (1D table) holds a ~2× advantage over oversampling — still decisive, but narrower than the earlier +51% guess. This is the discriminator for §3.3.2, and it gates §6.3 on the CPU headroom measurement (§7).
+The tabulated/closed-form split matters more than ADAA-vs-oversampling: closed-form ADAA is *worse* than oversampling, because log1p/exp costs ~10× a tanh. ADAA (1D table) holds a ~2× advantage over oversampling — still decisive, but narrower than the earlier +51% guess. (The ~+141% oversampling figure is modelled — derived as ×6 for two saturator evaluations plus four biquads — not measured like the other rows.) This is the discriminator for §3.3.2, and it gates §6.3 on the CPU headroom measurement (§7).
 
 ## 6. Open Questions
 
@@ -342,7 +343,7 @@ The §5.2/§5.4 figures use a 7 kHz sine chosen to fold badly; a polyBLEP saw at
 - [ ] Arch-design update: `docs/workflow/arch-designs/synth-routing_arch-design.md` — record the two-stage output architecture (bus-level protection: gain element 0.125, fixed soft saturator, hard clamp, meter; per-voice musicality: `kDrive` control, one fixed curve + dispatch, ADAA with a 1D antiderivative table) as the settled audio-routing semantics.
 - [ ] Implementation: `engine/engine.{h,cc}` — a bus gain stage (0.125), a fixed soft saturator replacing the bare `Clamp`, a hard clamp after it, and a peak metering signal (protection); a `kDrive` parameter and per-voice shaper with a curve dispatch and ADAA (1D antiderivative table) (musicality). Parameter values (curve, anti-aliasing table) are set here, not in this study.
 - [ ] Measurement: the engine's CPU budget on the M85 — `bench`'s ns/sample/voice at 24 voices (the host figure is 9.1 ns/sample/voice via `tools/bench.cc`, not a target) expressed as a fraction of the 48 kHz frame budget, *plus* a per-evaluation microbenchmark of the three AA variants — the §5.7 ordering (tabulated vs closed-form vs oversampling) differs by 10× and is what §6.3 rests on. This gates §6.3: at ~20% headroom either mechanism fits; at ~60% oversampling is out regardless of aliasing.
-- [ ] Test: `tests/test_engine.cc` — pre-clamp bus peak is observable; saturator is bounded; per-voice shaper anti-aliasing DC gain is unity and group delay is bounded and known (both mechanisms — oversampling *and* ADAA, which has ~half-sample group delay); ADAA `x[n]≈x[n−1]` fallback is exercised (DC input).
+- [ ] Test: `tests/test_engine.cc` — pre-clamp bus peak is observable; saturator is bounded; per-voice shaper anti-aliasing DC gain is unity and group delay is bounded and known (both mechanisms — oversampling *and* ADAA, which has ~half-sample group delay). Two ADAA-specific hazards: (1) the `|Δx| < ε` fallback is a *precision* guard, not just a divide-by-zero guard — measure 30–110 Hz SNR against a float64 reference and choose `ε` to hold ≥ ~90 dB (≈1e-3 beats 1e-6 by ~20 dB at 30 Hz; re-derive in Q31); (2) reset the ADAA state (`x[n−1]`, `F(x[n−1])`) on note-on — a voice steal must not carry the previous note's trailing sample into the first sample of the new note (a stale state word clicks).
 
 ## Appendix A: Comparison with the Reference Implementations
 
