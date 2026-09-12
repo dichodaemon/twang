@@ -28,6 +28,7 @@ Bus g_buses[kNumBuses];
 // Per-part flag: is drive in use (base kDrive != 0 or a route targets it)?
 // Computed per control step in RenderBlock; gates the per-voice shaper.
 bool g_drive_in_use[kNumParts];
+bool g_prev_drive_in_use[kNumParts];  // previous control step, for enable edges
 
 // DSP-specific mapping: normalized resonance -> Q (not the display %).
 float QFromResonance(float resonance) {
@@ -308,6 +309,36 @@ void RenderBlock(float *out, int frames) {
         if (start + n > frames) n = frames - start;
 
         ApplyEvents();  // note on/off with the block-start params
+
+        // Compute drive_in_use per part and reset the shaper state on a
+        // false -> true enable edge. A ramped enable (depth ~= 0) needs no
+        // reset, but a jumped enable (preset load, CC 0 -> 100) would resume
+        // from stale ADAA state and click (output-stage arch-design §7).
+        for (int p = 0; p < kNumParts; ++p) {
+            bool in_use =
+                g_parts[p].params[static_cast<std::size_t>(ParamId::kDrive)] !=
+                0.0f;
+            if (!in_use) {
+                for (int slot = 0; slot < kModSlots; ++slot) {
+                    const ModRoute &r = g_parts[p].routes[slot];
+                    if (r.source != ModSourceId::kNone &&
+                        r.destination == ParamId::kDrive) {
+                        in_use = true;
+                        break;
+                    }
+                }
+            }
+            g_drive_in_use[p] = in_use;
+            if (in_use && !g_prev_drive_in_use[p]) {
+                for (int v = 0; v < kNumVoices; ++v) {
+                    if (g_voices[v].part == p) {
+                        g_voices[v].shaper.xp = 0.0f;
+                        g_voices[v].shaper.Fp = 0.0f;
+                    }
+                }
+            }
+            g_prev_drive_in_use[p] = in_use;
+        }
 
         for (int v = 0; v < kNumVoices; ++v) {
             Voice *voice = &g_voices[v];
