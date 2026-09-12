@@ -172,6 +172,7 @@ The `F`-table: 256 entries of `F(x) = log(cosh(x))` over `x ∈ [−8, 8]`, line
 - **Init** (`EngineInit`): generate the `F`-table once (static `const`); zero `g_meter`; the per-voice shaper state is zeroed with the voices.
 - **Note-on / steal** (`StartNote`): reset the voice's `xp = 0`, `Fp = 0` — the shaper starts from silence.
 - **Per control step** (16 samples): compute `drive_eff` (base `kDrive` + matrix accumulation, additive), clamp it to `[0, 1]` (matching the `cutoff_eff` clamp), then derive `depth` and `gain = DriveCurve(drive_eff)`; `drive_in_use` is a per-part flag from `kDrive != 0` or any route targeting `kDrive`.
+- **Drive enable** (when `drive_in_use` transitions false → true): reset `xp = Fp = 0` for the part's voices — the same reset as note-on — so the shaper resumes from silence, not stale state. A ramped enable needs no reset (`depth ≈ 0` masks the stale wet term), but a jumped enable (preset load, CC 0 → 100) would otherwise click.
 - **Per sample, per voice** (only when `drive_in_use`): `wet = ShaperProcess(voice, lp × gain)`, then the blend; `g_buses[0].L[i] += lerp(lp, wet, depth) × amp_eff`.
 - **Per block, after the bus sum**: bus gain → tanh saturator → hard clamp, computing the block's pre-saturator peak; at block end, merge it into the shared `g_meter` with a relaxed CAS-max (750 RMW/s).
 - **Shutdown**: none — fixed-size state, no heap.
@@ -228,6 +229,9 @@ while (block_peak > cur &&
        !g_meter.compare_exchange_weak(cur, block_peak,
                                       std::memory_order_relaxed)) {}
 static_assert(std::atomic<float>::is_always_lock_free);
+// The guard `block_peak > cur` is NaN-safe: a NaN peak fails the comparison
+// and is dropped, so a NaN can never poison the meter. Keep the guard — an
+// unconditional CAS would strand the display at a garbage reading.
 ```
 
 ### Constants
@@ -265,8 +269,8 @@ float EngineGetMeter();
 
 ## 10. System Invariants
 
-- The shaper is memoryless except its two-float state, and that state is reset to `{0, 0}` on note-on (and steal), so a voice's first sample is always computed against silence.
-- `ShaperProcess` output is bounded by the curve's range — `tanh` ∈ (−1, 1) — so the shaper never pushes the bus past the curve's bound; the hard clamp is the only ±1.0 guarantee.
+- The shaper is memoryless except its two-float state, and that state is reset to `{0, 0}` on note-on, steal, and drive enable — the shaper never resumes from stale state.
+- The wet term (`ShaperProcess` output) is bounded by the curve's range — `tanh` ∈ (−1, 1); the blended output `lerp(lp, wet, depth)` is not, because the dry path `lp` is unbounded — the hard clamp is the only ±1.0 guarantee.
 - `out` never exceeds ±1.0 — the hard clamp is last and unconditional.
 - `g_meter` is the peak pre-saturator magnitude since the last read-and-clear (held, not reset per block); a reading ≤ 1.0 means the saturator is in its linear region and the rail is not being meaningfully engaged.
 - At `drive_eff = 0` the shaper is the identity (`out = lp`), so `drive_in_use = false` skipping it and contributing nothing is exact, not approximate; when true it runs every sample for that part's voices (no per-sample bypass, so the ADAA state stays continuous).
@@ -279,6 +283,7 @@ Desktop-testable through the existing engine surface (`test_engine`, `bench`, `w
 - **ADAA correctness**: a sine through the shaper measures folded-back-vs-harmonic energy within ~1 dB of the study's §5.2/§5.4 figures at ×3 and ×10 drive.
 - **`ε` precision**: 30–110 Hz sines measure SNR against a float64 reference; assert ≥ ~90 dB at `ε = 1e-3` and that `1e-6` is measurably worse — the regression that pins the guard.
 - **State reset**: render a note, steal the voice, and assert the new note's first sample shows no impulse discontinuity (compare against a fresh voice).
+- **Drive enable**: while a voice sustains, jump `kDrive` from 0 to a finite value (a discontinuous enable) and assert the first sample shows no impulse discontinuity (compare against a voice that had drive enabled from note-on).
 - **DC input**: a constant input exercises the `|dx| < ε` fallback every sample; assert no NaN/Inf and bounded output.
 - **Bypass**: `kDrive = 0` with no drive route → output is bit-identical to the shaper-removed path. (The CPU claim — the shaper is not reached — is measured in `bench`, not asserted in the test.)
 - **Bus protection**: drive the bus over the rail; assert `out` stays in [−1, 1] and the meter reads > 1.
@@ -286,10 +291,11 @@ Desktop-testable through the existing engine surface (`test_engine`, `bench`, `w
 
 ## 12. Acceptance Criteria
 
-- [ ] Given `kDrive = 0` and no drive route, the output equals the unshaped path (bypass; no CPU in the shaper).
+- [ ] Given `kDrive = 0` and no drive route, the output is bit-identical to the shaper-removed path — the blend is exactly `lp` at depth 0, the property the blend was adopted for; no CPU in the shaper.
 - [ ] Given `drive > 0`, a sine through the shaper is anti-aliased to within ~1 dB of the 2× oversampling reference at ×3 and ×10.
 - [ ] Given a 30 Hz input, the shaper holds ≥ ~90 dB SNR against a float64 reference at `ε = 1e-3`.
 - [ ] Given a voice steal, the first sample of the new note shows no impulse discontinuity (state reset works).
+- [ ] Given a discontinuous drive enable mid-note (`kDrive` jumps 0 → nonzero), the first sample shows no impulse discontinuity (the `xp`/`Fp` reset on the false → true transition works).
 - [ ] Given a DC input, the shaper output is bounded and NaN-free (the `ε` fallback engages every sample).
 - [ ] Given the bus sum exceeds the rail, `out` is hard-clamped to ±1.0 and the meter reads > 1.
 - [ ] Given `kAmp 0.25` and `kAmp 1.0 × bus_gain 0.25`, output is identical below the rail (the migration is output-preserving).
