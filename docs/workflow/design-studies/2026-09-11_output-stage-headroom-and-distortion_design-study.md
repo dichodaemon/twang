@@ -93,7 +93,7 @@ The *values* — the `kAmp` and `bus_gain` defaults, the saturator curve, the ov
 
 - `kAmp` default **1.0** (no ceiling).
 - `bus_gain` default **0.25**.
-- Saturator curve: **tanh-shaped**.
+- Saturator curve: **tanh-shaped** (fixed; configurable waveshaper if the character range is wanted — §6.3).
 - Oversampling factor: **configurable 2×/4×** (default TBD; 2× is the conservative start — §6.1).
 
 These are a starting point, not a commitment — re-verify the factor and curve against real program material (a polyBLEP saw folds less than the 7 kHz sine used in §5.2/§5.4).
@@ -159,11 +159,13 @@ Cost: two biquads up, two down, and the oversampling loop — on the bus only, ~
 
 ## 6. Open Questions
 
-The architecture — bus gain + saturator + oversampling + meter, with decoupled drive and level — is settled by §5. No design question blocks resolution; one tuning value remains open.
+The architecture — bus gain + saturator + oversampling + meter, with decoupled drive and level — is settled by §5. One design question and one tuning value remain open.
 
 1. **Oversampling factor.** ~~Fixed 2× vs 4× following a max-drive ceiling.~~ Resolved: the factor is *configurable* (2×/4×, a cascade of 2× half-band stages), so the saturator supports ~×3–×6 cleanly at 2× and ~×10 at 4× (§5.4). The remaining choice is the **default factor** — a tuning value, not a design decision — to be set against real program material; 2× is the conservative starting point.
 
 2. **Drive/level coupling.** ~~Whether the saturator's drive is coupled to the bus gain or decoupled into a separate drive control.~~ Resolved: **decouple** — a separate drive control into the saturator, with an output level after it (§4), so quiet-and-dirty and loud-and-clean are both reachable.
+
+3. **Curve flexibility.** Fixed tanh (matching Ambika and Deluge) vs. a configurable waveshaper (Surge's 50-shape library). Fixed tanh gives one character; a configurable curve gives a range — fuzz, wavefold, rectifier, hard/soft — at the cost of the waveshaper library and a shape parameter. The author is interested in the character range, which points at the configurable option and re-opens the §4 "tanh-shaped" curve. Open.
 
 The §5.2/§5.4 figures use a 7 kHz sine chosen to fold badly; a polyBLEP saw at typical pitches folds less, so treat the numbers as an upper bound and a reliable *ranking*.
 
@@ -172,3 +174,38 @@ The §5.2/§5.4 figures use a 7 kHz sine chosen to fold badly; a polyBLEP saw at
 - [ ] Arch-design update: `docs/workflow/arch-designs/synth-routing_arch-design.md` — record the output-stage architecture (bus-level gain element for headroom, decoupled drive and level controls, soft saturator with configurable oversampling for distortion, hard clamp as DAC guarantee, metering tap) as the settled audio-routing semantics.
 - [ ] Implementation: `engine/engine.{h,cc}` — a bus gain stage, a drive control into a saturator (with configurable 2×/4× oversampling) replacing the bare `Clamp`, a level control after it, a hard clamp after that, and a peak metering signal. Parameter values (defaults, curve, default oversampling factor) are set here, not in this study.
 - [ ] Test: `tests/test_engine.cc` — pre-clamp bus peak is observable; saturator is bounded; oversampling DC gain is unity and group delay is bounded and known.
+
+## Appendix A: Comparison with the Reference Implementations
+
+The companion report [Drive and Distortion Implementations](../reports/2026-09-11_drive-and-distortion-implementations_report.md) surveys Ambika, DelugeFirmware, and Surge XT. The §4 proposal is a fixed-tanh, bus-level saturator with configurable oversampling — closest to Deluge's post-FX saturation, borrowing Surge's oversampling mechanism, and using the drive/level decoupling all three share.
+
+### A.1. Side-by-side
+
+| Dimension | Ambika | Deluge | Surge | Proposal |
+|---|---|---|---|---|
+| Curve | fixed `tanh(6x)` | fixed tanh | configurable (50+ waveshapers) | fixed tanh (§6.3) |
+| Placement | mix-stage fuzz + analog filter | filter drive + post-FX saturation | per-filter drive + FX insert | bus-level (post-sum) |
+| Anti-aliasing | none | anti-aliased tanh | 4× oversampling | configurable 2×/4× oversampling |
+| Drive/level | decoupled | decoupled | decoupled | decoupled |
+| Curve as a control | no (amount only) | no (amount only) | yes (shape + depth) | no (amount only; §6.3) |
+| Lo-fi (bitcrush/srr/fold) | `OP_BITS`/`OP_XOR`/`OP_FOLD` | SRR + bitcrush + wavefold | waveshaper shapes | none (out of scope) |
+
+### A.2. Where it aligns
+
+- **Decoupled drive/level** — matches all three; it is the consensus, not a proposal novelty (Ambika's `MIX_FUZZ` vs. VCA, Deluge's `clippingAmount` vs. volume, Surge's `Drive` vs. `Gain`).
+- **Fixed tanh curve** — matches Ambika and Deluge; only Surge treats the curve as a selectable parameter.
+- **Anti-aliasing where drive is deliberate** — matches Deluge and Surge, which both pay an anti-aliasing cost; Ambika, which treats the fuzz as a static table, does not.
+
+### A.3. Where it diverges
+
+1. **No configurable curve — Surge's differentiator.** The proposal fixes tanh and exposes only a drive *amount*, like Ambika/Deluge. Surge's 50-shape waveshaper is the one thing not adopted. This is the "character" gap: fixed tanh is one character; the waveshaper library is a range. If the range is wanted, it is a curve swap on the same bus stage (§6.3), not a redo of the headroom/drive/level architecture.
+
+2. **Bus-only placement — narrower than Surge/Deluge.** Those two also distort *inside* the filter (per-filter drive and feedback saturation). The proposal is a single post-sum stage; per-voice/per-filter drive is explicitly deferred to phase 2+.
+
+3. **Configurable oversampling factor — a mild novelty.** None of the references make the factor a runtime choice (Surge fixes 4×, Deluge fixes an anti-aliased tanh, Ambika has none). The proposal's 2×/4× cascade is a small generalization that defers the ceiling without a new algorithm.
+
+4. **No lo-fi effects.** Bitcrush/SRR/wavefold are separate mechanisms in Ambika and Deluge (and waveshaper shapes in Surge). The proposal has none, consistent with the study's scope (level-based non-linearity only).
+
+### A.4. Verdict
+
+A conservative synthesis: fixed-tanh simplicity from Ambika/Deluge, oversampled anti-aliasing from Surge (generalized to configurable), and the decoupled drive/level all three already do — deliberately omitting Surge's configurable-curve generality and the per-filter/mix-stage placements, both deferred rather than rejected. The one gap that matters for character is the fixed curve (§6.3).
