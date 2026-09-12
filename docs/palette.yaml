@@ -1,3 +1,10 @@
+# STATUS: unadopted design exploration, not the shipping palette.
+#
+# The panel ships four colours (background, dim, mid, bright) -- see
+# docs/random/panel-ui-design-state.md section 3. This file is a broader
+# 8-hue x 3-level system kept in case a future screen needs semantic colour.
+# Nothing in the codebase reads it.
+#
 # Instrument palette — 8 hues × 3 levels, plus a 4-step neutral ramp.
 #
 # Derivation: each hue is defined by its `high` value. `mid` and `low` are that

@@ -86,11 +86,18 @@ target_link_libraries(bench PRIVATE engine)
 add_executable(panel_shot tools/panel_shot.cc)
 target_link_libraries(panel_shot PRIVATE spike)
 
+# ---- Panel mockups: all four screens as a design surface ----
+# Renders through the real primitives and atlases, so geometry and legibility
+# match the panel. `--check` verifies the golden hashes.
+add_executable(mockup_screens tools/mockup_screens.cc)
+target_link_libraries(mockup_screens PRIVATE spike)
+
 # ---- Tests ----
 enable_testing()
 add_executable(test_engine tests/test_engine.cc)
 target_link_libraries(test_engine PRIVATE engine)
 add_test(NAME engine_render COMMAND test_engine)
+add_test(NAME mockups COMMAND mockup_screens --check)
 
 add_executable(test_shaper tests/test_shaper.cc)
 target_link_libraries(test_shaper PRIVATE engine)

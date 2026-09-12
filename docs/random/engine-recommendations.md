@@ -413,7 +413,7 @@ smearing that is hard to attribute after the fact.
 
 ## 6. Do not build yet
 
-### 5.1 DMAC (~2 KiB)
+### 6.1 DMAC (~2 KiB)
 
 Only useful once a scratch buffer exists to move. No scratch, no reason.
 
@@ -422,7 +422,7 @@ paid for; what costs flash is the FSP driver plus LVGL GPU glue, which is
 tens of KB. Declining that is correct. But the DMAC is a separate, much
 cheaper door for bulk memory-to-memory transfer if §6.2 says you need one.
 
-### 5.2 Tile / band scratch
+### 6.2 Tile / band scratch
 
 The original case for this was scattered diagonal writes in the plots.
 Sizing the actual workload undercuts it: a plot trace is a few hundred lit
@@ -438,7 +438,7 @@ the plot row, not a per-plot tile:
   At RGB565 that is 360 KiB, which fits in the ~410 KiB of free SRAM.
 - Half-height (1024×90, 180 KiB) gives two transfers with more headroom.
 
-### 5.3 Framebuffer restructuring
+### 6.3 Framebuffer restructuring
 
 It lives in SDRAM, GLCDC scans it directly. That is correct and it is not
 your budget.
@@ -450,7 +450,7 @@ your budget.
 Three measurements, each of which independently closes a question. Run
 them one at a time.
 
-### 6.1 MPU attributes on `0x68000000`
+### 7.1 MPU attributes on `0x68000000`
 
 Determine whether the SDRAM region is normal-cacheable-write-back or
 device-nGnRE. If writes are buffered and the controller coalesces them,
@@ -462,7 +462,7 @@ it does, a DMA- and GLCDC-visible framebuffer needs cache maintenance
 before scan-out, which is its own complication and belongs in the design
 from the start rather than bolted on.
 
-### 6.2 Cycles to draw one plot direct into SDRAM
+### 7.2 Cycles to draw one plot direct into SDRAM
 
 Instrument a single plot redraw — graticule, polyline, cursor brackets —
 with the cycle counter. Compare against the frame budget.
@@ -470,7 +470,7 @@ with the cycle counter. Compare against the frame budget.
 **Decision rule:** if it fits comfortably, never build §6.2. "Don't write
 it" is the best outcome available given the flash pressure.
 
-### 6.3 GUI definition size, isolated from LVGL
+### 7.3 GUI definition size, isolated from LVGL
 
 This is the component that scales with screen count, and nothing measured
 so far separates it. Table-driven descriptors in `.rodata` usually beat
@@ -500,67 +500,20 @@ from compiled output. Treat §8 as a target to validate, not a result.
 
 ---
 
-## 9. Visual system (for reference)
+## 9. Visual system — moved
 
-The theme is a consequence of the constraints rather than a decoration on
-top of them. Recorded here so the engine and the design stay consistent.
+The palette, emphasis ladder, header treatments and split-well encoding used to
+be summarised here. They now live in **`docs/random/panel-ui-design-state.md`**,
+which supersedes this section: it postdates the focus-versus-state distinction
+and the 1:1 renders, and this copy had begun to disagree with it.
 
-**Palette — four entries, green phosphor:**
+Two descriptions of the same thing with nothing enforcing agreement is the
+failure mode that produced the `DrawChrome` / `grat[]` defect. One description,
+one place.
 
-| Role | Value |
-|---|---|
-| Background | `#050A06` |
-| Dim | `#1B6238` |
-| Mid | `#3FBF78` |
-| Bright | `#7CFFB0` |
-
-Green rather than amber: near the eye's photopic peak (~555 nm), and in
-RGB565 the green channel has 6 bits where red and blue have 5 — so the
-green ramp has twice the quantisation steps available if a fifth intensity
-is ever needed.
-
-**Emphasis ladder**, loudest first:
-
-| Level | Treatment | Reserved for |
-|---|---|---|
-| 1 | Bright fill | Alerts only — at most one per screen |
-| 2 | Bracket cursor + dim band + bright text | Focus (moves with the encoder) |
-| 3 | Bright text, no fill | Active state, current values |
-| 4 | Dim fill | Chrome, headers |
-| 5 | Mid text | Labels |
-| 6 | Faint | Empty / unassigned |
-
-**Focus vs. state must be distinct.** With endless encoders the cursor
-constantly sits on items that are not the current selection. Cursor takes
-the bracket treatment; the loaded/active item takes a leading marker glyph
-in a dedicated column. Conflating them makes the screen unable to express
-a state the hardware produces continuously.
-
-**Header bar treatments**, chosen by what is in the row:
-
-| Treatment | Used when |
-|---|---|
-| Plain full fill | App chrome, selection, alert, default action |
-| Segmented (broken at column boundaries) | The header sits above columns |
-| Block + tail rule | A single label above a field or panel |
-
-Segment breaks aligned to column pitch let the header rule the grid
-horizontally while index ticks rule it vertically — neither requires a
-vertical line.
-
-**Bipolar value display — split well.** Two dim wells separated by a gap,
-filled outward from the gap by sign, with the gap itself filled when the
-value is exactly zero. The gap guarantees a minimum separation so the
-smallest positive and smallest negative can never be confused, and it
-gives *zero* a distinct representation separate from *unassigned*.
-
-Three cell states must remain visually distinct:
-
-1. Unassigned — faint `·`, no wells drawn
-2. Assigned, amount zero — wells drawn, gap filled bright
-3. Assigned, non-zero — wells drawn, one side filled
-
----
+The engine-side facts the visual system depends on stay here: the access-cost
+ordering in §3.4, the invalidation model in §5.7, and the font arithmetic in
+§4.
 
 ## 10. Open questions
 
