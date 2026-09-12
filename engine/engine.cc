@@ -435,7 +435,23 @@ void RenderBlock(float *out, int frames) {
         }
     }
 
-    for (int i = 0; i < frames; ++i) out[i] = Clamp(g_buses[0].L[i]);
+    // Bus protection (output-stage arch-design §6.2): bus gain -> tanh
+    // saturator -> hard clamp, tracking the pre-saturator peak into the meter.
+    float block_peak = 0.0f;
+    for (int i = 0; i < frames; ++i) {
+        const float s = g_buses[0].L[i] * kBusGain;
+        const float a = std::fabs(s);
+        if (a > block_peak) block_peak = a;
+        out[i] = Clamp(::tanhf(s));
+    }
+    // Block end: merge the pre-saturator peak into the shared meter with a
+    // relaxed CAS-max. The `block_peak > cur` guard is NaN-safe: a NaN peak
+    // fails the comparison and is dropped (output-stage arch-design §8).
+    float cur = Shared().meter.load(std::memory_order_relaxed);
+    while (block_peak > cur &&
+           !Shared().meter.compare_exchange_weak(cur, block_peak,
+                                                 std::memory_order_relaxed)) {
+    }
 }
 
 }  // namespace
