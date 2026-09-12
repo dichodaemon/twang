@@ -86,11 +86,17 @@ How aggressively the rail protects — equivalently, who manages the polyphony l
 
 ##### Option 3: Normalize per-voice (unison/voice-count scaling)
 
-- *Properties:* Scale each voice (or the unison set) so the sum stays bounded — e.g. `1/N` gain compensation on unison stacks — leaving the bus rail rare and single voices at full level.
+- *Properties:* Scale each voice (or the unison set) so the sum stays bounded — e.g. `1/N` or `1/√N` gain compensation — leaving the bus rail rare and single voices at full level.
 - *Pros:* Keeps the rail rare *and* keeps single voices loud; no user burden and no constant-engagement saturator.
-- *Cons:* Changes per-voice level semantics (interacts with `kAmp` and envelope); more state; the `1/N` law (amplitude vs power) is a product choice, and it does not help the *spread* case (24 different pitches do not correlate the way unison does).
+- *Cons:* **Rejected by the scaling law (§5.1).** Peaks scale as roughly `N^0.73` — between incoherent (`√N`) and coherent (`N`). `1/N` leaves 24 spread at 0.44 (over-attenuated), `1/√N` leaves it at 2.16 (still 6.7 dB into the rail). Neither law works; there is no normalization exponent that tracks the measured peak.
 
-**Conclusion:** Open — this is the study's real unresolved choice (§6.1). Option 1 is what the current proposal implicitly reaches for; the references all take Option 2; Option 3 is the third path. The choice determines the `bus_gain` value *and* whether the rail needs anti-aliasing at all (§3.3.2).
+##### Option 4: Bus dynamics (compressor/limiter)
+
+- *Properties:* A level detector and gain computer on the bus, reducing gain as the sum approaches the rail (attack/release envelope), ahead of the saturator. Deluge is the reference: its RMS compressor (`dsp/compressor/rms_feedback.cpp`) already runs the anti-aliased tanh at its output (`rms_feedback.cpp:106`).
+- *Pros:* The one option that actually resolves the 28 dB spread: it keeps the rail rare (so protection needs no anti-aliasing, §3.3.2), keeps single voices loud, changes no per-voice semantics, and responds to the *signal* rather than the voice count — so it handles spread and unison alike, unlike normalization (§5.1).
+- *Cons:* Envelope state and attack/release tuning; program-dependent gain modulation (pumping on sustained material). The deeper cost is to velocity's *audible* mapping: the compressor never touches velocity (per-voice, upstream of the bus), but above threshold it pulls the whole sum back, so a harder hit in a dense chord is not proportionally louder, and a note's loudness depends on what else is sounding rather than its own velocity. That is inherent — resolving the 28 dB spread means leveling off the sum. Whether the instrument self-levels or leaves level to the musician (the reference model, Option 2) is the product question.
+
+**Conclusion:** Open — §6.1. Option 1 is what the current proposal implicitly reaches for (IM-bound, §5.5); Option 2 is the reference model (hands the spread to the musician); Option 3 is rejected by the scaling law (§5.1); Option 4 (dynamics) resolves the spread but introduces self-leveling. The choice determines the `bus_gain` value, whether the rail needs anti-aliasing (§3.3.2), and whether the bus carries a dynamics stage.
 
 #### Metering
 
@@ -166,9 +172,9 @@ Both non-linearities fold back energy above Nyquist, but the budget differs: the
 
 ##### Option 3: Antiderivative anti-aliasing (ADAA)
 
-- *Properties:* First-order ADAA — output is `(F(x[n]) − F(x[n−1])) / (x[n] − x[n−1])` with `F` the antiderivative of the curve. Two implementations: closed-form (`F = log(cosh(x))`) or a pre-computed 2D lookup table (Deluge's `getTanHAntialiased` carries a `lastWorkingValue` state word and interpolates a `tanH2d[x][x_prev]` table — `util/functions.h:295`).
+- *Properties:* First-order ADAA — output is `(F(x[n]) − F(x[n−1])) / (x[n] − x[n−1])` with `F` the antiderivative of the curve. Two implementations: closed-form (`F = log(cosh(x))`) or a pre-computed 2D lookup table. Deluge's `getTanHAntialiased` is the lookup-table form — it carries a `lastWorkingValue` state word and interpolates a `tanH2d[x][x_prev]` table (`util/functions.h:295`); that this is specifically ADAA is *inferred* from the state-word-plus-2D-table shape, not named in the source.
 - *Pros:* Matches or beats 2× oversampling for a fraction of the cost (reviewer-measured: ×3 → −29.5 dB vs −31.2 dB for 2×; ×10 → −23.9 dB vs −22.6 dB). No filter design, no group delay, no ringing. The lookup-table variant is Q31-native (fits twang's M85 fixed-point path) and pre-computes the diagonal, so it has no divide-by-zero.
-- *Cons:* The closed-form variant has a `x[n] ≈ x[n−1]` denominator that needs a fallback (a DC input hits it every sample); the lookup-table variant costs 2D table memory. The above numbers are reviewer-measured on an unspecified signal — verify against twang's actual curve and a polyBLEP saw before recommending (§6.3).
+- *Cons:* The closed-form variant has a `x[n] ≈ x[n−1]` denominator that needs a fallback (a DC input hits it every sample); the lookup-table variant costs 2D table memory. The above numbers are reviewer-measured on the same 7 kHz sine and tanh as §5.2/§5.4 (directly comparable) — still verify against a polyBLEP saw before recommending (§6.3).
 
 **Conclusion (per function):** Protection takes Option 1 (none) or a cheap soft curve if §3.1.2 lands on automatic headroom — but if the rail engages often enough to need anti-aliasing, that is a sign the study has collapsed protection into musicality. Musicality takes Option 2 or 3 — the shaper is the stage that pays the anti-aliasing cost, and the required budget tracks the curve: monotonic saturations are served by ADAA or 2× (§5.4), while non-monotonic shapes need their own measurement (§3.3.1 observation). ADAA is the candidate to measure first (§6.3).
 
@@ -214,6 +220,17 @@ Measurements by the author, pre-clamp (reading the bus before `Clamp`), unless n
 
 There is ~28 dB between the quietest and loudest legitimate cases. No static gain covers it: sizing for the worst case (0.04) leaves a single voice 28 dB below full scale, and the current 0.25 is already ~3× too loud for full polyphony. Clipping is guaranteed in ordinary playing — a certainty to design, not an edge case to prevent. This falsifies any `kAmp` ceiling (§3.1.1-option 3) and any static "no clip" guarantee. It is also the evidence for the headroom-strategy fork (§3.1.2): at `bus_gain` 0.25 the rail engages at 8 voices (1.19), so "automatic headroom" and "rail as protection" cannot both hold.
 
+Normalization cannot cover the spread either — the peaks scale as roughly `N^0.73`, between incoherent (`√N`) and coherent (`N`):
+
+| Voices | Peak | ÷N | ÷√N |
+|---:|---:|---:|---:|
+| 1 | 1.03 | 1.03 | 1.03 |
+| 4 | 3.26 | 0.82 | 1.63 |
+| 8 | 4.76 | 0.60 | 1.68 |
+| 24 (spread) | 10.57 | 0.44 | 2.16 |
+
+`1/N` leaves 24 spread at 0.44 — over-attenuated — while `1/√N` leaves it at 2.16, still 6.7 dB into the rail. No normalization exponent tracks the measured peak, so per-voice normalization is rejected (§3.1.2-option 3) on the same evidence as the static gain.
+
 ### 5.2. Aliasing by curve (7 kHz sine, folded-back vs harmonic energy)
 
 | Drive | Hard clamp | Cubic | tanh-ish |
@@ -228,7 +245,7 @@ Swapping hard clamp for tanh buys 2–3 dB — real but second-order. What domin
 
 A `bus_gain` of 0.25 puts 4 voices at unity and 24 spread at ×2.6 — in the −20 dB aliasing region instead of −11.5 dB. The headroom constant stays 0.25; it simply lives on the bus, where it is the headroom boundary, rather than inside a part parameter that reads as "part volume".
 
-The change is output-preserving below the saturator threshold, because the composed gain is unchanged: today `kAmp 0.25 × 1.0` (headroom in the level), proposed `kAmp 1.0 × bus_gain 0.25`. Wherever `0.25 × raw < 1.0` the output is identical; only where `0.25 × raw ≥ 1.0` — where the current path hard-clips — does the proposal differ, saturating instead of chopping. Measured: a single voice at velocity 127 peaks at 0.307771 today (below the rail, unchanged), while at `kAmp = 1.0` it hits the 1.0 rail because the current clamp engages. The proposal changes behaviour only where the output is already being destroyed — a migration, not a re-voicing, and a far easier sign-off than "we changed the output stage".
+The change is output-preserving below the saturator threshold, because the composed gain is unchanged: today `kAmp 0.25 × 1.0` (headroom in the level), proposed `kAmp 1.0 × bus_gain 0.25`. Wherever `0.25 × raw < 1.0` the output is identical; only where `0.25 × raw ≥ 1.0` — where the current path hard-clips — does the proposal differ, saturating instead of chopping. Measured: a single voice at velocity 127 peaks at 0.257671 in both `kAmp 0.25` and `kAmp 1.0 × bus_gain 0.25` — ratio 1.0000, exactly output-preserving below the rail, as the composed gain predicts. The proposal changes behaviour only where the output is already being destroyed — a migration, not a re-voicing, and a far easier sign-off than "we changed the output stage".
 
 ### 5.4. Oversampling (factor × filter order)
 
@@ -265,7 +282,7 @@ A bus-level drive generates cross-voice intermodulation — at ×4 drive, −8.7
 | "amp = level" semantics | no | yes | no | — | — | — | — | — |
 | Covers 28 dB polyphony spread | no | yes (via sat) | no | — | — | — | — | — |
 | Aliasing at ×10 drive | — | — | — | −11.5 dB | −14.0 dB | ~−14 dB* | −23.6 dB | −23.9 dB† |
-| Character range | — | — | — | none | one | 2–3 shapes | — | — |
+| Character range | — | — | — | none | one | small set | — | — |
 | Cost | — | — | — | 0 | 0 | table + param | 2 biquads + 2× loop | state + divide (or 2D table) |
 
 \* configurable curve's ×10 aliasing depends on the selected shape; tanh is the reference.
@@ -277,11 +294,11 @@ A bus-level drive generates cross-voice intermodulation — at ×4 drive, −8.7
 
 The per-function architecture is settled by §5; four items remain. The curve and anti-aliasing questions are now per-function (§6.2/§6.3); the headroom-strategy question (§6.1) is new and is the study's real unresolved choice.
 
-1. **Headroom strategy.** ~~(implicit: automatic `bus_gain` 0.25)~~ Open: automatic rail (engages in ordinary polyphony — an output saturator, IM-bound) vs manual level (rare rail — the reference model) vs per-voice normalization. This is a product decision, not a technical one; it sets the `bus_gain` value and whether the rail needs anti-aliasing (§3.1.2, §5.5). Open.
+1. **Headroom strategy.** ~~(implicit: automatic `bus_gain` 0.25)~~ Open: automatic rail (engages in ordinary polyphony — an output saturator, IM-bound) vs manual level (rare rail — the reference model) vs per-voice normalization (rejected by the scaling law, §5.1) vs bus dynamics (compressor/limiter — the one that resolves the spread, at the cost of self-leveling). This is a product decision, not a technical one; it sets the `bus_gain` value, whether the rail needs anti-aliasing, and whether the bus carries a dynamics stage (§3.1.2, §5.5). Open.
 
 2. **Musicality curve.** ~~Fixed tanh (matching Ambika/Deluge) vs configurable waveshaper (Surge).~~ Relocated to the per-voice function (§3.3.1): fixed tanh is one character; a configurable shape selector plus a separate depth is a range — monotonic saturations (soft/hard, fuzz, asymmetric) and non-monotonic waveshapers (fold, rectifier, chebyshev) — at the cost of a table and a shape parameter. Non-monotonic shapes carry a heavier anti-aliasing cost (§6.3). The author's character interest points at configurable; shape and depth should be orthogonal either way. Open (was §6.3).
 
-3. **Anti-aliasing mechanism (per-voice).** Oversampling (2×/4×) vs first-order ADAA. ADAA is cheaper (no filters, no ringing) and, on reviewer numbers, matches 2× — but those numbers are on an unspecified signal and the closed-form variant has a `x[n]≈x[n−1]` hazard the lookup-table variant avoids. Measure ADAA against twang's actual curve and a polyBLEP saw before recommending; the rail stays unoversampled unless §6.1 lands on automatic headroom. Open.
+3. **Anti-aliasing mechanism (per-voice).** Oversampling (2×/4×) vs first-order ADAA. ADAA is cheaper (no filters, no ringing) and, on reviewer numbers (the same 7 kHz sine and tanh as §5.2/§5.4), matches 2× — but the closed-form variant has a `x[n]≈x[n−1]` hazard the lookup-table variant avoids. Measure ADAA against a polyBLEP saw before recommending; the rail stays unoversampled unless §6.1 lands on automatic headroom. Open.
 
 4. **Drive/level decoupling.** ~~Whether the drive is coupled to the bus gain or decoupled.~~ Resolved: **decouple** — `kDrive` into the per-voice shaper, with an output level after it (§4), so quiet-and-dirty and loud-and-clean are both reachable.
 
@@ -291,7 +308,7 @@ The §5.2/§5.4 figures use a 7 kHz sine chosen to fold badly; a polyBLEP saw at
 
 - [ ] Arch-design update: `docs/workflow/arch-designs/synth-routing_arch-design.md` — record the two-stage output architecture (bus-level protection: gain element, fixed soft saturator, hard clamp, meter; per-voice musicality: `kDrive` control, configurable shaper, anti-aliasing) as the settled audio-routing semantics.
 - [ ] Implementation: `engine/engine.{h,cc}` — a bus gain stage, a fixed soft saturator replacing the bare `Clamp`, a hard clamp after it, and a peak metering signal (protection); a `kDrive` parameter and per-voice shaper with configurable curve and anti-aliasing (musicality). Parameter values (defaults, curve, anti-aliasing mechanism) are set here, not in this study.
-- [ ] Test: `tests/test_engine.cc` — pre-clamp bus peak is observable; saturator is bounded; per-voice shaper anti-aliasing DC gain is unity and group delay is bounded and known; ADAA `x[n]≈x[n−1]` fallback is exercised (DC input).
+- [ ] Test: `tests/test_engine.cc` — pre-clamp bus peak is observable; saturator is bounded; per-voice shaper anti-aliasing DC gain is unity and group delay is bounded and known (both mechanisms — oversampling *and* ADAA, which has ~half-sample group delay); ADAA `x[n]≈x[n−1]` fallback is exercised (DC input).
 
 ## Appendix A: Comparison with the Reference Implementations
 
@@ -303,8 +320,8 @@ The companion report [Drive and Distortion Implementations](../reports/2026-09-1
 |---|---|---|---|---|
 | Protection (rail) | none (8-bit domain bounds signal) | saturating output shift | configurable hard clip (−18 dBFS default) | fixed tanh + hard clamp + meter |
 | Musicality placement | mix-stage fuzz + analog filter | filter drive + post-FX saturation | per-filter drive + FX insert | per-voice drive |
-| Curve (musicality) | fixed `tanh(6x)` | fixed tanh | configurable (50+ waveshapers) | configurable (2–3 shapes; §6.2) |
-| Anti-aliasing | none | anti-aliased tanh (ADAA) | 4× oversampling | ADAA or 2× (§6.3) |
+| Curve (musicality) | fixed `tanh(6x)` | fixed tanh | configurable (50+ waveshapers) | configurable (small shape set; §6.2) |
+| Anti-aliasing | none | anti-aliased tanh (ADAA, inferred) | 4× oversampling | ADAA or 2× (§6.3) |
 | Drive/level | decoupled | decoupled | decoupled | decoupled |
 | Curve as a control | no (amount only) | no (amount only) | yes (shape + depth) | yes (shape + depth; §6.2) |
 | Non-monotonic / quantize shaping | `OP_FOLD` (fold), `OP_BITS` (bitcrush) | wavefold + bitcrush (and stateful SRR) | fold/rectify/cheby/digital shapes | fold/quantize as curve shapes (§3.3.1); SRR out (stateful) |
@@ -322,7 +339,7 @@ The companion report [Drive and Distortion Implementations](../reports/2026-09-1
 
 2. **Configurable curve at a small shape set — between Surge and the rest.** Surge's 50-shape library is a range; Ambika/Deluge fix one curve. The proposal takes the *shape/depth split* (orthogonal) but not the 50-shape library — a small selector, enough for the character range without Surge's generality.
 
-3. **ADAA as a candidate — matching Deluge, but as a choice rather than a given.** Deluge's `getTanHAntialiased` is lookup-table ADAA; the proposal treats ADAA as one option alongside oversampling, to be measured (§6.3).
+3. **ADAA as a candidate — matching Deluge, but as a choice rather than a given.** Deluge's `getTanHAntialiased` is lookup-table ADAA (inferred from its API, §3.3.2); the proposal treats ADAA as one option alongside oversampling, to be measured (§6.3).
 
 4. **Non-monotonic shaping as curve shapes, not separate lo-fi controls.** Ambika and Deluge expose fold/bitcrush as separate controls; Surge folds them into the waveshaper library. The proposal follows Surge — fold/rectifier/quantize are shapes in the curve selector (§3.3.1), with a heavier anti-aliasing cost — and omits sample-rate reduction, which is stateful, not a memoryless curve.
 
