@@ -146,6 +146,20 @@ float CurveEval(CurveShape s, float x);
 /// F(x) = log(cosh(x)) — the antiderivative of CurveEval, via table + asymptote.
 float AntiderivativeEval(CurveShape s, float x);
 
+/// Fixed bus headroom scale, −18 dB (output-stage arch-design §6.2).
+inline constexpr float kBusGain = 0.125f;
+
+/// ADAA divide fallback threshold: a precision guard, not just a divide-by-zero
+/// guard (float; re-derive if the path moves to Q31 fixed point).
+inline constexpr float kAdaaEps = 1e-3f;
+
+/// Antiderivative table entries.
+inline constexpr int kFTableSize = 256;
+
+/// The F-table covers x ∈ [−kFTableMax, kFTableMax]; outside it the closed-form
+/// asymptote |x| − log 2 is used.
+inline constexpr float kFTableMax = 8.0f;
+
 /// One synthesizer voice: the per-note DSP state, bound to a part.
 ///
 /// Plain old data: trivially copyable and standard-layout, with no heap
