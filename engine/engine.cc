@@ -16,6 +16,11 @@ EventRing &g_events = Shared().events;       // control → audio events (shared
 ParamBlock &g_param_block = Shared().params; // control → audio params (shared)
 Allocator g_alloc;            // control-core voice ownership (allocator)
 
+// Control-thread batching: while true, EngineSetParam/EngineSetRoute defer the
+// publish so a multi-field update lands as one atomic flush. Never read by the
+// audio thread.
+bool g_batching = false;
+
 // Per-block stereo accumulation. Phase 1 is mono: voices accumulate into
 // g_buses[0].L and Render downmixes to the mono `out`; the R side and the
 // per-voice pan/level/send taps are phase 4.
@@ -562,6 +567,7 @@ void EngineNoteOff(int part, float freq_hz) {
 void EngineSetParam(int part, ParamId id, float norm) {
     if (part < 0 || part >= kNumParts) return;
     g_param_block.Set(part, id, norm);
+    if (!g_batching) g_param_block.Flush();
 }
 
 void EngineSetParamDisp(int part, ParamId id, float disp) {
@@ -569,6 +575,7 @@ void EngineSetParamDisp(int part, ParamId id, float disp) {
     g_param_block.Set(
         part, id,
         ParamDispToNorm(&g_params[static_cast<std::size_t>(id)], disp));
+    if (!g_batching) g_param_block.Flush();
 }
 
 float EngineGetParam(int part, ParamId id) {
@@ -593,7 +600,17 @@ bool EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
         return false;
     }
     g_param_block.SetRoute(part, slot, src, dst, amount);
+    if (!g_batching) g_param_block.Flush();
     return true;
+}
+
+void EngineBeginBatch() {
+    g_batching = true;
+}
+
+void EngineFlush() {
+    g_batching = false;
+    g_param_block.Flush();
 }
 
 void Render(float *out, int frames) {

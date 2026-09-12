@@ -113,6 +113,10 @@ add_executable(test_param_block tests/test_param_block.cc)
 target_link_libraries(test_param_block PRIVATE engine)
 add_test(NAME param_block COMMAND test_param_block)
 
+add_executable(test_param_atomic tests/test_param_atomic.cc)
+target_link_libraries(test_param_atomic PRIVATE engine Threads::Threads)
+add_test(NAME param_atomic COMMAND test_param_atomic)
+
 add_executable(test_split tests/test_split.cc)
 target_link_libraries(test_split PRIVATE engine Threads::Threads)
 add_test(NAME split COMMAND test_split)

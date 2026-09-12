@@ -169,7 +169,7 @@ Pitchbend is off by default because a wheel can sit off-center or emit a stray v
   2. **Advance sources** — advance per-voice LFOs/envelopes and (once per part) the global LFO; per-note sources are already latched.
   3. **Accumulate** — for each of the 16 routes with `source != kNone`, add `amount × source` into the destination's accumulator per its combination class (`kNote` always exponential).
   4. **Write** — fold effective destinations into the DSP: `UpdateFilterCoeffs` (cutoff × key-follow factor), oscillator increment (pitch), gain (amp), pan, sends.
-- **Route edit** (`EngineSetRoute`): publish into the back part-state buffer; the control side recomputes the routed-source bitmask; the change lands at the next block boundary.
+- **Route edit** (`EngineSetRoute`): write the pending part state (deferred publish). The engine flushes the back part-state buffer so a single-field edit lands at the next block boundary; a batched edit (`EngineBeginBatch` … `EngineFlush`) publishes once and lands atomically. The control side recomputes the routed-source bitmask.
 - **Shutdown**: none — the subsystem owns no heap; all state is fixed-size and part of the existing voice/part arrays.
 
 ## 7. Types
@@ -280,7 +280,7 @@ void EngineSetParam(int part, ParamId id, float norm);
 ```
 
 - **Precondition**: `part` in `[0, kNumParts)`, `id` a valid `ParamId`, `norm` in `[0, 1]`.
-- **Postcondition**: the param is published to the back part-state buffer; it becomes the effective base value at the next block boundary. Setting `key_follow_depth` changes the key-follow depth applied by the default `kNote → kCutoff` route (slot 3).
+- **Postcondition**: the param is written to the pending part state and flushed to the back part-state buffer (unless inside a batch); it becomes the effective base value at the next block boundary. Setting `key_follow_depth` changes the key-follow depth applied by the default `kNote → kCutoff` route (slot 3).
 - **Error semantics**: out-of-range `part`/`id` → no-op (matches existing behavior).
 
 ### EngineSetRoute
@@ -292,6 +292,16 @@ void EngineSetRoute(int part, int slot, ModSourceId source, ParamId dest, float 
 - **Precondition**: `slot` in `[0, kModSlots)`, `source` valid, `dest` a modulatable `ParamId`, `amount` in `[-1, 1]` (or `[0, 1]` for key follow).
 - **Postcondition**: the slot is written. `source == kNone` clears the slot. The routed-source bitmask is recomputed from route existence only (`source != kNone`), never from `amount`.
 - **Error semantics**: invalid `part`/`slot`/`dest` → no-op.
+
+### EngineBeginBatch / EngineFlush
+
+```cpp
+void EngineBeginBatch();
+void EngineFlush();
+```
+
+- **Precondition**: control thread. Not nestable — one `EngineFlush` per `EngineBeginBatch`; `EngineFlush` without a prior `EngineBeginBatch` is a harmless no-op (idempotent).
+- **Postcondition**: between `EngineBeginBatch` and `EngineFlush`, `EngineSetParam`/`EngineSetRoute` accumulate in the pending buffer without publishing; `EngineFlush` publishes the whole set once (if dirty). A multi-field update (e.g. a preset load) therefore lands as a single atomic front-buffer advance — the audio thread observes it all-or-nothing, never half-applied.
 
 ### EngineNoteOn / EngineNoteOff
 

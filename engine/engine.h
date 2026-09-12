@@ -270,6 +270,19 @@ float EngineGetParam(int part, ParamId id);
 bool EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
                     float amount);
 
+/// @brief Begin a batched update (control thread).
+///
+/// Until EngineFlush() is called, EngineSetParam/EngineSetParamDisp and
+/// EngineSetRoute accumulate changes in the pending buffer without publishing,
+/// so a multi-field update (e.g. a preset load) lands as one atomic publish.
+/// Not nestable: one EngineFlush() per EngineBeginBatch().
+void EngineBeginBatch();
+
+/// @brief End a batched update and publish once (control thread).
+///
+/// Publishes accumulated changes atomically (no-op if none). Idempotent.
+void EngineFlush();
+
 /// @brief Run one sample of the drive shaper (first-order ADAA) for a voice.
 ///
 /// Precondition: x = lp × gain (the driven input); v->shaper holds valid state

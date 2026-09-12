@@ -28,13 +28,19 @@ void EventRing::Reset() {
 
 void ParamBlock::Set(int part, ParamId id, float norm) {
     ParamSet(&pending_[part], id, norm);
-    Publish();
+    dirty_ = true;
 }
 
 void ParamBlock::SetRoute(int part, int slot, ModSourceId src, ParamId dst,
                           float amount) {
     pending_[part].routes[slot] = {src, dst, amount};
+    dirty_ = true;
+}
+
+void ParamBlock::Flush() {
+    if (!dirty_) return;
     Publish();
+    dirty_ = false;
 }
 
 void ParamBlock::Publish() {
@@ -81,6 +87,7 @@ void ParamBlock::Reset(const ParamDesc *table) {
     front_.store(0, std::memory_order_relaxed);
     reading_.store(-1, std::memory_order_relaxed);
     last_front_ = ~0u;  // "nothing committed yet" — force the first Commit to copy
+    dirty_ = false;
 }
 
 }  // namespace engine

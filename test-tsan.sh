@@ -18,8 +18,8 @@ cmake -S . -B build-tsan -G Ninja \
     -DTWANG_ENABLE_TSAN=ON
 
 cmake --build build-tsan \
-    --target test_split test_ring test_scope_ring test_param_block test_engine \
-             test_params test_allocator test_midi test_mod_route test_shaper \
+    --target test_split test_ring test_scope_ring test_param_block test_param_atomic \
+             test_engine test_params test_allocator test_midi test_mod_route test_shaper \
              test_fb test_font test_damage test_panel
 
 setarch "$(uname -m)" -R ctest --test-dir build-tsan --output-on-failure
