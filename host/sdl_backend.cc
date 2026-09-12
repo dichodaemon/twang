@@ -2,7 +2,7 @@
 //
 // Creates the 1024x600 RGB565 window, uploads the Panel's framebuffer each
 // frame through a streaming texture, and translates SDL mouse events into
-// spike::PointerEvent for PanelPointer. This is the desktop twin of the
+// nostromo::PointerEvent for PanelPointer. This is the desktop twin of the
 // target's GLCDC backend.
 
 #include "sdl_backend.h"
@@ -15,6 +15,11 @@
 #include "panel.h"
 
 namespace spike {
+
+using nostromo::Panel;
+using nostromo::PanelPointer;
+using nostromo::PointerEvent;
+using nostromo::PointerKind;
 
 struct SdlBackend::Impl {
   SDL_Window *window = nullptr;

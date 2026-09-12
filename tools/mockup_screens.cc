@@ -7,7 +7,7 @@
 // density and legibility are exactly what the panel will produce. Browser
 // renders with a substitute font are not.
 //
-// Signal flow is included even though spike/panel.cc already draws it live.
+// Signal flow is included even though nostromo/panel.cc already draws it live.
 // Two reasons: it is itself a prototype and belongs with the others as a
 // design surface, and having all four screens expressed once as straight-line
 // primitive calls gives a reference set to validate an opcode/descriptor
@@ -35,6 +35,8 @@
 #include "fb.h"
 #include "font.h"
 #include "mockup_screens.h"
+#include "palette.h"
+#include "png.h"
 
 namespace {
 
@@ -47,18 +49,13 @@ using spike::FrameBuffer;
 using spike::kPrimaryFont;
 using spike::kSecondaryFont;
 
-// ---- palette (matches spike/panel.cc) ----------------------------------
+using nostromo::kBg;
+using nostromo::kBright;
+using nostromo::kDim;
+using nostromo::kFaint;
+using nostromo::kMid;
 
-constexpr Color Rgb565(int r, int g, int b) {
-  return static_cast<Color>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
-}
-constexpr Color kBg = Rgb565(5, 10, 6);
-constexpr Color kFaint = Rgb565(13, 53, 32);
-constexpr Color kDim = Rgb565(27, 98, 56);
-constexpr Color kMid = Rgb565(63, 191, 120);
-constexpr Color kBright = Rgb565(124, 255, 176);
-
-// ---- layout (matches spike/panel.cc where the screens overlap) ---------
+// ---- layout (matches nostromo/panel.cc where the screens overlap) ---------
 
 constexpr int kFrameW = 1024, kFrameH = 600;
 constexpr int kTitleX = 16, kTitleY = 16, kTitleW = 992, kTitleH = 26;
@@ -68,7 +65,7 @@ constexpr int kBlockH = 388;             // shared, so corner brackets align
 constexpr int kLeftX = 16, kLeftW = 598;
 constexpr int kRightX = 652, kRightW = 356;
 
-// Signal-flow module geometry, mirroring spike/panel.cc exactly.
+// Signal-flow module geometry, mirroring nostromo/panel.cc exactly.
 constexpr int kModY = 84, kModH = 340, kModW = 242;
 constexpr int kPlotDX = 6, kPlotDY = 58, kPlotW = 230, kPlotH = 232;
 constexpr int kReadoutX = kModW - 6, kReadoutY = kModY + 306;
@@ -211,7 +208,7 @@ namespace mockup {
 // Screen 0 — signal flow
 // =======================================================================
 //
-// Mirrors spike/panel.cc's chrome exactly (same constants, same helpers) with
+// Mirrors nostromo/panel.cc's chrome exactly (same constants, same helpers) with
 // representative plot content in place of live engine state.
 //
 // Verified against `panel_shot` output: the title bar, module headers,
@@ -696,98 +693,6 @@ void DrawSave(FrameBuffer &fb) {
 #ifndef TWANG_MOCKUP_NO_MAIN
 namespace {
 
-// ---- PNG writer (same as tools/panel_shot.cc) --------------------------
-
-std::uint32_t Crc32(const std::uint8_t *d, std::size_t n, std::uint32_t crc = 0) {
-  static std::uint32_t t[256];
-  static bool init = false;
-  if (!init) {
-    for (std::uint32_t i = 0; i < 256; ++i) {
-      std::uint32_t c = i;
-      for (int k = 0; k < 8; ++k) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-      t[i] = c;
-    }
-    init = true;
-  }
-  crc = ~crc;
-  for (std::size_t i = 0; i < n; ++i) crc = t[(crc ^ d[i]) & 0xFF] ^ (crc >> 8);
-  return ~crc;
-}
-
-void Be32(std::vector<std::uint8_t> &v, std::uint32_t x) {
-  v.push_back(x >> 24); v.push_back(x >> 16); v.push_back(x >> 8); v.push_back(x);
-}
-
-void Chunk(std::FILE *f, const char *tag, const std::vector<std::uint8_t> &d) {
-  std::vector<std::uint8_t> h;
-  Be32(h, static_cast<std::uint32_t>(d.size()));
-  std::fwrite(h.data(), 1, h.size(), f);
-  std::fwrite(tag, 1, 4, f);
-  if (!d.empty()) std::fwrite(d.data(), 1, d.size(), f);
-  std::uint32_t c = Crc32(reinterpret_cast<const std::uint8_t *>(tag), 4);
-  c = Crc32(d.data(), d.size(), c);
-  std::vector<std::uint8_t> tl;
-  Be32(tl, c);
-  std::fwrite(tl.data(), 1, tl.size(), f);
-}
-
-bool WritePng(const std::string &path, int w, int h,
-              const std::vector<std::uint8_t> &raw) {
-  std::FILE *f = std::fopen(path.c_str(), "wb");
-  if (!f) return false;
-  static const std::uint8_t sig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
-  std::fwrite(sig, 1, 8, f);
-  std::vector<std::uint8_t> ihdr;
-  Be32(ihdr, static_cast<std::uint32_t>(w));
-  Be32(ihdr, static_cast<std::uint32_t>(h));
-  ihdr.push_back(8); ihdr.push_back(2);
-  ihdr.push_back(0); ihdr.push_back(0); ihdr.push_back(0);
-  Chunk(f, "IHDR", ihdr);
-  std::vector<std::uint8_t> z{0x78, 0x01};
-  std::size_t off = 0;
-  while (off < raw.size()) {
-    const std::size_t n = (raw.size() - off < 65535) ? raw.size() - off : 65535;
-    z.push_back(off + n == raw.size() ? 1 : 0);
-    z.push_back(n & 0xFF); z.push_back((n >> 8) & 0xFF);
-    z.push_back(~n & 0xFF); z.push_back((~n >> 8) & 0xFF);
-    z.insert(z.end(), raw.begin() + off, raw.begin() + off + n);
-    off += n;
-  }
-  std::uint32_t a = 1, b = 0;
-  for (std::uint8_t by : raw) { a = (a + by) % 65521; b = (b + a) % 65521; }
-  Be32(z, (b << 16) | a);
-  Chunk(f, "IDAT", z);
-  Chunk(f, "IEND", {});
-  std::fclose(f);
-  return true;
-}
-
-void Emit(const std::string &path, const std::vector<std::uint16_t> &buf,
-          int scale) {
-  const int ow = kFrameW * scale, oh = kFrameH * scale;
-  std::vector<std::uint8_t> raw;
-  raw.reserve(static_cast<std::size_t>(oh) * (1 + ow * 3));
-  for (int y = 0; y < oh; ++y) {
-    raw.push_back(0);
-    const std::uint16_t *row = buf.data() + static_cast<std::size_t>(y / scale) * kFrameW;
-    for (int x = 0; x < ow; ++x) {
-      const std::uint16_t c = row[x / scale];
-      const int r = (c >> 11) & 0x1F, g = (c >> 5) & 0x3F, b = c & 0x1F;
-      raw.push_back(static_cast<std::uint8_t>((r * 255 + 15) / 31));
-      raw.push_back(static_cast<std::uint8_t>((g * 255 + 31) / 63));
-      raw.push_back(static_cast<std::uint8_t>((b * 255 + 15) / 31));
-    }
-  }
-  if (WritePng(path, ow, oh, raw))
-    std::printf("wrote %s (%dx%d)\n", path.c_str(), ow, oh);
-  else
-    std::fprintf(stderr, "cannot write %s\n", path.c_str());
-}
-
-}  // namespace
-
-namespace {
-
 struct Screen {
   const char *name;
   void (*fn)(FrameBuffer &);
@@ -844,7 +749,14 @@ int main(int argc, char **argv) {
   for (const auto &s : kScreens) {
     std::vector<std::uint16_t> buf;
     Render(s, buf);
-    Emit(arg1 + "/" + s.name, buf, scale);
+    const std::string path = arg1 + "/" + s.name;
+    spike::FrameBuffer fb{buf.data(), kFrameW, kFrameH, kFrameW,
+                          spike::Rect{0, 0, kFrameW, kFrameH}};
+    if (spike::WriteFramePng(fb, path.c_str(), scale))
+      std::printf("wrote %s (%dx%d)\n", path.c_str(), kFrameW * scale,
+                  kFrameH * scale);
+    else
+      std::fprintf(stderr, "cannot write %s\n", path.c_str());
   }
   return 0;
 }

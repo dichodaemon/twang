@@ -3,15 +3,17 @@
 ///
 /// The sim-side display backend: owns the RGB565 framebuffer the Panel draws
 /// into, presents it through an SDL streaming texture, and maps SDL mouse
-/// events to spike::PointerEvent. The target swaps this for the GLCDC
+/// events to nostromo::PointerEvent. The target swaps this for the GLCDC
 /// backend (target/zephyr/cm33/src/glcdc_backend.cc).
 #pragma once
 
 #include "fb.h"
 
-namespace spike {
-
+namespace nostromo {
 struct Panel;
+}
+
+namespace spike {
 
 /// @brief SDL2 presentation of an RGB565 framebuffer.
 ///
@@ -38,7 +40,7 @@ struct SdlBackend {
   /// @brief Drains SDL events: quit handling + mouse → PanelPointer.
   ///
   /// @param panel Panel to feed pointer events.
-  void PollEvents(Panel *panel);
+  void PollEvents(nostromo::Panel *panel);
 
   /// @brief Tears down SDL and frees the framebuffer.
   ~SdlBackend();

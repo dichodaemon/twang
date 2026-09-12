@@ -1,19 +1,22 @@
 /// @file panel.h
 /// @brief The Nostromo controller panel: chrome, plots, and input.
 ///
-/// The spike renderer's top layer. A Panel owns the signal-flow layout
-/// (titlebar, four modules, keyboard, nav tabs), the four dynamic plot
-/// regions, the damage tracker, and the audio-tap scope ring. The backend
-/// owns the framebuffer(s) and calls PanelDraw once per buffer; PanelPointer
-/// is the only mutation path for touch/drag, and PanelNoteOn/PanelNoteOff
-/// drive the engine and the envelope playhead.
+/// The Nostromo GUI layer, built on the spike renderer. A Panel owns the
+/// signal-flow layout (titlebar, four modules, keyboard, nav tabs), the four
+/// dynamic plot regions, the damage tracker, and the audio-tap scope ring. The
+/// backend owns the framebuffer(s) and calls PanelDraw once per buffer;
+/// PanelPointer is the only mutation path for touch/drag, and
+/// PanelNoteOn/PanelNoteOff drive the engine and the envelope playhead.
 #pragma once
 
 #include <cstdint>
 
 #include "fb.h"
 
-namespace spike {
+namespace nostromo {
+
+using spike::FrameBuffer;
+using spike::Rect;
 
 /// @brief Output-module display mode.
 enum class ScopeMode : int { kScope = 0, kCycle, kSpectrum };
@@ -105,4 +108,4 @@ void PanelAudioTap(Panel *p, const float *samples, int n);
 /// @return Draw count.
 int PanelPlotDraws(const Panel *p, int idx);
 
-}  // namespace spike
+}  // namespace nostromo

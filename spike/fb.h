@@ -37,6 +37,11 @@ struct FrameBuffer {
 /// @brief An RGB565 pixel value.
 using Color = std::uint16_t;
 
+/// @brief Pack an 8-bit-per-channel RGB triple into RGB565.
+constexpr Color Rgb565(int r, int g, int b) {
+  return static_cast<Color>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+}
+
 /// @brief Fills the rectangle [x, x+w) x [y, y+h) with a color.
 ///
 /// Writes two RGB565 pixels per 32-bit store; the destination is never read.

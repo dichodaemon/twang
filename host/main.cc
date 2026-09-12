@@ -1,7 +1,7 @@
 // host/main.cc — desktop simulator for the spike renderer.
 //
 // SDL window at the EK-RA8D2 in-box panel resolution (1024x600, RGB565),
-// rendering the signal-flow panel (spike/panel.cc) — a port of the HTML
+// rendering the signal-flow panel (nostromo/panel.cc) — a port of the HTML
 // mockup (ui/mockup) — through the SDL backend. Mouse drives PanelPointer.
 //
 // Audio runs through the audio-output abstraction: the UI (control thread)
@@ -25,7 +25,7 @@ namespace {
 // latency). `user` is the Panel context (see main).
 void AudioCallback(void *user, float *out, int frames) {
     engine::Render(out, frames);
-    spike::PanelAudioTap(static_cast<spike::Panel *>(user), out, frames);
+    nostromo::PanelAudioTap(static_cast<nostromo::Panel *>(user), out, frames);
 }
 
 }  // namespace
@@ -40,7 +40,7 @@ int main() {
     engine::EngineInit();
 
     // Build the panel first: it owns the scope ring the audio thread taps.
-    spike::Panel *panel = spike::PanelCreate();
+    nostromo::Panel *panel = nostromo::PanelCreate();
 
     audio::Output audio_out;
     if (!audio_out.Start(engine::kSampleRate, AudioCallback, panel))
@@ -53,7 +53,7 @@ int main() {
         backend.PollEvents(panel);
         midi.Poll(panel);
         midi.Feedback();
-        spike::PanelDraw(panel, backend.fb, backend.BackIndex());
+        nostromo::PanelDraw(panel, backend.fb, backend.BackIndex());
         backend.Present();
     }
 

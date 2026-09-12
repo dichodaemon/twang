@@ -70,7 +70,7 @@ void MidiIo::Init() {
     }
 }
 
-void MidiIo::Poll(spike::Panel *panel) {
+void MidiIo::Poll(nostromo::Panel *panel) {
     if (!in) return;
     const engine::MidiLayout &layout = engine::kXtouchCompact;
     std::vector<unsigned char> msg;
@@ -91,11 +91,11 @@ void MidiIo::Poll(spike::Panel *panel) {
             engine::MidiCc(layout, 0, msg[1], msg[2]);
             break;
         case 0x90:  // Note On (velocity 0 = note off)
-            if (msg[2] == 0) spike::PanelNoteOff(panel, engine::MidiNoteToFreq(msg[1]));
-            else spike::PanelNoteOn(panel, engine::MidiNoteToFreq(msg[1]), msg[2]);
+            if (msg[2] == 0) nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(msg[1]));
+            else nostromo::PanelNoteOn(panel, engine::MidiNoteToFreq(msg[1]), msg[2]);
             break;
         case 0x80:  // Note Off
-            spike::PanelNoteOff(panel, engine::MidiNoteToFreq(msg[1]));
+            nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(msg[1]));
             break;
         default:
             break;

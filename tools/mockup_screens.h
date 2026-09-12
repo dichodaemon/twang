@@ -10,13 +10,7 @@
 
 namespace mockup {
 
-/// Background colour the screens are drawn over. Callers must pre-fill the
-/// frame buffer with this: the screens draw chrome and content, not the
-/// backdrop (spike/panel.cc's DrawChrome fills it separately).
-constexpr spike::Color kBg = static_cast<spike::Color>(
-    ((5 >> 3) << 11) | ((10 >> 2) << 5) | (6 >> 3));
-
-/// @brief Draw the signal-flow screen. Chrome mirrors spike/panel.cc exactly;
+/// @brief Draw the signal-flow screen. Chrome mirrors nostromo/panel.cc exactly;
 /// plot content is representative rather than live.
 void DrawSignal(spike::FrameBuffer &fb);
 

@@ -11,6 +11,7 @@
 #include "params.h"
 
 using namespace spike;
+using namespace nostromo;
 
 static int g_failures = 0;
 
@@ -37,7 +38,7 @@ static std::uint32_t Hash(const std::uint16_t *px, int n) {
 // filter = module 1 (x=266), envelope = module 2 (x=516).
 static constexpr int kFilterX = 272, kEnvX = 522, kOutX = 772, kPlotY = 142;
 static constexpr int kPlotW = 230, kPlotH = 232;
-// Keyboard geometry (mirrors spike/panel.cc: kTitleX=16, kKeyW=992/13, kKeyY=440).
+// Keyboard geometry (mirrors nostromo/panel.cc: kTitleX=16, kKeyW=992/13, kKeyY=440).
 static constexpr int kTitleX = 16, kKeyW = 76, kKeyY = 440;
 
 static std::uint32_t RegionHash(const std::uint16_t *buf, int x, int y,

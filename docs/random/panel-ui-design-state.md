@@ -298,13 +298,13 @@ Three cell states must stay distinct:
 
 | File | State |
 |---|---|
-| `spike/panel.{h,cc}` | Signal-flow screen, ~1,100 lines. Live, stateful, input-driven. |
+| `nostromo/panel.{h,cc}` | Signal-flow screen, ~1,100 lines. Live, stateful, input-driven. |
 | `tools/mockup_screens.cc` | Matrix, patch, save. Fixed content, renders to PNG. |
 | `tools/panel_shot.cc` | Renders a live `Panel` frame to PNG. |
 | `assets/fonts/ter-u{20,14}n.bdf` | The two atlases, OFL-1.1. |
 | `tools/bdf_to_c.py` | BDF → C atlas, with `--check` round-trip. |
 
-`spike/panel.{h,cc}` — the signal-flow screen, ~1,100 lines.
+`nostromo/panel.{h,cc}` — the signal-flow screen, ~1,100 lines.
 
 ### Layout constants
 
@@ -550,7 +550,7 @@ are, not as an agenda.
 
 - **The mockups' encoder legends were written to fill a legend line.** They are
   plausible, not derived. Nothing was traded off to reach them.
-- **`spike/panel.cc`'s input handling grew from whatever the SDL host
+- **`nostromo/panel.cc`'s input handling grew from whatever the SDL host
   delivered.** `PollTouch` emits only press and release, so dragging works by
   re-running the hit test on repeated presses.
 - **Push is overloaded with no rule behind it** — `PUSH LOAD`, `PUSH CONFIRM`,

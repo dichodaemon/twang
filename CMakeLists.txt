@@ -41,11 +41,15 @@ target_link_libraries(audio PUBLIC m pthread dl)
 add_library(scope STATIC controller/fft.cc controller/scope_ring.cc)
 target_include_directories(scope PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller)
 
-# ---- spike: minimal RGB565 renderer (framebuffer + font + damage + panel) ----
-# No LVGL/SDL/OS deps; the draw layer the target (M33) builds.
-add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc spike/panel.cc)
+# ---- spike: minimal RGB565 renderer (framebuffer + font + damage + PNG) ----
+# General and HW-agnostic: no project vocabulary, no engine/scope dependency.
+add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc spike/png.cc)
 target_include_directories(spike PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/spike)
-target_link_libraries(spike PUBLIC engine scope)
+
+# ---- nostromo: this synth's GUI (panel + vocabulary), built on spike ----
+add_library(nostromo STATIC nostromo/panel.cc)
+target_include_directories(nostromo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
+target_link_libraries(nostromo PUBLIC spike engine scope)
 
 # ---- Vendored RtMidi (sim-only MIDI input, Linux/ALSA) ----
 find_package(ALSA REQUIRED)
@@ -67,7 +71,7 @@ add_executable(host host/main.cc host/midi_io.cc host/sdl_backend.cc)
 target_include_directories(host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/host)
 target_include_directories(host PRIVATE ${SDL2_INCLUDE_DIRS})
 target_compile_options(host PRIVATE -fexceptions)  # host/midi_io.cc catches RtMidiError
-target_link_libraries(host PRIVATE spike audio rtmidi ${SDL2_LIBRARIES})
+target_link_libraries(host PRIVATE nostromo audio rtmidi ${SDL2_LIBRARIES})
 
 # ---- WAV renderer: hear the engine output ----
 add_executable(wav_render tools/wav_render.cc)
@@ -84,13 +88,13 @@ target_link_libraries(bench PRIVATE engine)
 
 # ---- Offscreen panel screenshot: golden-image fixture (no SDL/display) ----
 add_executable(panel_shot tools/panel_shot.cc)
-target_link_libraries(panel_shot PRIVATE spike)
+target_link_libraries(panel_shot PRIVATE nostromo)
 
 # ---- Panel mockups: all four screens as a design surface ----
 # Renders through the real primitives and atlases, so geometry and legibility
 # match the panel. `--check` verifies the golden hashes.
 add_executable(mockup_screens tools/mockup_screens.cc)
-target_include_directories(mockup_screens PRIVATE tools)
+target_include_directories(mockup_screens PRIVATE tools ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
 target_link_libraries(mockup_screens PRIVATE spike)
 
 # ---- Tests ----
@@ -106,7 +110,7 @@ add_executable(test_mockup_chrome
                tests/test_mockup_chrome.cc tools/mockup_screens.cc)
 target_include_directories(test_mockup_chrome PRIVATE tools)
 target_compile_definitions(test_mockup_chrome PRIVATE TWANG_MOCKUP_NO_MAIN)
-target_link_libraries(test_mockup_chrome PRIVATE spike)
+target_link_libraries(test_mockup_chrome PRIVATE nostromo)
 add_test(NAME mockup_chrome COMMAND test_mockup_chrome)
 
 add_executable(test_shaper tests/test_shaper.cc)
@@ -163,5 +167,5 @@ target_link_libraries(test_damage PRIVATE spike)
 add_test(NAME damage COMMAND test_damage)
 
 add_executable(test_panel tests/test_panel.cc)
-target_link_libraries(test_panel PRIVATE spike)
+target_link_libraries(test_panel PRIVATE nostromo)
 add_test(NAME panel COMMAND test_panel)

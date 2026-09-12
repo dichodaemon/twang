@@ -13,9 +13,11 @@
 
 struct device;  // Zephyr display device (forward declaration)
 
-namespace spike {
-
+namespace nostromo {
 struct Panel;
+}
+
+namespace spike {
 
 /// @brief GLCDC double-buffered framebuffer backend (EK-RA8D2, 1024x600 RGB565).
 struct GlcdcBackend {
@@ -29,7 +31,7 @@ struct GlcdcBackend {
   /// @brief Forwards pending touch state as pointer events.
   ///
   /// @param panel Panel to feed pointer events.
-  void PollTouch(Panel *panel);
+  void PollTouch(nostromo::Panel *panel);
 
   /// @brief Flips the back buffer to the GLCDC scan-out (blocks on vsync).
   ///

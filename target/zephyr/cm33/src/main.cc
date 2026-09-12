@@ -1,6 +1,6 @@
 // twang cm33 — control-core image: spike panel UI on the GLCDC display.
 //
-// Runs the portable panel (spike/panel.cc) against the GLCDC's SDRAM
+// Runs the portable panel (nostromo/panel.cc) against the GLCDC's SDRAM
 // framebuffer and the FT5336 touch panel. Note/param events are queued into
 // the shared SDRAM IPC ring; a mailbox signal notifies the audio (M85) core.
 
@@ -37,16 +37,16 @@ int main(void) {
     }
 
     // The Panel is placement-new'd into SDRAM by PanelCreate (TWANG_UI_SDRAM).
-    spike::Panel *panel = spike::PanelCreate();
+    nostromo::Panel *panel = nostromo::PanelCreate();
 
     // Smoke: a held A4 note drives the envelope playhead so the panel has
     // something to draw. (The scope tap is fed by the audio core over IPC,
     // which is not wired yet.)
-    spike::PanelNoteOn(panel, 440.0f, 127);
+    nostromo::PanelNoteOn(panel, 440.0f, 127);
 
     for (;;) {
         backend.PollTouch(panel);
-        spike::PanelDraw(panel, backend.fb, backend.back_);
+        nostromo::PanelDraw(panel, backend.fb, backend.back_);
         backend.Present();  // flip (blocks on vsync; double buffering)
     }
     return 0;

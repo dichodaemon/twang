@@ -1,7 +1,7 @@
 // test_mockup_chrome.cc — the signal-flow mockup must keep predicting the panel.
 //
 // tools/mockup_screens.cc redraws the signal-flow screen with fixed content.
-// Its value is entirely that the chrome is identical to what spike/panel.cc
+// Its value is entirely that the chrome is identical to what nostromo/panel.cc
 // produces: it is the reference the other three screens are judged against,
 // and it is what an opcode/descriptor encoding would be validated against.
 //
@@ -19,6 +19,7 @@
 #include "engine.h"
 #include "fb.h"
 #include "mockup_screens.h"
+#include "palette.h"
 #include "panel.h"
 #include "params.h"
 
@@ -41,6 +42,10 @@ struct Band { int y0, y1; const char *name; };
 constexpr Band kChrome[] = {
     {0, 84, "title bar and margin"},
     {84, 110, "module headers"},
+    {128, 142, "module separator rule"},
+    {374, 393, "plot bottom edge + separator"},
+    {406, 415, "readout gap"},
+    {428, 432, "bottom corner brackets"},
     {432, 512, "keyboard band"},
     {512, 600, "nav bar and encoder legend"},
 };
@@ -59,9 +64,9 @@ int DiffRows(const std::vector<std::uint16_t> &a,
 }  // namespace
 
 int main() {
-  std::vector<std::uint16_t> mock(static_cast<std::size_t>(kW) * kH, mockup::kBg);
-  std::vector<std::uint16_t> live0(static_cast<std::size_t>(kW) * kH, mockup::kBg);
-  std::vector<std::uint16_t> live1(static_cast<std::size_t>(kW) * kH, mockup::kBg);
+  std::vector<std::uint16_t> mock(static_cast<std::size_t>(kW) * kH, nostromo::kBg);
+  std::vector<std::uint16_t> live0(static_cast<std::size_t>(kW) * kH, nostromo::kBg);
+  std::vector<std::uint16_t> live1(static_cast<std::size_t>(kW) * kH, nostromo::kBg);
 
   {
     spike::FrameBuffer fb{mock.data(), kW, kH, kW, spike::Rect{0, 0, kW, kH}};
@@ -71,11 +76,11 @@ int main() {
   // The panel must be in its default state before the first render: it polls
   // the engine each frame, and an uninitialised engine reads as all zeros.
   engine::EngineInit();
-  spike::Panel *p = spike::PanelCreate();
+  nostromo::Panel *p = nostromo::PanelCreate();
   spike::FrameBuffer f0{live0.data(), kW, kH, kW, spike::Rect{0, 0, kW, kH}};
   spike::FrameBuffer f1{live1.data(), kW, kH, kW, spike::Rect{0, 0, kW, kH}};
-  spike::PanelDraw(p, f0, 0);
-  spike::PanelDraw(p, f1, 1);
+  nostromo::PanelDraw(p, f0, 0);
+  nostromo::PanelDraw(p, f1, 1);
 
   for (const Band &b : kChrome) {
     const int d = DiffRows(mock, live0, b.y0, b.y1);
@@ -88,7 +93,7 @@ int main() {
   // Sanity: the content bands SHOULD differ. If they do not, the mockup has
   // probably been replaced by a copy of the live render and stopped being an
   // independent check.
-  const int content = DiffRows(mock, live0, 142, 380);
+  const int content = DiffRows(mock, live0, 142, 374);
   Check(content > 0, "plot content differs (mockup is not a copy of the panel)");
 
   // Both buffers converge, so the chrome comparison is not buffer-specific.

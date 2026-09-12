@@ -18,13 +18,18 @@
 
 namespace spike {
 
+using nostromo::Panel;
+using nostromo::PanelPointer;
+using nostromo::PointerEvent;
+using nostromo::PointerKind;
+
 namespace {
 
 // 1024x600 RGB565 scan-out buffers, stride 1024 pixels. Each is 1024*600*2 =
 // 1,228,800 bytes (~1.17 MiB) — far too large for the M33's 640 KB SRAM, so
 // both live in SDRAM (0x68000000..0x6c000000). The driver's own ext-ram frame
 // buffers occupy the start of SDRAM; the IPC block is at 0x68400000 and the
-// Panel at 0x68500000 (see spike/panel.cc), so the two buffers land at +6 MiB
+// Panel at 0x68500000 (see nostromo/panel.cc), so the two buffers land at +6 MiB
 // and +8 MiB — clear of everything.
 constexpr int kFrameW = 1024;
 constexpr int kFrameH = 600;

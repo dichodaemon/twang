@@ -12,7 +12,7 @@
 
 #include "RtMidi.h"
 
-namespace spike {
+namespace nostromo {
 struct Panel;
 }
 
@@ -29,7 +29,7 @@ struct MidiIo {
 
     /// @brief Drain pending MIDI messages into the engine (control thread).
     /// @param panel Panel context (notes route through PanelNoteOn/Off).
-    void Poll(spike::Panel *panel);
+    void Poll(nostromo::Panel *panel);
 
     /// @brief Send current parameter values back to the controller (fader
     /// positions + LED rings). Call periodically from the main loop.

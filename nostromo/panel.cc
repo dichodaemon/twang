@@ -1,4 +1,4 @@
-// spike/panel.cc — the Nostromo controller panel (double-buffered).
+// nostromo/panel.cc — the Nostromo controller panel (double-buffered).
 //
 // Draws the signal-flow layout (titlebar, four modules, keyboard, nav) with
 // the framebuffer primitives, and drives the four dynamic plot regions from
@@ -12,6 +12,8 @@
 // span graticule-aware.
 
 #include "panel.h"
+
+#include "palette.h"
 
 #if defined(__ZEPHYR__)
 #include <zephyr/kernel.h>  // k_uptime_get_32 (monotonic ms; no gettimeofday)
@@ -31,7 +33,9 @@
 #include "params.h"
 #include "scope_ring.h"
 
-namespace spike {
+namespace nostromo {
+
+using namespace spike;
 
 // ---- frame / layout constants (1024x600, per the Nostromo mockup) ----
 
@@ -66,17 +70,6 @@ constexpr int kFftSize = 8192;
 
 // Column-trace sentinel: a column with y0 == y1 == kEmpty has no curve.
 constexpr std::uint8_t kEmpty = 0xFF;
-
-// ---- Nostromo palette (RGB565) ----
-
-constexpr Color Rgb565(int r, int g, int b) {
-  return static_cast<Color>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
-}
-constexpr Color kBg = Rgb565(5, 10, 6);
-constexpr Color kFaint = Rgb565(13, 53, 32);
-constexpr Color kDim = Rgb565(27, 98, 56);
-constexpr Color kMid = Rgb565(63, 191, 120);
-constexpr Color kBright = Rgb565(124, 255, 176);
 
 // ---- Panel struct ----
 
@@ -1219,4 +1212,4 @@ int PanelPlotDraws(const Panel *p, int idx) {
   return p->draw_counts[idx];
 }
 
-}  // namespace spike
+}  // namespace nostromo

@@ -233,9 +233,11 @@ void PanelAudioTap(Panel *p, const float *samples, int n);  // feed the scope ri
 | `spike/fb.h`, `spike/fb.cc` | `FrameBuffer`, `Rect`, `Point`, `Color`, draw primitives |
 | `spike/font.h`, `spike/font.cc` | `Font`, glyph data, `DrawGlyphRun` |
 | `spike/damage.h`, `spike/damage.cc` | damage list, merge + fallback + two-frame rule |
+| `spike/png.h`, `spike/png.cc` | minimal PNG writer (host-side serialization) |
 | `tools/bdf_to_c.py` | Build-time BDF→C emitter; generates `spike/font_data.h` |
 | `assets/fonts/ter-u20n.bdf`, `ter-u14n.bdf` | Terminus BDF sources (OFL 1.1) |
-| `spike/panel.h`, `spike/panel.cc` | `Panel`, init/draw/pointer |
+| `nostromo/panel.h`, `nostromo/panel.cc` | `Panel`, init/draw/pointer |
+| `nostromo/palette.h` | the four-colour vocabulary |
 | `ui/mockup/nostromo_signal-flow.html` | Nostromo reference mockup: Terminus atlas data, primitive stats harness |
 | `host/sdl_backend.cc` | SDL window, blit, input translation |
 | `target/zephyr/cm33/src/glcdc_backend.cc` | GLCDC framebuffer, FT5336 touch |
