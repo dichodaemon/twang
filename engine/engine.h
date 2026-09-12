@@ -140,25 +140,31 @@ struct ShaperState {
 /// for a future curve set; only one shape ships (output-stage arch-design §6.3).
 enum class CurveShape : std::uint8_t { kSoftSat = 0 };
 
-/// f(x) = tanh(x) — the memoryless saturation curve.
+/// f(x): the clamped Padé soft-saturation curve (output-stage arch-design §6.3).
 float CurveEval(CurveShape s, float x);
 
-/// F(x) = log(cosh(x)) — the antiderivative of CurveEval, via table + asymptote.
+/// F(x): the shifted antiderivative of CurveEval, via table + asymptote
+/// (F(0) = 0).
 float AntiderivativeEval(CurveShape s, float x);
 
 /// Fixed bus headroom scale, −18 dB (output-stage arch-design §6.2).
 inline constexpr float kBusGain = 0.125f;
 
-/// ADAA divide fallback threshold: a precision guard, not just a divide-by-zero
-/// guard (float; re-derive if the path moves to Q31 fixed point).
-inline constexpr float kAdaaEps = 1e-3f;
-
 /// Antiderivative table entries.
 inline constexpr int kFTableSize = 256;
 
 /// The F-table covers x ∈ [−kFTableMax, kFTableMax]; outside it the closed-form
-/// asymptote |x| − log 2 is used.
-inline constexpr float kFTableMax = 8.0f;
+/// asymptote |x| + kFTableAsym is used.
+inline constexpr float kFTableMax = 3.0f;
+
+/// Asymptote constant: F(x) = |x| + kFTableAsym for |x| > kFTableMax.
+inline constexpr float kFTableAsym = -0.651607519f;
+
+/// ADAA divide fallback threshold: one table cell (derived, not a magic
+/// constant). Routes the |dx| < h staircase regime to the exact midpoint
+/// fallback, and is CPU-optimal (the fallback is cheaper than the quotient).
+/// Re-derive if the path moves to Q31 fixed point.
+inline constexpr float kAdaaEps = 2.0f * kFTableMax / (kFTableSize - 1);
 
 /// One synthesizer voice: the per-note DSP state, bound to a part.
 ///
