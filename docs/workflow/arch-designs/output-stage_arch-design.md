@@ -73,7 +73,7 @@ A ratio `r` in decibels is `20·log10(r)`. `bus_gain = 0.125` is `20·log10(0.12
 | `F`-table | 1D lookup of the antiderivative `F(x) = ∫ f(x) dx`, 256 entries, linear interpolation. | the file-static table |
 | Rail | The ±1.0 full-scale boundary the bus must not exceed. | saturator + hard clamp |
 | Bus gain | The fixed headroom scale on the summed bus, 0.125 (−18 dB). | `kBusGain` |
-| Saturator | The fixed `tanh` soft clip on the bus; no anti-aliasing. | the bus loop |
+| Saturator | The fixed soft-saturation curve on the bus; no anti-aliasing. | the bus loop |
 | Hard clamp | The final `Clamp` at ±1.0 — the DAC guarantee; should never engage. | `Clamp` |
 | Meter | The peak magnitude of the saturator input since the last read-and-clear, reporting how far the bus is into the rail. | `g_meter` |
 
@@ -87,7 +87,7 @@ The output stage sits at the end of the audio path: after the routing subsystem 
 ```mermaid
 flowchart LR
     svf["SVF tick (per voice)"] --> shaper["drive × curve + ADAA"] --> amp["× amp (level)"] --> bus["bus sum"]
-    bus --> gain["× bus_gain 0.125"] --> sat["tanh saturator"] --> clamp["hard clamp ±1.0"]
+    bus --> gain["× bus_gain 0.125"] --> sat["saturator"] --> clamp["hard clamp ±1.0"]
     gain -. "peak" .-> meter["meter"]
 ```
 
@@ -103,11 +103,11 @@ The voice's SVF output `lp` is driven into the curve, then level-scaled:
 
 ```
 depth = drive_eff                        // blend ∈ [0,1], 0 = transparent
-wet   = ShaperProcess(voice, lp × gain)  // tanh curve, ADAA anti-aliased
+wet   = ShaperProcess(voice, lp × gain)  // soft-saturation curve, ADAA anti-aliased
 out   = lerp(lp, wet, depth) × amp_eff   // amp_eff = level (velocity × envelope × kAmp)
 ```
 
-`drive_eff` (base `kDrive` plus matrix accumulation, clamped to [0,1]) derives two quantities per control step — the blend `depth` and the input `gain` (`DriveCurve(0) = 1`) — so `envelope → drive` makes drive per-voice. At `depth = 0` the shaper is the identity (`out = lp`), so the bypass (`kDrive == 0` and no route targets it) and unity-drive paths are bit-identical and the level does not step when drive first engages — a bare `tanh(gain·x)` cannot do this (`tanh(1) = −2.4 dB`, `tanh(2) = −6.3 dB`). `amp_eff` is the existing effective amp; drive and level stay decoupled. The blend is a crossfade between the non-lowpassed dry input and the box-averaged wet signal, so the magnitude response is a monotonic lowpass that deepens with depth: flat at `depth = 0`, `−5.2 dB` at 20 kHz at `depth = 0.5`, and the full ADAA rolloff (`−11.7 dB` at 20 kHz) at `depth = 1`. It does not comb (no nulls): first-order ADAA is a two-tap box average (`cos(ωT/2)` — −1.25/−3.01/−6.02/−11.74 dB at 8/12/16/20 kHz) and the two blended paths differ in magnitude as well as phase. The full rolloff is reached only at full drive, where the saturated signal's own harmonics dominate the top octave, so the audible cost is concentrated at intermediate depths.
+`drive_eff` (base `kDrive` plus matrix accumulation, clamped to [0,1]) derives two quantities per control step — the blend `depth` and the input `gain` (`DriveCurve(0) = 1`) — so `envelope → drive` makes drive per-voice. At `depth = 0` the shaper is the identity (`out = lp`), so the bypass (`kDrive == 0` and no route targets it) and unity-drive paths are bit-identical and the level does not step when drive first engages — a bare `f(gain·x)` cannot do this (`f(1) = −2.18 dB`). `amp_eff` is the existing effective amp; drive and level stay decoupled. The blend is a crossfade between the non-lowpassed dry input and the box-averaged wet signal, so the magnitude response is a monotonic lowpass that deepens with depth: flat at `depth = 0`, `−5.2 dB` at 20 kHz at `depth = 0.5`, and the full ADAA rolloff (`−11.7 dB` at 20 kHz) at `depth = 1`. It does not comb (no nulls): first-order ADAA is a two-tap box average (`cos(ωT/2)` — −1.25/−3.01/−6.02/−11.74 dB at 8/12/16/20 kHz) and the two blended paths differ in magnitude as well as phase. The full rolloff is reached only at full drive, where the saturated signal's own harmonics dominate the top octave, so the audible cost is concentrated at intermediate depths.
 
 ### 6.2. Bus protection (rail)
 
@@ -117,15 +117,31 @@ After all voices are summed into `g_buses[0].L`:
 for i in 0..frames:
     s          = g_buses[0].L[i] × kBusGain   // kBusGain = 0.125 (−18 dB)
     block_peak = max(block_peak, |s|)         // pre-saturator peak = "into the rail"
-    out[i]     = Clamp(tanh(s))               // soft saturator, then hard clamp
+    out[i]     = Clamp(f(s))                   // soft saturator, then hard clamp
 // block end: merge block_peak into the shared meter with a relaxed CAS-max (750 RMW/s)
 ```
 
-The saturator is `tanh` — a fixed soft curve, once per sample, **no** anti-aliasing. It must rarely engage: `bus_gain` 0.125 keeps the rail at ~0.10% engagement in measured real playing, so the rarely-engaged bus curve's aliasing is inaudible, and the hard clamp is the last-resort DAC guarantee that should never fire.
+The saturator is the soft-saturation curve (§6.3) — a fixed soft curve, once per sample, **no** anti-aliasing. It must rarely engage: `bus_gain` 0.125 keeps the rail at ~0.10% engagement in measured real playing, so the rarely-engaged bus curve's aliasing is inaudible, and the hard clamp is the last-resort DAC guarantee that should never fire.
 
 ### 6.3. The curve
 
-One fixed curve ships: soft saturation `f(x) = tanh(x)`, whose antiderivative is `F(x) = log(cosh(x))`. The curve and its antiderivative are specified together because ADAA integrates `F`. The **curve dispatch** is reserved now — a shape index plus per-shape `f`/`F` entries — so a future set (asymmetric/fuzz, wavefold) slots in without touching the shaper, ADAA, or bus code; only `F` differs per shape. The eventual set is continuous shapes only: quantize is lo-fi, not a drive shape, because a discontinuous curve has no ADAA antiderivative.
+One fixed curve ships: the **soft-saturation curve**, a clamped Padé approximant:
+
+```
+f(x) = x·(27 + x²) / (27 + 9x²)   for |x| ≤ 3
+     = sgn(x)                       for |x| > 3
+```
+
+It is C¹: `f(0) = 0`, `f′(0) = 1`, and it reaches `±1` at `x = ±3` with zero slope (`f′(±3) = 0`), so the clamp joins with matched value and matched slope — a curvature discontinuity only, not the slope discontinuity of a hard clip. Its antiderivative is
+
+```
+F(x) = x²/18 + (4/3)·ln(x² + 3)   for |x| ≤ 3
+     = |x| + c                      for |x| > 3,   c = (4/3)·ln 12 − 5/2 ≈ 0.813208866
+```
+
+The curve and its antiderivative are specified together because ADAA integrates `F`. The curve is *defined as this function*, not as an approximation of a more-accurate "true" curve — the midpoint fallback `f(mid)` (§6.4) is exact by definition, and the shaper's only numerical error is the table's interpolation of `F`. Measured anti-aliasing is within 0.2 dB of tanh at ×3 and ×10 drive, so the study's §5.2 figures carry over unchanged.
+
+The **curve dispatch** is reserved now — a shape index plus per-shape `f`/`F` entries — so a future set (asymmetric/fuzz, wavefold) slots in without touching the shaper, ADAA, or bus code; only `F` differs per shape. The eventual set is continuous shapes only: quantize is lo-fi, not a drive shape, because a discontinuous curve has no ADAA antiderivative.
 
 ### 6.4. ADAA (antiderivative anti-aliasing)
 
@@ -146,10 +162,10 @@ xp = x;  Fp = F(x)                       // advance state
 
 Two hazards are load-bearing and specified, not left to the implementer:
 
-1. **`ε` is a precision guard, not just a divide-by-zero guard.** The quotient cancels catastrophically as `x → xp` — worst at low frequencies, where a sine barely moves between samples. A *larger* `ε` is better: measured float32-vs-float64, `ε = 1e-3` holds ~91 dB SNR at 30 Hz where `1e-6` drops to ~70 dB, because the midpoint fallback is more accurate than the ill-conditioned quotient. Starting value `kAdaaEps = 1e-3`; re-derive if the shaper moves to Q31 (fixed-point cancellation differs).
+1. **`ε` is one table cell, not a magic constant.** Linear interpolation makes `F̃` piecewise-linear, so its derivative — the ADAA quotient — is piecewise-constant. When `|dx|` is smaller than the table step `h`, both samples fall in the same cell and the quotient returns a staircase of cell-averaged curve values, not the curve itself. Routing exactly the `|dx| < h` regime to the fallback (exact, since the fallback *is* the curve) removes the staircase. Set `ε = h = 2·kFTableMax / (kFTableSize − 1)`, derived from the table size — it is also the CPU-optimal point, because the fallback (one curve evaluation) is cheaper than the quotient (two `F` lookups plus a divide). Re-derive if the shaper moves to Q31 (fixed-point cancellation differs).
 2. **State reset on note-on.** A stolen voice restarts with the previous note's trailing sample in `xp`/`Fp`, producing a ~−0.5 impulse — a click — on the first sample. Reset `xp = 0`, `Fp = F(0) = 0` in `StartNote` (which the steal path reaches after its ramp), so the first sample is computed against silence.
 
-The `F`-table: 256 entries of `F(x) = log(cosh(x))` over `x ∈ [−8, 8]`, linear interpolation, ~1 KB. Outside the table, `F(x) = |x| − log 2` — the closed-form asymptote, exact to float precision (`log(cosh x) − (|x| − log 2) = e^{−2|x|}`: `3.4e-4` at `x = 4`, `1.1e-7` at `x = 8`). The extension is required, not optional: clamping the table would freeze `F` past the edge and drive the ADAA quotient to 0 where `tanh` has saturated to ±1 — a silent wrong answer at high drive. The closed form is two ops (`|x| − log 2`), touches no `log1p`/`exp`, and needs no NaN guard.
+The `F`-table: 256 entries of `F(x) = x²/18 + (4/3)·ln(x²+3)` over `x ∈ [−3, 3]`, linear interpolation, ~1 KB. Outside the table, `F(x) = |x| + c` (`c ≈ 0.813208866`) — the closed-form asymptote, exact to float precision (the clamp makes `f` constant past ±3, so `F` is exactly linear there). The extension is required, not optional: clamping the table would freeze `F` past the edge and drive the ADAA quotient to 0 where `f` has saturated to ±1 — a silent wrong answer at high drive. The closed form is two ops (`|x| + c`), touches no `log1p`/`exp`, and needs no NaN guard.
 
 ### 6.5. Design Decisions
 
@@ -157,13 +173,13 @@ The `F`-table: 256 entries of `F(x) = log(cosh(x))` over `x ∈ [−8, 8]`, line
 |---|---|---|
 | Two functions, two stages | per-voice shaper + bus rail | Protection must see the sum; musical drive must be per-voice (a bus drive intermodulates across voices — §2). |
 | Bus headroom | `bus_gain = 0.125` (−18 dB) | Real playing engages the rail ~0.10% of samples vs 9.29% at 0.25; matches Surge's −18 dBFS clip. |
-| Bus curve | fixed `tanh`, no AA | A rare rail needs no anti-aliasing; a cheap soft curve replaces the hard chop. |
+| Bus curve | the soft-saturation curve, no AA | A rare rail needs no anti-aliasing; a cheap soft curve replaces the hard chop. |
 | Musicality curve | one fixed soft saturation + reserved dispatch | Continuous-only set is ADAA-tractable; ~1 KB/curve, so shape count is gated by UI/CPU, not memory. |
 | Anti-aliasing | first-order ADAA, 1D `F`-table | Matches 2× oversampling for +69% CPU vs ~+141%; no filter ringing. Closed-form ADAA is the expensive path. |
-| `ε` fallback | precision guard, `ε = 1e-3` | Larger guard avoids quotient cancellation at low frequencies (~20 dB better than 1e-6 at 30 Hz). |
+| `ε` fallback | one table cell, `ε = h` (derived) | Routes the staircase regime to the exact fallback; also CPU-optimal (fallback < quotient). |
 | ADAA state | per-voice `xp`/`Fp`, reset on note-on | 2 floats × 24 voices; reset prevents a voice-steal click. |
 | Drive/level decoupling | `kDrive` into the shaper, `amp_eff` after | Quiet-and-dirty and loud-and-clean both reachable; matches all three references. |
-| Drive shape | dry/wet blend `lerp(lp, ADAA(f(gain·lp)), depth)` | `tanh` is not transparent (`tanh(1) = −2.4 dB`), so a bare curve steps the level at the bypass boundary; the blend makes depth 0 exactly `lp`. |
+| Drive shape | dry/wet blend `lerp(lp, ADAA(f(gain·lp)), depth)` | the curve is not transparent (`f(1) = −2.18 dB`), so a bare curve steps the level at the bypass boundary; the blend makes depth 0 exactly `lp`. |
 | Drive gating | shaper bypassed when the part doesn't use drive | Drive-off patches pay no CPU; the CPU bar is 24 *driven* voices. |
 | Meter | peak-hold, read-and-clear | Reports how far the bus is into the rail so overdrive is intentional, not accidental; a transient is held until the control core reads it. |
 
@@ -174,7 +190,7 @@ The `F`-table: 256 entries of `F(x) = log(cosh(x))` over `x ∈ [−8, 8]`, line
 - **Per control step** (16 samples): compute `drive_eff` (base `kDrive` + matrix accumulation, additive), clamp it to `[0, 1]` (matching the `cutoff_eff` clamp), then derive `depth` and `gain = DriveCurve(drive_eff)`; `drive_in_use` is a per-part flag from `kDrive != 0` or any route targeting `kDrive`.
 - **Drive enable** (when `drive_in_use` transitions false → true): reset `xp = Fp = 0` for the part's voices — the same reset as note-on — so the shaper resumes from silence, not stale state. A ramped enable needs no reset (`depth ≈ 0` masks the stale wet term), but a jumped enable (preset load, CC 0 → 100) would otherwise click.
 - **Per sample, per voice** (only when `drive_in_use`): `wet = ShaperProcess(voice, lp × gain)`, then the blend; `g_buses[0].L[i] += lerp(lp, wet, depth) × amp_eff`.
-- **Per block, after the bus sum**: bus gain → tanh saturator → hard clamp, computing the block's pre-saturator peak; at block end, merge it into the shared `g_meter` with a relaxed CAS-max (750 RMW/s).
+- **Per block, after the bus sum**: bus gain → soft-saturation saturator → hard clamp, computing the block's pre-saturator peak; at block end, merge it into the shared `g_meter` with a relaxed CAS-max (750 RMW/s).
 - **Shutdown**: none — fixed-size state, no heap.
 
 ## 8. Types
@@ -210,14 +226,14 @@ struct ShaperState {
 // The fixed curve and its antiderivative. The shape index is reserved for a
 // future set; only one shape ships.
 enum class CurveShape : uint8_t { kSoftSat = 0 };
-float CurveEval(CurveShape s, float x);            // f(x) = tanh(x)
-float AntiderivativeEval(CurveShape s, float x);   // F(x) = log(cosh(x))
+float CurveEval(CurveShape s, float x);            // f(x): the soft-saturation curve (clamped Padé)
+float AntiderivativeEval(CurveShape s, float x);   // F(x): x²/18 + (4/3)·ln(x²+3); |x| + c outside
 ```
 
 ### Meter
 
 ```cpp
-// Peak of the saturator input (post bus_gain, pre tanh) since the last
+// Peak of the saturator input (post bus_gain, pre curve) since the last
 // read-and-clear, in [0, ∞) where 1.0 = at the rail. Lives in the shared IPC
 // region (coherent mapping, as EventRing/ParamBlock): audio core writes, control
 // core reads-and-clears.
@@ -238,9 +254,10 @@ static_assert(std::atomic<float>::is_always_lock_free);
 
 ```cpp
 inline constexpr float kBusGain    = 0.125f;  // −18 dB headroom
-inline constexpr float kAdaaEps    = 1e-3f;   // precision guard (float; re-derive in Q31)
 inline constexpr int   kFTableSize = 256;     // antiderivative table entries
-inline constexpr float kFTableMax  = 8.0f;    // table covers x ∈ [−8, 8]; closed form outside
+inline constexpr float kFTableMax  = 3.0f;    // table covers x ∈ [−3, 3]; closed form outside
+inline constexpr float kAdaaEps    = 2.0f * kFTableMax / (kFTableSize - 1);  // one table cell
+inline constexpr float kFTableAsym = 0.813208866f;  // F(x) = |x| + kFTableAsym for |x| > kFTableMax
 ```
 
 ## 9. Contracts
@@ -257,7 +274,7 @@ float ShaperProcess(Voice *v, float x);
 
 ### Render (postcondition update)
 
-The routing subsystem's `Render` postcondition is extended: instead of "output clamped to [−1, 1]", the output is `Clamp(tanh(bus_sum × kBusGain))` — the bus protection stage. The per-voice shaper runs inside the voice loop before the bus sum.
+The routing subsystem's `Render` postcondition is extended: instead of "output clamped to [−1, 1]", the output is `Clamp(f(bus_sum × kBusGain))` — the bus protection stage. The per-voice shaper runs inside the voice loop before the bus sum.
 
 ### Meter read
 
@@ -270,7 +287,7 @@ float EngineGetMeter();
 ## 10. System Invariants
 
 - The shaper is memoryless except its two-float state, and that state is reset to `{0, 0}` on note-on, steal, and drive enable — the shaper never resumes from stale state.
-- The wet term (`ShaperProcess` output) is bounded by the curve's range — `tanh` ∈ (−1, 1); the blended output `lerp(lp, wet, depth)` is not, because the dry path `lp` is unbounded — the hard clamp is the only ±1.0 guarantee.
+- The wet term (`ShaperProcess` output) is bounded by the curve's range — `f` ∈ (−1, 1); the blended output `lerp(lp, wet, depth)` is not, because the dry path `lp` is unbounded — the hard clamp is the only ±1.0 guarantee.
 - `out` never exceeds ±1.0 — the hard clamp is last and unconditional.
 - `g_meter` is the peak pre-saturator magnitude since the last read-and-clear (held, not reset per block); a reading ≤ 1.0 means the saturator is in its linear region and the rail is not being meaningfully engaged.
 - At `drive_eff = 0` the shaper is the identity (`out = lp`), so `drive_in_use = false` skipping it and contributing nothing is exact, not approximate; when true it runs every sample for that part's voices (no per-sample bypass, so the ADAA state stays continuous).
@@ -281,7 +298,7 @@ float EngineGetMeter();
 Desktop-testable through the existing engine surface (`test_engine`, `bench`, `wav_render`); no hardware required.
 
 - **ADAA correctness**: a sine through the shaper measures folded-back-vs-harmonic energy within ~1 dB of the study's §5.2/§5.4 figures at ×3 and ×10 drive.
-- **`ε` precision**: 30–110 Hz sines measure SNR against a float64 reference; assert ≥ ~90 dB at `ε = 1e-3` and that `1e-6` is measurably worse — the regression that pins the guard.
+- **Numerical fidelity (relative to distortion)**: sweep drive {×1, ×3, ×10} × frequencies {110, 220, 440, 880, 2000} Hz × shaper-input amplitudes {0.3, 2.0}; against a float64 reference of the *same* curve, assert the shaper's RMS error is ≥ ~40 dB below the curve's own harmonic content (RMS of `reference − linear passthrough`) at every grid point — 220 Hz is the known weak spot. This measures error against intentional distortion, not against an abstract "true tanh".
 - **State reset**: render a note, steal the voice, and assert the new note's first sample shows no impulse discontinuity (compare against a fresh voice).
 - **Drive enable**: while a voice sustains, jump `kDrive` from 0 to a finite value (a discontinuous enable) and assert the first sample shows no impulse discontinuity (compare against a voice that had drive enabled from note-on).
 - **DC input**: a constant input exercises the `|dx| < ε` fallback every sample; assert no NaN/Inf and bounded output.
@@ -293,7 +310,7 @@ Desktop-testable through the existing engine surface (`test_engine`, `bench`, `w
 
 - [ ] Given `kDrive = 0` and no drive route, the output is bit-identical to the shaper-removed path — the blend is exactly `lp` at depth 0, the property the blend was adopted for; no CPU in the shaper.
 - [ ] Given `drive > 0`, a sine through the shaper is anti-aliased to within ~1 dB of the 2× oversampling reference at ×3 and ×10.
-- [ ] Given a 30 Hz input, the shaper holds ≥ ~90 dB SNR against a float64 reference at `ε = 1e-3`.
+- [ ] Across the drive × frequency × amplitude grid (§11), the shaper's numerical error stays ≥ ~40 dB below the curve's own harmonic content at every point.
 - [ ] Given a voice steal, the first sample of the new note shows no impulse discontinuity (state reset works).
 - [ ] Given a discontinuous drive enable mid-note (`kDrive` jumps 0 → nonzero), the first sample shows no impulse discontinuity (the `xp`/`Fp` reset on the false → true transition works).
 - [ ] Given a DC input, the shaper output is bounded and NaN-free (the `ε` fallback engages every sample).
@@ -315,4 +332,4 @@ Desktop-testable through the existing engine surface (`test_engine`, `bench`, `w
 
 | File / Symbol | Reason |
 |---|---|
-| The bare `Clamp(g_buses[0].L[i])` at the end of `RenderBlock` | Replaced by `Clamp(tanh(g_buses[0].L[i] × kBusGain))` + meter |
+| The bare `Clamp(g_buses[0].L[i])` at the end of `RenderBlock` | Replaced by `Clamp(f(g_buses[0].L[i] × kBusGain))` + meter |
