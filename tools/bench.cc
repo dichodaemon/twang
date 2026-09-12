@@ -43,11 +43,10 @@ static inline float BiquadTick(Biquad *b, float x) {
     return y;
 }
 
-// Rational tanh approximation (the study §5.7 "plain rational tanh" baseline).
-// tanh(x) ~= x * (27 + x^2) / (27 + 9 x^2), max relative error ~0.3% for
-// |x| < ~3. This is the cheap per-sample curve the CPU analysis assumes; the
-// engine's CurveEval uses libm tanhf, which is ~9x this cost (see the
-// discovered-from note on the §5.7 baseline).
+// The plain (non-anti-aliased) curve baseline — the same clamped Padé the
+// engine's CurveEval ships (output-stage arch-design §6.3). The clamp at ±3 is
+// irrelevant for the benchmark's |x| < 1 inputs, so the unclamped form suffices
+// as a cost model.
 static inline float TanhRational(float x) {
     const float x2 = x * x;
     return x * (27.0f + x2) / (27.0f + 9.0f * x2);
