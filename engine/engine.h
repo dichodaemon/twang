@@ -264,10 +264,30 @@ float EngineGetParam(int part, ParamId id);
 bool EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
                     float amount);
 
+/// @brief Run one sample of the drive shaper (first-order ADAA) for a voice.
+///
+/// Precondition: x = lp × gain (the driven input); v->shaper holds valid state
+/// (reset on note-on/steal/enable). Postcondition: returns the ADAA-anti-aliased
+/// f(x) and advances v->shaper to {x, F(x)}. The caller skips this entirely when
+/// drive is not in use for the part (output-stage arch-design §9).
+/// @param v Voice whose ADAA state to use and advance.
+/// @param x Driven input sample.
+/// @return Anti-aliased shaper output.
+float ShaperProcess(Voice *v, float x);
+
+/// @brief Read the peak pre-saturator magnitude since the last read (control
+/// thread).
+///
+/// Reads and clears the shared meter (exchange(0), relaxed). A transient is
+/// held across as many display polls as it takes to be read; the audio core
+/// accumulates via CAS-max (output-stage arch-design §8).
+/// @return Peak pre-saturator magnitude in [0, ∞), where 1.0 = at the rail.
+float EngineGetMeter();
+
 /// @brief Render `frames` mono samples into `out` (audio thread).
 ///
 /// Drains pending events and parameters at each block boundary. Output is
-/// the sum of all active voices, clamped to [-1, 1].
+/// the sum of all active voices, soft-saturated then clamped to [-1, 1].
 /// @param out Destination buffer (holds at least `frames` floats).
 /// @param frames Number of samples to render.
 void Render(float *out, int frames);
