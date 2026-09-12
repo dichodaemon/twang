@@ -509,14 +509,14 @@ bool EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
                     float amount) {
     if (part < 0 || part >= kNumParts) return false;
     if (slot < 0 || slot >= kModSlots) return false;
-    // dst must be a phase-1 destination the matrix folds. Named fields
+    // dst must be a destination the matrix folds. Named fields
     // (kKeyFollowDepth), performance inputs (kPitchBend), and kCount are not
-    // destinations; resonance / envelope-time / send destinations land in
-    // phases 2-4. Reject them so a stored route can never silently do nothing.
+    // destinations; reject them so a stored route can never silently do nothing.
     switch (dst) {
     case ParamId::kCutoff:
     case ParamId::kAmp:
     case ParamId::kPitchCoarse:
+    case ParamId::kDrive:
         break;
     default:
         return false;
