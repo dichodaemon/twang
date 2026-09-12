@@ -80,6 +80,20 @@ static void RunBreakdown(int seconds) {
     t1 = NowNs();
     double osf_ns = (t1 - t0) / frames;
 
+    /* oscillator + filter + shaper (ADAA, full drive) */
+    sv.phase = 0.0f;
+    sv.ic1eq = 0.0f;
+    sv.ic2eq = 0.0f;
+    sv.shaper.xp = 0.0f;
+    sv.shaper.Fp = 0.0f;
+    t0 = NowNs();
+    for (int i = 0; i < frames; ++i) {
+        const float lp = DspSvfTick(&sv, DspOscTick(&sv));
+        g_sink += ShaperProcess(&sv, lp * 10.0f);
+    }
+    t1 = NowNs();
+    double osfs_ns = (t1 - t0) / frames;
+
     /* full voice (osc + filter + envelope + coeffs), via Render() */
     EngineInit();
     PatchPluck();
@@ -91,11 +105,13 @@ static void RunBreakdown(int seconds) {
     double full_ns = (t1 - t0) / frames;
 
     double filter_ns = osf_ns - osc_ns;
+    double shaper_ns = osfs_ns - osf_ns;
     double rest_ns = full_ns - osf_ns;
 
     std::printf("oscillator:    %.2f ns/sample\n", osc_ns);
     std::printf("filter:        %.2f ns/sample\n", filter_ns);
     std::printf("osc+filter:    %.2f ns/sample\n", osf_ns);
+    std::printf("shaper (ADAA): %.2f ns/sample\n", shaper_ns);
     std::printf("env+coeff+ovh: %.2f ns/sample\n", rest_ns);
     std::printf("full voice:    %.2f ns/sample\n", full_ns);
     if (osc_ns > 0.0f) std::printf("filter/osc ratio: %.2fx\n", filter_ns / osc_ns);
