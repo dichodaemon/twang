@@ -232,6 +232,8 @@ void StartNote(Voice *v, float freq_hz, float velocity, const Part *p) {
     // leftover energy from the previous note (a fresh note = a fresh filter).
     v->ic1eq = 0.0f;
     v->ic2eq = 0.0f;
+    v->shaper.xp = 0.0f;  // fresh note: first sample computed against silence
+    v->shaper.Fp = 0.0f;
     v->last_env_cutoff = -1.0f;  // sentinel: force the coefficient recompute
 
     float attack_s = ParamGetDisp(p, ParamId::kAttack);
