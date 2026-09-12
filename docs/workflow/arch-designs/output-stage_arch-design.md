@@ -1,6 +1,6 @@
 ---
 title: Output Stage
-status: review
+status: approved
 date: 2026-09-12
 author: Dizan Vasquez
 design-study: ../design-studies/2026-09-11_output-stage-headroom-and-distortion_design-study.md
@@ -287,7 +287,7 @@ Desktop-testable through the existing engine surface (`test_engine`, `bench`, `w
 - **DC input**: a constant input exercises the `|dx| < ε` fallback every sample; assert no NaN/Inf and bounded output.
 - **Bypass**: `kDrive = 0` with no drive route → output is bit-identical to the shaper-removed path. (The CPU claim — the shaper is not reached — is measured in `bench`, not asserted in the test.)
 - **Bus protection**: drive the bus over the rail; assert `out` stays in [−1, 1] and the meter reads > 1.
-- **Migration**: `kAmp 0.25` vs `kAmp 1.0 × bus_gain 0.25` produce identical output below the rail (ratio 1.0000).
+- **Migration**: at the shipped `kBusGain` (0.125), `kAmp 0.25` vs `kAmp 1.0` differ by ≈4× below the rail — `kAmp` is pure level, the headroom lives on the bus, not the level. (The equal-headroom equivalence `kAmp 0.25 ≡ kAmp 1.0 × bus_gain 0.25`, ratio 1.0000, is the study §5.3 property check, not a shipped-binary test: `kBusGain` is `constexpr` 0.125.)
 
 ## 12. Acceptance Criteria
 
@@ -298,7 +298,7 @@ Desktop-testable through the existing engine surface (`test_engine`, `bench`, `w
 - [ ] Given a discontinuous drive enable mid-note (`kDrive` jumps 0 → nonzero), the first sample shows no impulse discontinuity (the `xp`/`Fp` reset on the false → true transition works).
 - [ ] Given a DC input, the shaper output is bounded and NaN-free (the `ε` fallback engages every sample).
 - [ ] Given the bus sum exceeds the rail, `out` is hard-clamped to ±1.0 and the meter reads > 1.
-- [ ] Given `kAmp 0.25` and `kAmp 1.0 × bus_gain 0.25`, output is identical below the rail (the migration is output-preserving).
+- [ ] Given `kAmp 0.25` and `kAmp 1.0` at the shipped `kBusGain` (0.125), output differs by ≈4× below the rail (headroom is on the bus, not the level).
 - [ ] The meter is a single `std::atomic<float>` in the shared IPC region (no new IPC protocol); no heap allocation in the audio path; the `F`-table is `const` in flash.
 
 ## 13. Code Pointers
