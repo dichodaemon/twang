@@ -128,6 +128,14 @@ struct Part {
     ModRoute routes[kModSlots]; ///< Modulation routes; zero-init == all empty.
 };
 
+/// Two floats of per-voice ADAA state for the drive shaper. Reset to {0, 0}
+/// on note-on, steal, and drive enable so the shaper never resumes from stale
+/// state (see the output-stage arch-design §10).
+struct ShaperState {
+    float xp;  ///< x[n-1]: previous shaper input.
+    float Fp;  ///< F(x[n-1]): previous antiderivative value.
+};
+
 /// One synthesizer voice: the per-note DSP state, bound to a part.
 ///
 /// Plain old data: trivially copyable and standard-layout, with no heap
@@ -173,6 +181,8 @@ struct Voice {
     float last_env_cutoff;
     float last_key_follow;
     float last_q;
+
+    ShaperState shaper;  ///< Drive-shaper ADAA state; reset on note-on/steal/enable.
 };
 
 /// @brief Initialize the engine: reset the parts to their defaults and the
