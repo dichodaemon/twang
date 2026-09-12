@@ -45,6 +45,7 @@ enum class ParamId : std::uint8_t {
     kAmp,              ///< Amp/level base (params[6]).
     kPitchCoarse,      ///< Osc pitch coarse, bipolar ±24 semitones (params[7]).
     kPitchBend,        ///< Pitchbend performance input, 0.5 = center (params[8]).
+    kDrive,            ///< Drive blend depth, [0,1] (params[9]).
     kKeyFollowDepth,   ///< Key-follow depth, [0,1] (named field; default 0.5).
     kCount,            ///< Parameter count (not a parameter).
 };
@@ -106,8 +107,8 @@ struct ModRoute {
 /// Number of modulation route slots per part.
 inline constexpr int kModSlots = 16;
 
-/// Number of float params[] members per part (grows in phases 2-4).
-inline constexpr int kNumParams = 9;
+/// Number of float params[] members per part.
+inline constexpr int kNumParams = 10;
 
 /// Number of output buses.
 inline constexpr int kNumBuses = 1;
@@ -120,8 +121,8 @@ inline constexpr int kNumBuses = 1;
 struct Part {
     // Parameters (all normalized 0..1; see params.h). The first kNumParams
     // floats are the flat params[] bank: cutoff, resonance, attack, decay,
-    // sustain, release, amp, pitch_coarse, pitchbend. key_follow_depth is a
-    // named field addressed via offsetof (not params[]).
+    // sustain, release, amp, pitch_coarse, pitchbend, drive.
+    // key_follow_depth is a named field addressed via offsetof (not params[]).
     float params[kNumParams];
     float key_follow_depth;     ///< Key-follow depth for kNote→cutoff, [0,1], default 0.5.
     ModRoute routes[kModSlots]; ///< Modulation routes; zero-init == all empty.
