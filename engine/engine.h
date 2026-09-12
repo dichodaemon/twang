@@ -136,6 +136,16 @@ struct ShaperState {
     float Fp;  ///< F(x[n-1]): previous antiderivative value.
 };
 
+/// The fixed shaper curve and its antiderivative. The shape index is reserved
+/// for a future curve set; only one shape ships (output-stage arch-design §6.3).
+enum class CurveShape : std::uint8_t { kSoftSat = 0 };
+
+/// f(x) = tanh(x) — the memoryless saturation curve.
+float CurveEval(CurveShape s, float x);
+
+/// F(x) = log(cosh(x)) — the antiderivative of CurveEval, via table + asymptote.
+float AntiderivativeEval(CurveShape s, float x);
+
 /// One synthesizer voice: the per-note DSP state, bound to a part.
 ///
 /// Plain old data: trivially copyable and standard-layout, with no heap
