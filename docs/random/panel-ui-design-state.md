@@ -337,6 +337,7 @@ nav bar      y512
 | `tools/mockup_screens.cc` | Renders the three **unbuilt** screens (§9) at 1:1 through the real primitives and atlases. Fixed content, no `Panel` state — a design surface, not panel code. |
 | `tools/bdf_to_c.py` | BDF → C atlas, with `--check` round-trip |
 | `tests/test_panel.cc` | Golden hash + regression tests |
+| `tests/test_mockup_chrome.cc` | Asserts the signal-flow mockup's chrome is pixel-identical to the live panel. That identity is what makes the mockup file a usable reference for the other three screens, and for validating a descriptor encoding. |
 
 ### Recently fixed, worth not regressing
 

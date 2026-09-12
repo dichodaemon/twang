@@ -90,6 +90,7 @@ target_link_libraries(panel_shot PRIVATE spike)
 # Renders through the real primitives and atlases, so geometry and legibility
 # match the panel. `--check` verifies the golden hashes.
 add_executable(mockup_screens tools/mockup_screens.cc)
+target_include_directories(mockup_screens PRIVATE tools)
 target_link_libraries(mockup_screens PRIVATE spike)
 
 # ---- Tests ----
@@ -98,6 +99,15 @@ add_executable(test_engine tests/test_engine.cc)
 target_link_libraries(test_engine PRIVATE engine)
 add_test(NAME engine_render COMMAND test_engine)
 add_test(NAME mockups COMMAND mockup_screens --check)
+
+# The signal-flow mockup must keep matching the panel's chrome; that identity
+# is what makes the mockup file a usable reference for the other screens.
+add_executable(test_mockup_chrome
+               tests/test_mockup_chrome.cc tools/mockup_screens.cc)
+target_include_directories(test_mockup_chrome PRIVATE tools)
+target_compile_definitions(test_mockup_chrome PRIVATE TWANG_MOCKUP_NO_MAIN)
+target_link_libraries(test_mockup_chrome PRIVATE spike engine controller)
+add_test(NAME mockup_chrome COMMAND test_mockup_chrome)
 
 add_executable(test_shaper tests/test_shaper.cc)
 target_link_libraries(test_shaper PRIVATE engine)

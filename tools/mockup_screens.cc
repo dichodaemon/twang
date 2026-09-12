@@ -34,6 +34,7 @@
 
 #include "fb.h"
 #include "font.h"
+#include "mockup_screens.h"
 
 namespace {
 
@@ -201,6 +202,10 @@ void EncoderLegend(FrameBuffer &fb, const char *s) {
   TextLeft(fb, s, kTitleX, kNavY + 54, kSecondaryFont, kDim);
 }
 
+
+}  // namespace  (helpers above stay private)
+
+namespace mockup {
 
 // =======================================================================
 // Screen 0 — signal flow
@@ -686,6 +691,11 @@ void DrawSave(FrameBuffer &fb) {
                 "SLOT   PUSH CONFIRM");
 }
 
+}  // namespace mockup
+
+#ifndef TWANG_MOCKUP_NO_MAIN
+namespace {
+
 // ---- PNG writer (same as tools/panel_shot.cc) --------------------------
 
 std::uint32_t Crc32(const std::uint8_t *d, std::size_t n, std::uint32_t crc = 0) {
@@ -788,10 +798,10 @@ struct Screen {
 // point: they catch a primitive or atlas change silently altering the mockups,
 // and the mockups only have value while they predict the panel.
 constexpr Screen kScreens[4] = {
-    {"mockup_signal.png", DrawSignal, 0x808160E8u},
-    {"mockup_matrix.png", DrawMatrix, 0x2987002Eu},
-    {"mockup_patch.png", DrawPatch, 0xEC738A07u},
-    {"mockup_save.png", DrawSave, 0x64E4DF78u},
+    {"mockup_signal.png", mockup::DrawSignal, 0x808160E8u},
+    {"mockup_matrix.png", mockup::DrawMatrix, 0x2987002Eu},
+    {"mockup_patch.png", mockup::DrawPatch, 0xEC738A07u},
+    {"mockup_save.png", mockup::DrawSave, 0x64E4DF78u},
 };
 
 std::uint32_t Fnv1a(const std::vector<std::uint16_t> &b) {
@@ -838,3 +848,4 @@ int main(int argc, char **argv) {
   }
   return 0;
 }
+#endif  // TWANG_MOCKUP_NO_MAIN
