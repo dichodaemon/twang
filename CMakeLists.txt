@@ -106,7 +106,7 @@ add_executable(test_mockup_chrome
                tests/test_mockup_chrome.cc tools/mockup_screens.cc)
 target_include_directories(test_mockup_chrome PRIVATE tools)
 target_compile_definitions(test_mockup_chrome PRIVATE TWANG_MOCKUP_NO_MAIN)
-target_link_libraries(test_mockup_chrome PRIVATE spike engine controller)
+target_link_libraries(test_mockup_chrome PRIVATE spike)
 add_test(NAME mockup_chrome COMMAND test_mockup_chrome)
 
 add_executable(test_shaper tests/test_shaper.cc)
