@@ -92,6 +92,10 @@ add_executable(test_engine tests/test_engine.cc)
 target_link_libraries(test_engine PRIVATE engine)
 add_test(NAME engine_render COMMAND test_engine)
 
+add_executable(test_shaper tests/test_shaper.cc)
+target_link_libraries(test_shaper PRIVATE engine)
+add_test(NAME shaper COMMAND test_shaper)
+
 add_executable(test_params tests/test_params.cc)
 target_link_libraries(test_params PRIVATE engine)
 add_test(NAME params COMMAND test_params)
