@@ -24,7 +24,14 @@ namespace engine {
 struct SharedIpc {
     EventRing events;   ///< control produces, audio consumes (SPSC)
     ParamBlock params;  ///< control writes, audio snapshots at block boundary
+    std::atomic<float> meter;  ///< audio writes, control reads-and-clears (reverse direction)
 };
+
+// The meter is the first audio -> control signal: the audio core writes it
+// (CAS-max, relaxed) and the control core reads-and-clears it. Require a
+// lock-free float atomic so the relaxed 32-bit loads/stores stay plain
+// ldrex/strex on the ARM targets (output-stage arch-design §5).
+static_assert(std::atomic<float>::is_always_lock_free);
 
 #ifdef TWANG_SHARED_IPC
 
