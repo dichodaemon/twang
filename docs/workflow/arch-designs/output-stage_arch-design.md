@@ -12,17 +12,58 @@ design-study: ../design-studies/2026-09-11_output-stage-headroom-and-distortion_
 
 The engine's audio path ends in a bare hard clamp — `out[i] = Clamp(g_buses[0].L[i])`. That single chop serves two distinct functions badly: as protection it is an audible hard clip that engages in ordinary polyphony, and as musicality it has no drive control and the worst aliasing of any curve. This arch-design specifies the **output stage**: a per-voice drive/shaper (musicality) upstream of the bus sum, and a bus headroom/saturator/clamp/meter (protection) downstream of it. It is consumed by the audio-side render loop and the control-side parameter API, and it builds on the routing subsystem's `Part`/`Voice`/`Bus` ([Synth Routing](synth-routing_arch-design.md)).
 
-## 2. Non-Goals
+## 2. Background
+
+This section explains the audio concepts the architecture depends on, for a reader without a DSP background. Each concept states what it is, why it matters here, and where it lands in the design. Only high-school math is assumed (logarithms, and the "average of a function" reading of the fundamental theorem of calculus).
+
+### Signal representation and the rail
+
+Audio is a stream of samples at 48 kHz (`kSampleRate`). Each sample is a single-precision float, nominally in **full scale** `[−1, 1]` — the **rail**. `±1.0` is the largest value the DAC can represent; a signal that exceeds it is **clipped** (chopped to the rail), which adds harsh odd harmonics — a hard clip at `±1.0` is the harshest curve there is. **Headroom** is how far below the rail a signal is expected to sit, measured in decibels (dB).
+
+### Why polyphony clips
+
+The engine sums up to 24 voices (`kNumVoices`) into one bus. Voices add, so the sum's peak grows with the voice count: one voice at full level peaks at ~1.0, but 24 voices on the same pitch peak at ~24.7 — about 28 dB higher. No single static gain covers both ends: scaling for 24 voices leaves one voice 28 dB too quiet, and scaling for one voice clips 24 voices. Clipping is therefore a certainty in ordinary polyphonic playing, not an edge case to prevent. The output stage exists to handle that sum *deliberately* rather than with a bare hard clamp.
+
+### Waveshaping: a memoryless non-linearity
+
+A **waveshaper** is a function `y = f(x)` applied to each sample independently — no memory, no feedback. `tanh` is the archetypal **soft saturation**: linear (≈ identity) near zero, bending smoothly toward ±1 as `|x|` grows, so it adds gentle even harmonics instead of the hard clip's harsh odd ones. **Drive** scales the input (`x = signal × drive_gain`), pushing the signal harder into the curve's bent region: drive 0 is clean, high drive is dirty. The drive/level split is what makes "distortion amount" and "output volume" independent controls — quiet-and-dirty and loud-and-clean are both reachable.
+
+### Why a non-linearity aliases — and how to stop it
+
+A non-linearity reshapes the waveform, which mathematically is adding **harmonics** — energy at multiples of the input's frequencies. A smooth curve like tanh adds few (they decay fast); a hard clip adds infinitely many. Harmonics above **Nyquist** (half the sample rate, 24 kHz here) cannot be represented, so they **fold back** into the audible band at the wrong frequencies. That is **aliasing**, and it sounds like inharmonic noise, not musical overtones.
+
+Two ways to suppress it:
+
+- **Oversampling** — evaluate the shaper at 2×/4× the sample rate, then low-pass filter back down. Pushing the fold-back point further out means less folds back. Cost: extra filter stages and an inner loop at the higher rate.
+- **ADAA (antiderivative anti-aliasing)** — instead of the point value `f(x[n])`, output the *average* of `f` over the interval `[x[n−1], x[n]]` that the sample spans. Averages are band-limited, so less aliases. The antiderivative `F(x) = ∫ f(x) dx` computes that average exactly with two lookups and a divide — by the fundamental theorem of calculus, the average of `f` over `[a, b]` is `(F(b) − F(a)) / (b − a)`.
+
+ADAA matches 2× oversampling's aliasing reduction for roughly half the CPU (§5.7 of the study), which is why it is the chosen mechanism.
+
+### Aliasing is not the only artifact: intermodulation
+
+When *two or more different* signals pass through one non-linearity, they also produce **intermodulation** — sum and difference tones *between* the signals — on top of each signal's own harmonics. Aliasing is per-signal; intermodulation is cross-signal. Anti-aliasing fixes aliasing but does **nothing** for intermodulation.
+
+This is the single most important fact for the architecture: a shaper on the *summed bus* intermodulates every voice against every other (a chord turns to mud), while a shaper *per voice* only lets each voice self-harmonize (clean). That is why musical drive is per-voice, and why the bus saturator must **rarely engage** — a bus rail that saturates constantly is, functionally, a bus-level drive, and its dominant artifact is intermodulation that no anti-aliasing can fix.
+
+### Voice stealing
+
+The 24 voices are a fixed pool. When all are sounding and a new note arrives, the quietest voice is **stolen**: its envelope is ramped down over ~5 ms, then the new note retriggers on the same voice. Anything with per-voice state (here, the shaper's two-float ADAA state) must be reset at that retrigger, or the new note starts with the old note's leftover state — a one-sample discontinuity that clicks.
+
+### Decibels and fixed point
+
+A ratio `r` in decibels is `20·log10(r)`. `bus_gain = 0.125` is `20·log10(0.125) = −18 dB` — the same headroom Surge XT uses for its own hard clip, which is why the number 0.125 (not 0.1 or 0.2) is chosen. All arithmetic is single-precision float (the M85 has a hardware FPU); the `F`-table and the `ε` guard are specified in float, with a note to re-derive both if the path ever moves to Q31 fixed point, where numerical cancellation behaves differently.
+
+## 3. Non-Goals
 
 - Effect DSP (reverb/delay algorithms) — only the drive/level shaping and the meter are in scope.
 - Per-filter (rather than per-voice) drive — the shaper is per-voice.
-- A configurable curve *set* — one fixed curve ships; only the dispatch mechanism is reserved (§5.3).
+- A configurable curve *set* — one fixed curve ships; only the dispatch mechanism is reserved (§6.3).
 - Quantize/bitcrush as a drive shape — discontinuous, not ADAA-tractable, treated as lo-fi.
 - Sample-rate reduction — stateful, not a memoryless waveshaping curve.
 - A bus compressor/limiter — rejected: `bus_gain` 0.125 already yields a rare rail without one.
 - Multi-bus output — still `kNumBuses = 1`.
 
-## 3. Terminology
+## 4. Terminology
 
 | Term | Definition | Maps to |
 |---|---|---|
@@ -36,7 +77,7 @@ The engine's audio path ends in a bare hard clamp — `out[i] = Clamp(g_buses[0]
 | Hard clamp | The final `Clamp` at ±1.0 — the DAC guarantee; should never engage. | `Clamp` |
 | Meter | The peak magnitude of the saturator input over a block, reporting how far the bus is into the rail. | `g_meter` |
 
-## 4. System Context
+## 5. System Context
 
 The output stage sits at the end of the audio path: after the routing subsystem sums voices into `g_buses[0]` and before the DAC write. It is two stages on opposite sides of the bus sum, both entirely on the M85:
 
@@ -52,11 +93,11 @@ flowchart LR
 
 The shaper is a memoryless non-linearity plus a two-float ADAA state; the bus stage is memoryless. Nothing new crosses the core boundary except the meter value — a single float the M85 writes and the M33 reads for display, the first M85→M33 signal (the existing transport is M33→M85 only: event ring + double-buffered params).
 
-## 5. Architecture
+## 6. Architecture
 
 Two stages, one per function. The study's structural point is that they are **separate** — protection must see the final sum (bus), musicality must be per-voice (a bus-level drive intermodulates across voices) — and they share only the *curve* and *anti-aliasing* dimensions, decided differently per stage.
 
-### 5.1. Per-voice shaper (musicality)
+### 6.1. Per-voice shaper (musicality)
 
 The voice's SVF output `lp` is driven into the curve, then level-scaled:
 
@@ -68,7 +109,7 @@ out = y × amp_eff                   // amp_eff = level (velocity × envelope ×
 
 `drive_gain` is derived per control step from the effective drive — base `kDrive` plus matrix accumulation — so `envelope → drive` makes drive per-voice. The shaper is **bypassed** when the part does not use drive (`kDrive == 0` and no route targets it), so drive-off patches pay no CPU. `amp_eff` is the existing effective amp from the routing subsystem; drive and level are decoupled, so quiet-and-dirty and loud-and-clean are both reachable.
 
-### 5.2. Bus protection (rail)
+### 6.2. Bus protection (rail)
 
 After all voices are summed into `g_buses[0].L`:
 
@@ -81,11 +122,11 @@ for i in 0..frames:
 
 The saturator is `tanh` — a fixed soft curve, once per sample, **no** anti-aliasing. It must rarely engage: `bus_gain` 0.125 keeps the rail at ~0.10% engagement in measured real playing, so the rarely-engaged bus curve's aliasing is inaudible, and the hard clamp is the last-resort DAC guarantee that should never fire.
 
-### 5.3. The curve
+### 6.3. The curve
 
 One fixed curve ships: soft saturation `f(x) = tanh(x)`, whose antiderivative is `F(x) = log(cosh(x))`. The curve and its antiderivative are specified together because ADAA integrates `F`. The **curve dispatch** is reserved now — a shape index plus per-shape `f`/`F` entries — so a future set (asymmetric/fuzz, wavefold) slots in without touching the shaper, ADAA, or bus code; only `F` differs per shape. The eventual set is continuous shapes only: quantize is lo-fi, not a drive shape, because a discontinuous curve has no ADAA antiderivative.
 
-### 5.4. ADAA (antiderivative anti-aliasing)
+### 6.4. ADAA (antiderivative anti-aliasing)
 
 First-order ADAA replaces the aliased `f(x[n])` with the average of `f` over the interval the sample spans:
 
@@ -109,11 +150,11 @@ Two hazards are load-bearing and specified, not left to the implementer:
 
 The `F`-table: 256 entries of `F(x) = log(cosh(x))` over a symmetric range covering the shaper's input domain (`drive_gain × lp`), linear interpolation, ~1 KB. Bit-indistinguishable from closed-form, and it avoids closed-form's log1p/exp (which costs ~10× a plain tanh and is worse than oversampling).
 
-### 5.5. Design Decisions
+### 6.5. Design Decisions
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Two functions, two stages | per-voice shaper + bus rail | Protection must see the sum; musical drive must be per-voice (a bus drive intermodulates across voices). |
+| Two functions, two stages | per-voice shaper + bus rail | Protection must see the sum; musical drive must be per-voice (a bus drive intermodulates across voices — §2). |
 | Bus headroom | `bus_gain = 0.125` (−18 dB) | Real playing engages the rail ~0.10% of samples vs 9.29% at 0.25; matches Surge's −18 dBFS clip. |
 | Bus curve | fixed `tanh`, no AA | A rare rail needs no anti-aliasing; a cheap soft curve replaces the hard chop. |
 | Musicality curve | one fixed soft saturation + reserved dispatch | Continuous-only set is ADAA-tractable; ~1 KB/curve, so shape count is gated by UI/CPU, not memory. |
@@ -124,7 +165,7 @@ The `F`-table: 256 entries of `F(x) = log(cosh(x))` over a symmetric range cover
 | Drive gating | shaper bypassed when the part doesn't use drive | Drive-off patches pay no CPU; the CPU bar is 24 *driven* voices. |
 | Meter | pre-saturator peak, per block | Reports how far the bus is into the rail so overdrive is intentional, not accidental. |
 
-## 6. Component Lifecycle
+## 7. Component Lifecycle
 
 - **Init** (`EngineInit`): generate the `F`-table once (static `const`); zero `g_meter`; the per-voice shaper state is zeroed with the voices.
 - **Note-on / steal** (`StartNote`): reset the voice's `xp = 0`, `Fp = 0` — the shaper starts from silence.
@@ -133,7 +174,7 @@ The `F`-table: 256 entries of `F(x) = log(cosh(x))` over a symmetric range cover
 - **Per block, after the bus sum**: bus gain → tanh saturator → hard clamp, accumulating `g_meter` as the pre-saturator peak.
 - **Shutdown**: none — fixed-size state, no heap.
 
-## 7. Types
+## 8. Types
 
 ### `kDrive` (ParamId + ParamDesc)
 
@@ -186,7 +227,7 @@ inline constexpr float kAdaaEps   = 1e-3f;    // precision guard (float; re-deri
 inline constexpr int   kFTableSize = 256;     // antiderivative table entries
 ```
 
-## 8. Contracts
+## 9. Contracts
 
 ### ShaperProcess
 
@@ -210,7 +251,7 @@ float EngineGetMeter();
 
 - **Postcondition**: returns `g_meter` — the peak pre-saturator magnitude of the most recent completed block, reset each block. Reads the shared scalar; no locking (the M33 reads at display rate, the M85 writes at block rate).
 
-## 9. System Invariants
+## 10. System Invariants
 
 - The shaper is memoryless except its two-float state, and that state is reset to `{0, 0}` on note-on (and steal), so a voice's first sample is always computed against silence.
 - `ShaperProcess` output is bounded by the curve's range — `tanh` ∈ (−1, 1) — so the shaper never pushes the bus past the curve's bound; the hard clamp is the only ±1.0 guarantee.
@@ -219,7 +260,7 @@ float EngineGetMeter();
 - When `drive_in_use` is false the shaper is skipped and contributes nothing; when true it runs every sample for that part's voices (no per-sample bypass, so the ADAA state stays continuous).
 - All arithmetic is single-precision float; no `double`, no heap allocation, no exceptions in the audio path. The `F`-table is `const` in `.rodata` (flash).
 
-## 10. Test Architecture
+## 11. Test Architecture
 
 Desktop-testable through the existing engine surface (`test_engine`, `bench`, `wav_render`); no hardware required.
 
@@ -231,7 +272,7 @@ Desktop-testable through the existing engine surface (`test_engine`, `bench`, `w
 - **Bus protection**: drive the bus over the rail; assert `out` stays in [−1, 1] and the meter reads > 1.
 - **Migration**: `kAmp 0.25` vs `kAmp 1.0 × bus_gain 0.25` produce identical output below the rail (ratio 1.0000).
 
-## 11. Acceptance Criteria
+## 12. Acceptance Criteria
 
 - [ ] Given `kDrive = 0` and no drive route, the output equals the unshaped path (bypass; no CPU in the shaper).
 - [ ] Given `drive > 0`, a sine through the shaper is anti-aliased to within ~1 dB of the 2× oversampling reference at ×3 and ×10.
@@ -242,7 +283,7 @@ Desktop-testable through the existing engine surface (`test_engine`, `bench`, `w
 - [ ] Given `kAmp 0.25` and `kAmp 1.0 × bus_gain 0.25`, output is identical below the rail (the migration is output-preserving).
 - [ ] No new IPC mechanism; no heap allocation in the audio path; the `F`-table is `const` in flash.
 
-## 12. Code Pointers
+## 13. Code Pointers
 
 ### Created / modified
 
