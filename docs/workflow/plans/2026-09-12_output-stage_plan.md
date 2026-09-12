@@ -1,6 +1,6 @@
 ---
 title: Output Stage -- Implementation Plan
-status: approved
+status: issued
 date: 2026-09-12
 author: Dizan Vasquez
 arch-design: ../arch-designs/output-stage_arch-design.md
