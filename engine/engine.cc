@@ -318,6 +318,8 @@ void RenderBlock(float *out, int frames) {
                  0.5f) *
                 48.0f;
             float pitch_route = 0.0f;
+            float drive_eff =
+                part->params[static_cast<std::size_t>(ParamId::kDrive)];
             for (int slot = 0; slot < kModSlots; ++slot) {
                 const ModRoute &r = part->routes[slot];
                 if (r.source == ModSourceId::kNone) continue;  // empty slot
@@ -332,12 +334,13 @@ void RenderBlock(float *out, int frames) {
                 // the destination's combination class so g_params stays the
                 // single source of truth for how a destination combines
                 // (arch-design §5.3); the switch only selects which accumulator
-                // a destination folds into (grows in phases 2-4).
+                // a destination folds into.
                 float *acc;
                 switch (r.destination) {
                 case ParamId::kAmp:         acc = &amp_eff; break;
                 case ParamId::kCutoff:      acc = &cutoff_eff; break;
                 case ParamId::kPitchCoarse: acc = &pitch_route; break;
+                case ParamId::kDrive:       acc = &drive_eff; break;
                 default:                    continue;  // deferred destination
                 }
 
@@ -363,6 +366,10 @@ void RenderBlock(float *out, int frames) {
             }
             if (cutoff_eff > 1.0f) cutoff_eff = 1.0f;
             if (cutoff_eff < 0.0f) cutoff_eff = 0.0f;
+            if (drive_eff > 1.0f) drive_eff = 1.0f;
+            if (drive_eff < 0.0f) drive_eff = 0.0f;
+            const float depth = drive_eff;            // blend [0,1], 0 = dry
+            const float gain = DriveCurve(drive_eff); // input gain, unity at 0
             const float pitch_factor =
                 std::exp2f((pitch_semitones + pitch_route) / 12.0f);
             const float key_follow_factor =
