@@ -14,6 +14,7 @@
 #include "panel.h"
 
 #include "palette.h"
+#include "screens.h"
 
 #if defined(__ZEPHYR__)
 #include <zephyr/kernel.h>  // k_uptime_get_32 (monotonic ms; no gettimeofday)
@@ -60,10 +61,6 @@ constexpr int kKeyW = 992 / 13;
 constexpr int kNavY = 512;
 
 constexpr int kPx0[4] = {16, 266, 516, 766};
-constexpr const char *kLabels[4] = {"OSCILLATOR", "FILTER", "ENVELOPE",
-                                    "OUTPUT"};
-constexpr const char *kModes[4] = {"POLYBLEP SAW", "TPT SVF LOWPASS", "ADSR",
-                                   nullptr};
 
 constexpr int kCycleBufSize = 4096;
 constexpr int kFftSize = 8192;
@@ -113,8 +110,10 @@ struct Panel {
   // Per-plot, per-buffer column trace (two copies — one per buffer).
   TraceState traces[4][2];
 
-  // The four dynamic plot regions.
-  DynRegion plots[4];
+  // The dynamic regions: four plots (slots 0-3) plus the output module's
+  // mode buttons (slot 4). Rects are filled by the screen descriptor on the
+  // first chrome draw; the hooks/state are set in PanelCreate.
+  DynRegion dyn[kNumSlots];
 
   // Pending-buffer redraw count per plot: a plot invalidated in frame n must
   // be repainted into BOTH buffers (n's back buffer and n+1's), so it stays
@@ -211,33 +210,7 @@ void TextRight(FrameBuffer &fb, const char *s, int xr, int y, const Font &f, Col
   DrawGlyphRun(fb, xr - TextW(f, s), y, s, static_cast<int>(std::strlen(s)), f, c, 0);
 }
 
-// ---- chrome helpers (ported from the mockup's primitives) ----
-
-void PanelHeader(FrameBuffer &fb, int x, int y, int w, const char *label) {
-  const int bw = TextW(kPrimaryFont, label) + 12;
-  FillRect(fb, x, y, bw, 22, kDim);
-  TextLeft(fb, label, x + 6, y + 1, kPrimaryFont, kBright);
-  DrawHLine(fb, x + bw + 6, y + 20, w - bw - 6, kDim);
-  DrawHLine(fb, x + bw + 6, y + 21, w - bw - 6, kDim);
-}
-
-void PlotFrame(FrameBuffer &fb, int x, int y, int w, int h) {
-  DrawHLine(fb, x, y + (h * 17) / 100, w, kFaint);
-  DrawHLine(fb, x, y + h / 2, w, kDim);
-  DrawHLine(fb, x, y + (h * 83) / 100, w, kFaint);
-}
-
-void Brackets(FrameBuffer &fb, int x, int y, int w, int h, Color c) {
-  const int leg = 10, th = 2, off = 6;
-  FillRect(fb, x - off, y - off, leg, th, c);
-  FillRect(fb, x + w + off - leg, y - off, leg, th, c);
-  FillRect(fb, x - off, y + h + off - th, leg, th, c);
-  FillRect(fb, x + w + off - leg, y + h + off - th, leg, th, c);
-  FillRect(fb, x - off, y - off, th, leg, c);
-  FillRect(fb, x + w + off - th, y - off, th, leg, c);
-  FillRect(fb, x - off, y + h + off - leg, th, leg, c);
-  FillRect(fb, x + w + off - th, y + h + off - leg, th, leg, c);
-}
+// ---- cursor (used by the filter and envelope DYN hooks) ----
 
 void Cursor(FrameBuffer &fb, int x, int y, int w, int h, Color c) {
   FillRect(fb, x, y, 7, 2, c);
@@ -843,94 +816,20 @@ void PlotOut(FrameBuffer &fb, const Rect &r, void *state) {
   DrawReadout(fb, *p, 3);
 }
 
-// ---- static chrome ----
-
+// Mode-button geometry (used by the pointer hit test in PanelPointer). The
+// buttons themselves are drawn by nostromo::DrawModeButtons from the DYN slot
+// the descriptor reserved.
 constexpr int kModeY = kModY + 26;
 constexpr int kModeH = 18;
 
-void DrawModeArea(FrameBuffer &fb, Panel &p) {
-  // Output module: SCOPE / CYCLE / SPEC buttons (highlight the active mode).
-  const char *names[3] = {"SCOPE", "CYCLE", "SPEC"};
-  int bx = kPx0[3] + 6;
-  for (int i = 0; i < 3; ++i) {
-    const int bw = TextW(kSecondaryFont, names[i]) + 6;
-    const bool active = static_cast<int>(p.scope_mode) == i;
-    if (active) FillRect(fb, bx, kModeY, bw, kModeH, kBright);
-    TextLeft(fb, names[i], bx + 3, kModeY + 2, kSecondaryFont,
-             active ? kBg : kMid);
-    bx += bw + 6;
-  }
-}
-
-// Draws a plot's static axes (horizontal graticule handled by PlotFrame; the
-// filter/envelope/spectrum bottom axis and left axis live here, once per
-// buffer). The osc/scope mid-line is the PlotFrame's 50% line.
-// Bottom + left axis for one plot. The baseline differs per module and must
-// match the GratLine the module's draw hook passes to ColumnUpdate: that array
-// is the only record of what lies under the curve, so a line drawn here but
-// absent there is erased by any column that crosses it and never restored.
-void DrawPlotAxes(FrameBuffer &fb, int X, int module) {
-  const int px = X + kPlotDX, py = kModY + kPlotDY;
-  const int L = 14, T = 12;
-  const int B = (module == 1) ? kPlotH - 18   // filter: DrawFilterPlot's B
-                              : kPlotH - 20;  // envelope: EnvLayout::B
-  DrawHLine(fb, px + L, py + B, (kPlotW - 14) - L, kDim);
-  DrawVLine(fb, px + L, py + T, B - T, kDim);
-}
-
 void DrawChrome(FrameBuffer &fb, Panel &p) {
-  // Paint the background once per buffer; chrome, curves, and overlays draw
-  // on top, and local clears restore this.
-  FillRect(fb, 0, 0, kFrameW, kFrameH, kBg);
-
-  // Titlebar.
-  FillRect(fb, kTitleX, kTitleY, kTitleW, kTitleH, kDim);
-  TextLeft(fb, "SIGNAL FLOW", kTitleX + 8, kTitleY + 3, kPrimaryFont, kBright);
-  TextRight(fb, "VOICE 01/16  NOMINAL", kTitleX + kTitleW - 8, kTitleY + 3,
-            kPrimaryFont, kMid);
-
-  // Four modules.
-  for (int m = 0; m < 4; ++m) {
-    const int X = kPx0[m];
-    Brackets(fb, X, kModY, kModW, kModH, kMid);
-    PanelHeader(fb, X, kModY, kModW, kLabels[m]);
-    if (kModes[m]) {
-      TextLeft(fb, kModes[m], X + 6, kModY + 29, kSecondaryFont, kMid);
-    } else {
-      DrawModeArea(fb, p);
-    }
-    DrawHLine(fb, X, kModY + 50, kModW, kDim);
-    PlotFrame(fb, X + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH);
-    if (m == 1 || m == 2) DrawPlotAxes(fb, X, m);
-    DrawHLine(fb, X, kModY + 298, kModW, kDim);
-  }
-
-  // Keyboard.
-  DrawHLine(fb, kTitleX, kKeyY, kTitleW, kDim);
-  const char *keys[13] = {"C", "C#", "D", "D#", "E", "F", "F#",
-                          "G", "G#", "A", "A#", "B", "C"};
-  const bool black[13] = {false, true,  false, true,  false, false, true,
-                          false, true,  false, true,  false, false};
-  for (int i = 0; i < 13; ++i) {
-    const int X = kTitleX + i * kKeyW;
-    if (black[i]) FillRect(fb, X, kKeyY + 1, kKeyW, 54, kDim);
-    const int tx = X + (kKeyW - TextW(kPrimaryFont, keys[i])) / 2;
-    TextLeft(fb, keys[i], tx, kKeyY + 19, kPrimaryFont, black[i] ? kBright : kMid);
-  }
-  DrawHLine(fb, kTitleX, kKeyY + 56, kTitleW, kDim);
-
-  // Nav tabs.
-  DrawHLine(fb, kTitleX, kNavY, kTitleW, kDim);
-  const char *tabs[5] = {"SIGNAL", "MATRIX", "PATCH", "ARP", "SYS"};
-  for (int i = 0; i < 5; ++i) {
-    const int cx = kTitleX + i * 198 + 99;
-    TextLeft(fb, tabs[i], cx - TextW(kPrimaryFont, tabs[i]) / 2, kNavY + 12,
-             kPrimaryFont, i == 0 ? kBright : kMid);
-    if (i == 0) FillRect(fb, cx - 62, kNavY + 38, 124, 3, kBright);
-  }
-  DrawHLine(fb, kTitleX, kNavY + 44, kTitleW, kDim);
-  TextLeft(fb, "ENC1 CUTOFF   ENC2 RES   ENC3 ENV AMT   ENC4 LEVEL", kTitleX,
-           kNavY + 54, kSecondaryFont, kDim);
+  // The screen descriptor draws the static chrome (background, titlebar,
+  // module frames, keyboard, nav) and fills the DYN slot rects. The output
+  // module's mode buttons depend on scope_mode, so they are drawn here from
+  // the slot the descriptor reserved — not encoded in the stream.
+  const auto &bytes = SignalScreen();
+  spike::Interpret(bytes.data(), fb, MakeCtx(p.dyn, kNumSlots));
+  DrawModeButtons(fb, p.dyn[kSlotMode].rect, static_cast<int>(p.scope_mode));
 }
 
 // ---- Panel API ----
@@ -958,25 +857,23 @@ Panel *PanelCreate() {
   // Column traces start empty (no curve) in every column of every buffer.
   std::memset(p->traces, 0xFF, sizeof(p->traces));
 
-  const Rect plot_rects[4] = {
-      {kPx0[0] + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH},
-      {kPx0[1] + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH},
-      {kPx0[2] + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH},
-      {kPx0[3] + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH},
-  };
+  // The four plot slots: hooks/state live here; the rects are filled by the
+  // screen descriptor's DYN ops on the first chrome draw. The mode-button slot
+  // (4) is drawn directly by DrawChrome, not through the damage walk.
   void (*hooks[4])(FrameBuffer &, const Rect &, void *) = {
       PlotOsc, PlotFilter, PlotEnv, PlotOut};
   for (int i = 0; i < 4; ++i)
-    p->plots[i] = DynRegion{plot_rects[i], hooks[i], p, true};
+    p->dyn[i] = DynRegion{{0, 0, 0, 0}, hooks[i], p, true};
+  p->dyn[kSlotMode] = DynRegion{{0, 0, 0, 0}, nullptr, nullptr, false};
   return p;
 }
 
 void SyncFromEngine(Panel *p);  // defined below (after PanelDraw)
 
 void MarkDirty(Panel *p, int idx) {
-  p->plots[idx].dirty = true;
+  p->dyn[idx].dirty = true;
   p->pending[idx] = 2;  // repaint into BOTH buffers (double buffering)
-  p->damage.Add(p->plots[idx].rect);
+  p->damage.Add(p->dyn[idx].rect);
   // The readout text below the plot is drawn by the same hook and sits
   // outside plots[idx].rect; track it separately so damage stays complete.
   p->damage.Add(Rect{kPx0[idx] + kPlotDX, kReadoutY, kReadoutX - kPlotDX,
@@ -1014,9 +911,9 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
     for (int i = 0; i < 4; ++i)
       std::memset(&p->traces[i][b], 0xFF, sizeof(TraceState));
     for (int i = 0; i < 4; ++i) {
-      p->plots[i].draw(fb, p->plots[i].rect, p->plots[i].state);
+      p->dyn[i].draw(fb, p->dyn[i].rect, p->dyn[i].state);
       p->pending[i] = 0;
-      p->plots[i].dirty = false;
+      p->dyn[i].dirty = false;
     }
     p->chrome_drawn[b] = true;
     p->damage.Repaint();  // the full render subsumes the pending damage
@@ -1026,7 +923,7 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   const int n = p->damage.Repaint();
   for (int k = 0; k < 4; ++k) {
     if (p->pending[k] <= 0) continue;
-    const Rect &pr = p->plots[k].rect;
+    const Rect &pr = p->dyn[k].rect;
     bool hit = false;
     for (int i = 0; i < n && !hit; ++i) {
       const Rect &r = p->damage.Rects()[i];
@@ -1034,9 +931,9 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
             pr.y < r.y + r.h;
     }
     if (hit) {
-      p->plots[k].draw(fb, pr, p->plots[k].state);
+      p->dyn[k].draw(fb, pr, p->dyn[k].state);
       --p->pending[k];
-      p->plots[k].dirty = p->pending[k] > 0;
+      p->dyn[k].dirty = p->pending[k] > 0;
     }
   }
 }
@@ -1143,7 +1040,7 @@ void PanelPointer(Panel *p, PointerEvent e) {
 
   // Locate the plot under the pointer.
   for (int m = 0; m < 4; ++m) {
-    const Rect &pr = p->plots[m].rect;
+    const Rect &pr = p->dyn[m].rect;
     if (e.x < pr.x || e.x >= pr.x + pr.w || e.y < pr.y || e.y >= pr.y + pr.h)
       continue;
     const int x = e.x - pr.x;

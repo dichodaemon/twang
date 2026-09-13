@@ -37,6 +37,7 @@
 #include "mockup_screens.h"
 #include "palette.h"
 #include "png.h"
+#include "screens.h"
 
 namespace {
 
@@ -58,18 +59,16 @@ using nostromo::kMid;
 // ---- layout (matches nostromo/panel.cc where the screens overlap) ---------
 
 constexpr int kFrameW = 1024, kFrameH = 600;
-constexpr int kTitleX = 16, kTitleY = 16, kTitleW = 992, kTitleH = 26;
-constexpr int kNavY = 512;
+constexpr int kTitleX = 16;
 constexpr int kBlockY = 88;              // top of the content blocks
 constexpr int kBlockH = 388;             // shared, so corner brackets align
 constexpr int kLeftX = 16, kLeftW = 598;
 constexpr int kRightX = 652, kRightW = 356;
 
 // Signal-flow module geometry, mirroring nostromo/panel.cc exactly.
-constexpr int kModY = 84, kModH = 340, kModW = 242;
+constexpr int kModY = 84, kModW = 242;
 constexpr int kPlotDX = 6, kPlotDY = 58, kPlotW = 230, kPlotH = 232;
 constexpr int kReadoutX = kModW - 6, kReadoutY = kModY + 306;
-constexpr int kKeyY = 440, kKeyW = 992 / 13;
 constexpr int kPx0[4] = {16, 266, 516, 766};
 
 // ---- text helpers ------------------------------------------------------
@@ -91,24 +90,7 @@ void TextCenter(FrameBuffer &fb, const char *s, int cx, int y, const spike::Font
   DrawGlyphRun(fb, cx - n * f.w / 2, y, s, n, f, c, 0);
 }
 
-// ---- component vocabulary ---------------------------------------------
-
-// Corner brackets, 6 px outside the content so they read as registration
-// marks rather than a frame.
-void Brackets(FrameBuffer &fb, int x, int y, int w, int h, Color c) {
-  constexpr int kLeg = 10, kTh = 2, kOff = 6;
-  const int l = x - kOff, r = x + w + kOff - kLeg;
-  const int t = y - kOff, b = y + h + kOff - kTh;
-  FillRect(fb, l, t, kLeg, kTh, c);
-  FillRect(fb, r, t, kLeg, kTh, c);
-  FillRect(fb, l, b, kLeg, kTh, c);
-  FillRect(fb, r, b, kLeg, kTh, c);
-  const int vt = y - kOff, vb = y + h + kOff - kLeg;
-  FillRect(fb, x - kOff, vt, kTh, kLeg, c);
-  FillRect(fb, x + w + kOff - kTh, vt, kTh, kLeg, c);
-  FillRect(fb, x - kOff, vb, kTh, kLeg, c);
-  FillRect(fb, x + w + kOff - kTh, vb, kTh, kLeg, c);
-}
+// ---- component vocabulary (the DYN content's shared helpers) -----------
 
 // Focus cursor: four corner marks around a cell. Level 2 of the emphasis
 // ladder -- transient, moves with the encoder.
@@ -131,23 +113,6 @@ void BlockTail(FrameBuffer &fb, int x, int y, int w, const char *label) {
   TextLeft(fb, label, x + 6, y + 1, kPrimaryFont, kBright);
   DrawHLine(fb, x + bw + 6, y + 20, w - bw - 6, kDim);
   DrawHLine(fb, x + bw + 6, y + 21, w - bw - 6, kDim);
-}
-
-// Header treatment: the row sits above columns, so the fill breaks at each
-// boundary. The gaps let the header rule the grid horizontally while the
-// index ticks rule it vertically -- neither needs a vertical line.
-void SegmentedHeader(FrameBuffer &fb, int x, int y, int w, const int *bounds,
-                     int n) {
-  int prev = 0;
-  for (int i = 0; i < n; ++i) {
-    FillRect(fb, x + prev, y, bounds[i] - 2 - prev, 22, kDim);
-    prev = bounds[i] + 2;
-  }
-  FillRect(fb, x + prev, y, w - prev, 22, kDim);
-}
-
-void IndexTicks(FrameBuffer &fb, int x, int y, const int *bounds, int n) {
-  for (int i = 0; i < n; ++i) DrawVLine(fb, x + bounds[i], y, 5, kDim);
 }
 
 // Bipolar split well: two dim wells separated by a gap, filled outward from
@@ -173,33 +138,6 @@ void SplitWell(FrameBuffer &fb, int x, int y, int value) {
   DrawVLine(fb, x + kBarW - 1, y, 8, kMid);
 }
 
-// Chrome shared by every screen. Title bar is DIM fill, not bright: persistent
-// chrome must not be the loudest thing on screen.
-void TitleBar(FrameBuffer &fb, const char *left, const char *right) {
-  FillRect(fb, kTitleX, kTitleY, kTitleW, kTitleH, kDim);
-  TextLeft(fb, left, kTitleX + 8, kTitleY + 3, kPrimaryFont, kBright);
-  TextRight(fb, right, kTitleX + kTitleW - 8, kTitleY + 3, kPrimaryFont, kMid);
-}
-
-// Active tab is a bright UNDERLINE, not a fill: 3 px of horizontal run, and it
-// keeps the single bright fill on the screen reserved for alerts.
-void NavBar(FrameBuffer &fb, int active) {
-  static const char *kTabs[5] = {"SIGNAL", "MATRIX", "PATCH", "ARP", "SYS"};
-  DrawHLine(fb, kTitleX, kNavY, kTitleW, kDim);
-  for (int i = 0; i < 5; ++i) {
-    const int cx = kTitleX + i * 198 + 99;
-    const bool on = (i == active);
-    TextCenter(fb, kTabs[i], cx, kNavY + 12, kPrimaryFont, on ? kBright : kMid);
-    if (on) FillRect(fb, cx - 62, kNavY + 38, 124, 3, kBright);
-  }
-  DrawHLine(fb, kTitleX, kNavY + 44, kTitleW, kDim);
-}
-
-void EncoderLegend(FrameBuffer &fb, const char *s) {
-  TextLeft(fb, s, kTitleX, kNavY + 54, kSecondaryFont, kDim);
-}
-
-
 }  // namespace  (helpers above stay private)
 
 namespace mockup {
@@ -208,29 +146,9 @@ namespace mockup {
 // Screen 0 — signal flow
 // =======================================================================
 //
-// Mirrors nostromo/panel.cc's chrome exactly (same constants, same helpers) with
-// representative plot content in place of live engine state.
-//
-// Verified against `panel_shot` output: the title bar, module headers,
-// keyboard band and nav bar are pixel-identical (0 differing pixels); the plot
-// areas, mode lines and readouts differ because this draws fixed content. If
-// the chrome ever stops matching, one of the two has drifted.
-
-void PlotFrame(FrameBuffer &fb, int x, int y, int w, int h) {
-  DrawHLine(fb, x, y + (h * 17) / 100, w, kFaint);
-  DrawHLine(fb, x, y + h / 2, w, kDim);
-  DrawHLine(fb, x, y + (h * 83) / 100, w, kFaint);
-}
-
-// Bottom + left axis for one plot. The baseline differs per module and must
-// match that module's graticule set -- see panel.cc DrawPlotAxes.
-void PlotAxes(FrameBuffer &fb, int X, int module) {
-  const int px = X + kPlotDX, py = kModY + kPlotDY;
-  const int L = 14, T = 12;
-  const int B = (module == 1) ? kPlotH - 18 : kPlotH - 20;
-  DrawHLine(fb, px + L, py + B, (kPlotW - 14) - L, kDim);
-  DrawVLine(fb, px + L, py + T, B - T, kDim);
-}
+// Draws the same static-chrome descriptor the panel interprets, so the chrome
+// is identical by construction (one description, two consumers). The canned
+// plot content below stands in for the live engine state.
 
 void Readout(FrameBuffer &fb, int idx, const char *l0, const char *l1, Color c) {
   FillRect(fb, kPx0[idx] + kPlotDX, kReadoutY, kReadoutX - kPlotDX,
@@ -242,29 +160,12 @@ void Readout(FrameBuffer &fb, int idx, const char *l0, const char *l1, Color c) 
 }
 
 void DrawSignal(FrameBuffer &fb) {
-  static const char *kLabels[4] = {"OSCILLATOR", "FILTER", "ENVELOPE", "OUTPUT"};
-  static const char *kModes[4] = {"POLYBLEP SAW", "TPT SVF LOWPASS", "ADSR", nullptr};
-
-  TitleBar(fb, "SIGNAL FLOW", "VOICE 01/16  NOMINAL");
-
-  for (int m = 0; m < 4; ++m) {
-    const int X = kPx0[m];
-    Brackets(fb, X, kModY, kModW, kModH, kMid);
-    BlockTail(fb, X, kModY, kModW, kLabels[m]);
-    if (kModes[m]) {
-      TextLeft(fb, kModes[m], X + 6, kModY + 29, kSecondaryFont, kMid);
-    } else {
-      // Output mode tabs: active is inverse, the rest are mid text.
-      const int bx = X + 6, by = kModY + 26;
-      FillRect(fb, bx, by, 50, 18, kBright);
-      TextLeft(fb, "SCOPE", bx + 3, by + 2, kSecondaryFont, kBg);
-      TextLeft(fb, "CYCLE SPEC", bx + 56, by + 2, kSecondaryFont, kMid);
-    }
-    DrawHLine(fb, X, kModY + 50, kModW, kDim);
-    PlotFrame(fb, X + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH);
-    if (m == 1 || m == 2) PlotAxes(fb, X, m);
-    DrawHLine(fb, X, kModY + 298, kModW, kDim);
-  }
+  // Static chrome from the descriptor — byte-identical to the panel by
+  // construction (one description, two consumers). The DYN rects land in
+  // `dyn`; the canned plot content below uses the same plot origins.
+  spike::DynSlot dyn[nostromo::kNumSlots] = {};
+  spike::Interpret(nostromo::SignalScreen().data(), fb,
+                   nostromo::MakeCtx(dyn, nostromo::kNumSlots));
 
   const int gx0 = kPx0[0] + kPlotDX, gy = kModY + kPlotDY;
 
@@ -315,22 +216,8 @@ void DrawSignal(FrameBuffer &fb) {
     Readout(fb, 3, "NO SIGNAL", nullptr, kMid);
   }
 
-  // Keyboard.
-  DrawHLine(fb, kTitleX, kKeyY, kTitleW, kDim);
-  static const char *kKeys[13] = {"C", "C#", "D", "D#", "E", "F", "F#",
-                                  "G", "G#", "A", "A#", "B", "C"};
-  static const bool kBlack[13] = {false, true,  false, true,  false, false, true,
-                                  false, true,  false, true,  false, false};
-  for (int i = 0; i < 13; ++i) {
-    const int X = kTitleX + i * kKeyW;
-    if (kBlack[i]) FillRect(fb, X, kKeyY + 1, kKeyW, 54, kDim);
-    TextCenter(fb, kKeys[i], X + kKeyW / 2, kKeyY + 19, kPrimaryFont,
-               kBlack[i] ? kBright : kMid);
-  }
-  DrawHLine(fb, kTitleX, kKeyY + 56, kTitleW, kDim);
-
-  NavBar(fb, 0);
-  EncoderLegend(fb, "ENC1 CUTOFF   ENC2 RES   ENC3 ENV AMT   ENC4 LEVEL");
+  // Mode buttons (canned SCOPE active) — the descriptor reserved the rect.
+  nostromo::DrawModeButtons(fb, dyn[nostromo::kSlotMode].rect, 0);
 }
 
 // =======================================================================
@@ -346,8 +233,6 @@ void DrawMatrix(FrameBuffer &fb) {
   constexpr int kMk = 12, kSrc = 90, kCol = 62, kRowH = 32, kRows = 11;
   constexpr int kCursorRow = 3, kCursorCol = 1;
 
-  static const char *kDest[8] = {"PITCH", "CUTOF", "RESO",  "LEVEL",
-                                 "PAN",   "PWM",   "FMAMT", "LFO2R"};
   struct Row { const char *src; int v[8]; };  // -128 == unassigned
   static const Row kRowData[kRows] = {
       {"LFO1",   {  12, -128, -128, -128, -128,   40, -128, -128}},
@@ -363,18 +248,10 @@ void DrawMatrix(FrameBuffer &fb) {
       {"RAND",   {-128, -128, -128, -128,  -34,   -9, -128, -128}},
   };
 
-  TitleBar(fb, "MOD MATRIX", "15/32 SLOTS  PAGE 1/2  VOICE 01");
-
-  int bounds[8];
-  for (int i = 0; i < 8; ++i) bounds[i] = kMk + kSrc + i * kCol;
-
-  Brackets(fb, kLeftX, kBlockY, kLeftW, kBlockH, kMid);
-  SegmentedHeader(fb, kLeftX, kBlockY, kLeftW, bounds, 8);
-  TextLeft(fb, "SOURCE", kLeftX + kMk, kBlockY + 1, kPrimaryFont, kBright);
-  for (int i = 0; i < 8; ++i)
-    TextRight(fb, kDest[i], kLeftX + bounds[i] + kCol - 6, kBlockY + 1,
-              kPrimaryFont, kBright);
-  IndexTicks(fb, kLeftX, kBlockY + 24, bounds, 8);
+  // Static chrome (frames, headers, labels) from the descriptor; the cell
+  // grid and detail values below are the canned DYN content.
+  spike::Interpret(nostromo::MatrixScreen().data(), fb,
+                   nostromo::MakeCtx(nullptr, 0));
 
   const int ry = kBlockY + 31;
   for (int r = 0; r < kRows; ++r) {
@@ -406,45 +283,19 @@ void DrawMatrix(FrameBuffer &fb) {
     }
   }
 
-  // Detail panel. Header is block+tail: a single label above a panel.
-  Brackets(fb, kRightX, kBlockY, kRightW, kBlockH, kMid);
+  // Detail panel content: the slot title and its values. The frame, field
+  // labels and separators are descriptor chrome.
   BlockTail(fb, kRightX, kBlockY, kRightW, "SLOT 07");
-  static const char *kK[4] = {"SOURCE", "DEST", "CURVE", "VIA"};
   static const char *kV[4] = {"ENV2", "CUTOF", "LIN", "MODWHL"};
-  for (int i = 0; i < 4; ++i) {
-    const int y = kBlockY + 34 + i * 26;
-    TextLeft(fb, kK[i], kRightX + 6, y, kPrimaryFont, kMid);
-    TextLeft(fb, kV[i], kRightX + 102, y, kPrimaryFont, kBright);
-  }
-  DrawHLine(fb, kRightX, kBlockY + 146, kRightW, kDim);
-  TextLeft(fb, "AMOUNT", kRightX + 6, kBlockY + 158, kPrimaryFont, kMid);
+  for (int i = 0; i < 4; ++i)
+    TextLeft(fb, kV[i], kRightX + 102, kBlockY + 34 + i * 26, kPrimaryFont,
+             kBright);
   TextLeft(fb, "+64", kRightX + 102, kBlockY + 158, kPrimaryFont, kBright);
-
-  // The same split well at 7x scale: the cell bar teaches you to read this.
+  // The scaled split well's fill (its frame + limits + axis labels are chrome).
   {
     const int bx = kRightX + 8, by = kBlockY + 192, half = 165;
-    FillRect(fb, bx + 4, by, half, 14, kDim);
-    FillRect(fb, bx + half + 10, by, half, 14, kDim);
     FillRect(fb, bx + half + 10, by, 107, 14, kBright);
-    DrawVLine(fb, bx + 2, by - 6, 26, kMid);
-    DrawHLine(fb, bx + 2, by - 6, 6, kMid);
-    DrawHLine(fb, bx + 2, by + 19, 6, kMid);
-    DrawVLine(fb, bx + 2 * half + 12, by - 6, 26, kMid);
-    DrawHLine(fb, bx + 2 * half + 7, by - 6, 6, kMid);
-    DrawHLine(fb, bx + 2 * half + 7, by + 19, 6, kMid);
-    TextLeft(fb, "-99", bx, by + 24, kSecondaryFont, kMid);
-    TextLeft(fb, "0", bx + half + 8, by + 24, kSecondaryFont, kMid);
-    TextRight(fb, "+99", bx + 2 * half + 14, by + 24, kSecondaryFont, kMid);
   }
-  DrawHLine(fb, kRightX, kBlockY + 250, kRightW, kDim);
-  TextLeft(fb, "DEPTH SCALED BY MODWHL", kRightX + 6, kBlockY + 260,
-           kSecondaryFont, kMid);
-  TextLeft(fb, "BIPOLAR  UNSMOOTHED", kRightX + 6, kBlockY + 278,
-           kSecondaryFont, kMid);
-
-  NavBar(fb, 1);
-  EncoderLegend(fb,
-                "ENC1 AMOUNT   ENC2 CURVE   ENC3 VIA   ENC4 SLOT   PUSH CLEAR");
 }
 
 // =======================================================================
@@ -478,36 +329,14 @@ void DrawPatch(FrameBuffer &fb) {
       {"013", "RAIN NOISE",   "TEXTURE", 3, false},
   };
 
-  TitleBar(fb, "PATCHES", "128 IN BANK  VOICE 01/16");
-
-  // Filter strip: segmented by filter group, active value is bright TEXT, not
-  // a fill -- level 3, not level 1.
-  {
-    const int y = 50;
-    static const int fb2[2] = {230, 558};
-    SegmentedHeader(fb, kTitleX, y, kTitleW, fb2, 2);
-    TextLeft(fb, "BANK", kTitleX + 6, y + 1, kPrimaryFont, kMid);
-    TextLeft(fb, "A", kTitleX + 76, y + 1, kPrimaryFont, kBright);
-    TextLeft(fb, "CATEGORY", kTitleX + 244, y + 1, kPrimaryFont, kMid);
-    TextLeft(fb, "ALL", kTitleX + 344, y + 1, kPrimaryFont, kBright);
-    TextLeft(fb, "SORT", kTitleX + 572, y + 1, kPrimaryFont, kMid);
-    TextLeft(fb, "NUMBER", kTitleX + 642, y + 1, kPrimaryFont, kBright);
-  }
+  // Static chrome (title, filter strip, frames, column headers) from the
+  // descriptor; the list rows, position bar and detail values are DYN content.
+  spike::Interpret(nostromo::PatchScreen().data(), fb,
+                   nostromo::MakeCtx(nullptr, 0));
 
   constexpr int kLw = 602;
   const int cx[5] = {kMk, kMk + kNo, kMk + kNo + kNm, kMk + kNo + kNm + kCt,
                      kMk + kNo + kNm + kCt + kMd};
-  const int bounds[4] = {cx[1], cx[2], cx[3], cx[4]};
-
-  Brackets(fb, kLeftX, kBlockY, kLw, kBlockH, kMid);
-  SegmentedHeader(fb, kLeftX, kBlockY, kLw, bounds, 4);
-  TextRight(fb, "NO", kLeftX + cx[1] - 12, kBlockY + 1, kPrimaryFont, kBright);
-  TextLeft(fb, "NAME", kLeftX + cx[1], kBlockY + 1, kPrimaryFont, kBright);
-  TextLeft(fb, "CATEGORY", kLeftX + cx[2], kBlockY + 1, kPrimaryFont, kBright);
-  TextRight(fb, "MOD", kLeftX + cx[4] - 12, kBlockY + 1, kPrimaryFont, kBright);
-  TextCenter(fb, "F", kLeftX + cx[4] + kFg / 2, kBlockY + 1, kPrimaryFont,
-             kBright);
-  IndexTicks(fb, kLeftX, kBlockY + 24, bounds, 4);
 
   const int ry = kBlockY + 31;
   for (int r = 0; r < kRows; ++r) {
@@ -540,38 +369,25 @@ void DrawPatch(FrameBuffer &fb) {
     TextLeft(fb, "001-013 OF 128", kLeftX + 456, y - 2, kSecondaryFont, kMid);
   }
 
-  Brackets(fb, kRightX, kBlockY, kRightW, kBlockH, kMid);
+  // Detail panel content: the under-cursor patch name + field values + loaded
+  // patch + the edited alert. The frame, field labels and separators are
+  // descriptor chrome.
   BlockTail(fb, kRightX, kBlockY, kRightW, "A11 ACID LINE");
   TextLeft(fb, "UNDER CURSOR - NOT LOADED", kRightX + 6, kBlockY + 28,
            kSecondaryFont, kMid);
-  static const char *kK[8] = {"CATEGORY", "AUTHOR", "VOICES", "MOD SLOTS",
-                              "OSC",      "FILTER", "ENV",    "FX"};
   static const char *kV[8] = {"BASS",   "DIZAN",    "4",          "4/32",
                               "SQUARE", "LPF 18dB", "FAST DECAY", "DRIVE"};
-  for (int i = 0; i < 4; ++i) {
-    const int y = kBlockY + 52 + i * 26;
-    TextLeft(fb, kK[i], kRightX + 6, y, kPrimaryFont, kMid);
-    TextLeft(fb, kV[i], kRightX + 116, y, kPrimaryFont, kBright);
-  }
-  DrawHLine(fb, kRightX, kBlockY + 162, kRightW, kDim);
-  for (int i = 4; i < 8; ++i) {
-    const int y = kBlockY + 174 + (i - 4) * 26;
-    TextLeft(fb, kK[i], kRightX + 6, y, kPrimaryFont, kMid);
-    TextLeft(fb, kV[i], kRightX + 116, y, kPrimaryFont, kBright);
-  }
-  DrawHLine(fb, kRightX, kBlockY + 284, kRightW, kDim);
-  TextLeft(fb, "LOADED", kRightX + 6, kBlockY + 296, kPrimaryFont, kMid);
+  for (int i = 0; i < 4; ++i)
+    TextLeft(fb, kV[i], kRightX + 116, kBlockY + 52 + i * 26, kPrimaryFont,
+             kBright);
+  for (int i = 4; i < 8; ++i)
+    TextLeft(fb, kV[i], kRightX + 116, kBlockY + 174 + (i - 4) * 26,
+             kPrimaryFont, kBright);
   TextLeft(fb, "A07 DUST MOTOR", kRightX + 136, kBlockY + 296, kPrimaryFont,
            kBright);
-
-  // The one bright fill on the screen.
   FillRect(fb, kRightX, kBlockY + 326, kRightW, 26, kBright);
   TextLeft(fb, "EDITED - NOT SAVED", kRightX + 6, kBlockY + 329, kPrimaryFont,
            kBg);
-
-  NavBar(fb, 2);
-  EncoderLegend(
-      fb, "ENC1 SCROLL   ENC2 BANK   ENC3 CATEGORY   ENC4 TARGET SLOT   PUSH LOAD");
 }
 
 // =======================================================================
@@ -584,7 +400,10 @@ void DrawPatch(FrameBuffer &fb) {
 // and one inverse cell.
 
 void DrawSave(FrameBuffer &fb) {
-  TitleBar(fb, "SAVE PATCH", "BANK A");
+  // Static chrome (title, field frames, group rules, target labels, action
+  // row) from the descriptor; the cells, ribbon, values and occupancy are DYN.
+  spike::Interpret(nostromo::SaveScreen().data(), fb,
+                   nostromo::MakeCtx(nullptr, 0));
 
   // Name field: per-cell underline rather than a box, so it reads as sixteen
   // fixed positions without sixteen vertical borders.
@@ -594,7 +413,6 @@ void DrawSave(FrameBuffer &fb) {
     const int x0 = (kFrameW - total) / 2, y = 92;
     static const char *kName = "DUST MOTOR MK2  ";
     constexpr int kCursor = 11;
-    BlockTail(fb, kTitleX, 56, kTitleW, "NAME");
     for (int i = 0; i < kCells; ++i) {
       const int x = x0 + i * (kCw + kGap);
       const bool cur = (i == kCursor);
@@ -614,7 +432,6 @@ void DrawSave(FrameBuffer &fb) {
     static const char *kSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_. ";
     constexpr int kSel = 12;  // 'M'
     const int x0 = 32, y = 200;
-    BlockTail(fb, kTitleX, 164, kTitleW, "CHARACTER");
     for (int i = 0; i < kN; ++i) {
       const int x = x0 + i * (kCw + kGap);
       const bool on = (i == kSel);
@@ -622,26 +439,13 @@ void DrawSave(FrameBuffer &fb) {
       DrawGlyphRun(fb, x + (kCw - kPrimaryFont.w) / 2, y + 4, &kSet[i], 1,
                    kPrimaryFont, on ? kBg : kMid, 0);
     }
-    // Group rules: letters / digits / symbols.
-    DrawHLine(fb, x0, y + kCh + 6, 26 * (kCw + kGap) - kGap, kDim);
-    DrawHLine(fb, x0 + 26 * (kCw + kGap), y + kCh + 6, 10 * (kCw + kGap) - kGap,
-              kDim);
-    DrawHLine(fb, x0 + 36 * (kCw + kGap), y + kCh + 6, 4 * (kCw + kGap) - kGap,
-              kDim);
-    TextLeft(fb, "A-Z", x0, y + kCh + 12, kSecondaryFont, kMid);
-    TextLeft(fb, "0-9", x0 + 26 * (kCw + kGap), y + kCh + 12, kSecondaryFont,
-             kMid);
-    TextLeft(fb, "SYMBOL", x0 + 36 * (kCw + kGap), y + kCh + 12, kSecondaryFont,
-             kMid);
   }
 
-  // Target.
+  // Target values + overwrite warning (the frame and SLOT/CURRENTLY labels
+  // are descriptor chrome).
   {
     const int y = 284;
-    BlockTail(fb, kTitleX, y, kTitleW, "TARGET");
-    TextLeft(fb, "SLOT", kTitleX + 6, y + 34, kPrimaryFont, kMid);
     TextLeft(fb, "A07", kTitleX + 156, y + 34, kPrimaryFont, kBright);
-    TextLeft(fb, "CURRENTLY", kTitleX + 6, y + 60, kPrimaryFont, kMid);
     TextLeft(fb, "DUST MOTOR", kTitleX + 156, y + 60, kPrimaryFont, kBright);
     FillRect(fb, 528, y + 30, 480, 26, kBright);  // the one bright fill
     TextLeft(fb, "SLOT OCCUPIED - WILL OVERWRITE", 536, y + 33, kPrimaryFont,
@@ -672,20 +476,6 @@ void DrawSave(FrameBuffer &fb) {
     DrawVLine(fb, tx - 2, by - 6, 4, kBright);
     DrawVLine(fb, tx + 6, by - 6, 4, kBright);
   }
-
-  // Action row replaces the nav bar: this is modal.
-  DrawHLine(fb, kTitleX, kNavY, kTitleW, kDim);
-  static const char *kActs[3] = {"CANCEL", "SAVE AS NEW", "OVERWRITE"};
-  for (int i = 0; i < 3; ++i) {
-    const int cx = kTitleX + i * 331 + 165;
-    TextCenter(fb, kActs[i], cx, kNavY + 12, kPrimaryFont,
-               i == 2 ? kBright : kMid);
-    if (i == 2) FillRect(fb, cx - 70, kNavY + 38, 140, 3, kBright);
-  }
-  DrawHLine(fb, kTitleX, kNavY + 44, kTitleW, kDim);
-  EncoderLegend(fb,
-                "ENC1 POSITION   ENC2 CHARACTER   ENC3 CHAR SET   ENC4 TARGET "
-                "SLOT   PUSH CONFIRM");
 }
 
 }  // namespace mockup
@@ -703,7 +493,7 @@ struct Screen {
 // point: they catch a primitive or atlas change silently altering the mockups,
 // and the mockups only have value while they predict the panel.
 constexpr Screen kScreens[4] = {
-    {"mockup_signal.png", mockup::DrawSignal, 0x808160E8u},
+    {"mockup_signal.png", mockup::DrawSignal, 0x1FC013D8u},
     {"mockup_matrix.png", mockup::DrawMatrix, 0x2987002Eu},
     {"mockup_patch.png", mockup::DrawPatch, 0xEC738A07u},
     {"mockup_save.png", mockup::DrawSave, 0x64E4DF78u},

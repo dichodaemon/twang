@@ -288,8 +288,10 @@ struct array pads every entry to the size of its largest member.
 | `0x06` | `DYN` | `slot:u8 x:u16 y:u16 w:u16 h:u16` | 10 B |
 | `0x00` | `END` | — | 1 B |
 
-`c` is an **index into the four-entry palette**, not a colour value. One
-byte instead of two, and retheming becomes free.
+`c` is an **index into the five-entry palette** (`kBg`/`kFaint`/`kDim`/
+`kMid`/`kBright` — see `nostromo/palette.h`), not a colour value. One byte
+instead of two, and retheming becomes free. (The "four-entry" wording this
+document carried earlier predates the addition of `kFaint`.)
 
 ### 5.3 CALL is where the saving is
 

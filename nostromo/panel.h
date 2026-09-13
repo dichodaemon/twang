@@ -11,6 +11,7 @@
 
 #include <cstdint>
 
+#include "descriptor.h"
 #include "fb.h"
 
 namespace nostromo {
@@ -34,13 +35,10 @@ struct PointerEvent {
 /// @brief A dynamic region: a rect plus a draw function and invalidation flag.
 ///
 /// "Chrome says where; C says what." The draw function renders the live
-/// content into the region; it runs only while `dirty` is set.
-struct DynRegion {
-  Rect rect;                                        ///< Region bounds.
-  void (*draw)(FrameBuffer &fb, const Rect &r, void *state);  ///< Draw hook.
-  void *state;                                      ///< Opaque state (Panel*).
-  bool dirty;                                       ///< Needs a redraw.
-};
+/// content into the region; it runs only while `dirty` is set. This is the
+/// descriptor interpreter's DYN slot (§5.4), supplied with the rect by the
+/// screen descriptor and the hook/state by the panel.
+using DynRegion = spike::DynSlot;
 
 /// @brief Per-plot column trace (previous vertical span), for column updates.
 struct TraceState {

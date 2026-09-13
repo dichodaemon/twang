@@ -43,11 +43,11 @@ target_include_directories(scope PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller)
 
 # ---- spike: minimal RGB565 renderer (framebuffer + font + damage + PNG) ----
 # General and HW-agnostic: no project vocabulary, no engine/scope dependency.
-add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc spike/png.cc)
+add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc spike/png.cc spike/descriptor.cc)
 target_include_directories(spike PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/spike)
 
 # ---- nostromo: this synth's GUI (panel + vocabulary), built on spike ----
-add_library(nostromo STATIC nostromo/panel.cc)
+add_library(nostromo STATIC nostromo/panel.cc nostromo/screens.cc)
 target_include_directories(nostromo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
 target_link_libraries(nostromo PUBLIC spike engine scope)
 
@@ -95,7 +95,7 @@ target_link_libraries(panel_shot PRIVATE nostromo)
 # match the panel. `--check` verifies the golden hashes.
 add_executable(mockup_screens tools/mockup_screens.cc)
 target_include_directories(mockup_screens PRIVATE tools ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
-target_link_libraries(mockup_screens PRIVATE spike)
+target_link_libraries(mockup_screens PRIVATE nostromo)
 
 # ---- Tests ----
 enable_testing()

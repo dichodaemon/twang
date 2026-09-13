@@ -154,11 +154,12 @@ already left-aligned), and `--check` round-trips against a reference.
 
 ## 3. Palette
 
-Four entries. Green phosphor.
+Five entries. Green phosphor.
 
 | Role | Value |
 |---|---|
 | Background | `#050A06` |
+| Faint | `#0D3520` |
 | Dim | `#1B6238` |
 | Mid | `#3FBF78` |
 | Bright | `#7CFFB0` |
@@ -298,8 +299,10 @@ Three cell states must stay distinct:
 
 | File | State |
 |---|---|
-| `nostromo/panel.{h,cc}` | Signal-flow screen, ~1,100 lines. Live, stateful, input-driven. |
-| `tools/mockup_screens.cc` | Matrix, patch, save. Fixed content, renders to PNG. |
+| `spike/descriptor.{h,cc}` | The §5.2 descriptor interpreter (RECT/HLINE/VLINE/TEXT/CALL/DYN/END). |
+| `nostromo/screens.{h,cc}` | The four screens as static-chrome descriptors + shared DYN hooks (`DrawModeButtons`). |
+| `nostromo/panel.{h,cc}` | Signal-flow screen, live and stateful. Chrome is descriptor-driven. |
+| `tools/mockup_screens.cc` | All four screens: chrome from the shared descriptors, canned DYN content. |
 | `tools/panel_shot.cc` | Renders a live `Panel` frame to PNG. |
 | `assets/fonts/ter-u{20,14}n.bdf` | The two atlases, OFL-1.1. |
 | `tools/bdf_to_c.py` | BDF → C atlas, with `--check` round-trip. |
@@ -385,6 +388,27 @@ The same economy appears at three scales, which is worth seeing as one thing:
 | Within a screen | `Brackets` is 292 B of code called from 6 sites | `CALL` a ~80 B template, 7 B per call |
 | Across screens | ~1,700 B of emitted code each | ~900 B of data each, one interpreter |
 | Mockup vs panel | The whole layout, written twice | One blob, two consumers |
+
+**Measured 2026-09-12** — the descriptor representation is now implemented
+(`spike/descriptor.cc` + `nostromo/screens.cc`), not a proposal. All four
+screens render through it byte-identically (the golden hashes in
+`mockup_screens.cc` are unchanged except the signal screen's, which changed
+because the mockup's mode buttons were reconciled to the panel's):
+
+| Component | Size |
+|---|---:|
+| Interpreter (`.text`, `-Os -ffunction-sections`) | 652 B |
+| Signal descriptor | 1,186 B |
+| Matrix descriptor | 888 B |
+| Patch descriptor | 766 B |
+| Save descriptor | 417 B |
+| **Four descriptors** | **3,257 B** |
+
+The interpreter's 652 B sits well under the 2-4 KiB estimate in
+`engine-recommendations.md` §8 (conservative by 3-6x). The four descriptors
+total 3.2 KiB; the signal screen's 1,186 B lands inside §5.3's 900-1,200 B
+prediction. The descriptor is emitted by a C++ encoder for now; the `.rodata`
+authoring path (`twang-doa`) will replace it with build-time data.
 
 ---
 
