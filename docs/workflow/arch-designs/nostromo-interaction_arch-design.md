@@ -46,9 +46,9 @@ exists to keep a prototype change out of the source:
 - **Pages declare ordered parameter lists, not packed groups.** Grouping into columns is
   computed from $E$ (§7.4), so changing $E$ re-groups every page without re-authoring one.
 - **The physical surface is data.** A `SurfaceProfile` maps physical inputs to logical
-  controls (§7.7), so a new prototype is a table rather than a code change.
+  controls (§7.9), so a new prototype is a table rather than a code change.
 - **Feel is runtime-tunable.** Detent scaling, acceleration threshold, long-press duration and
-  the fine divisor live in a mutable `FeelProfile` edited from the CONF page (§7.8). A feel
+  the fine divisor live in a mutable `FeelProfile` edited from the CONF page (§7.10). A feel
   experiment must not cost a rebuild and a reflash.
 
 This is the one place where this document deliberately departs from the study's framing: §4.4
@@ -108,7 +108,7 @@ the target firmware. It has no transport dependency.
 
 - **Driver to interaction**: `void InteractionOnInput(const InputEvent &ev)`.
 - **Interaction to engine**: the existing `EngineSetParam` / `EngineSetParamDisp` /
-  `EngineSetRoute` surface. No new engine entry points, with one exception in §7.6.
+  `EngineSetRoute` surface. No new engine entry points, with one exception in §7.8.
 - **Interaction to panel**: `MarkDirty(Panel *, SlotIdx)`. Never draws, never writes
   invalidation state directly.
 - **Panel to interaction**: DYN hooks read `NavState` and the resolved bindings as their
@@ -166,7 +166,7 @@ appearing as a number anywhere outside `geom` is a defect.
 **Acceleration is a per-parameter field, not a global constant.** Three distinct policies are
 already required — none on cursor traversal, capped with a zero notch on modulation amounts,
 and a default for ordinary parameters — so a single input-layer constant cannot express the
-design. It belongs in `ParamDesc` beside range and formatter (§7.6).
+design. It belongs in `ParamDesc` beside range and formatter (§7.8).
 
 **Column assignments are data, not code.** `PageTable` is a table so that pages fill in as the
 engine's parameter surface grows, without touching this component.
@@ -178,7 +178,7 @@ the page's hot set and stays the first group at any $E$ — which expresses the 
 
 **Feel is state, not constants.** Anything judged by hand is tunable at runtime and editable
 from the CONF page. Anything that changes the shape of the design is compile-time. That line
-is the line between §7.8 and §7.1.
+is the line between §7.10 and §7.1.
 
 **One owner for invalidation.** This layer could set `DynSlot::dirty` itself and save a call,
 but the flag is one of three things `MarkDirty` updates together, and a caller that knows only
@@ -192,8 +192,9 @@ The layer is a singleton initialised once and never destroyed.
 
 1. **Init** — `InteractionInit(DynSlot *slots, int n_slots, const SurfaceProfile &surface)`.
    Binds the slot array and the surface, loads `g_feel` from persisted settings or its
-   defaults, zeroes `NavState` to part 0, subject `kFilt`, group 0, mode `kEdit`, and marks
-   all slots dirty. Reports once if `surface.n_encoders < geom::kColumns`.
+   defaults, zeroes `NavState` to part 0, subject `kOut`, `prev_subject` `kFilt`, group 0,
+   mode `kEdit`, and marks all slots dirty. `kOut` is the power-on page for the same reason it
+   has a button: it is what the instrument shows when nobody is editing. Reports once if `surface.n_encoders < geom::kColumns`.
 2. **Steady state** — events arrive, gestures are recognised, bindings resolve, the engine is
    written, slots are marked. No allocation, no blocking.
 3. **Mode transitions** — entering `kModArm` (MOD pressed) or `kModView` (MOD tapped) calls
@@ -320,6 +321,7 @@ enum class Control : std::uint8_t {
   kMod,               ///< momentary (arm) and tap (view)
   kPerf,              ///< latching, reserved
   kGroup,             ///< momentary, column-group cycle
+  kOut,               ///< momentary, jump to kOut and back
   kCount,
 };
 
@@ -340,7 +342,7 @@ enum class Gesture : std::uint8_t {
 };
 ```
 
-Press timing is not a constant here; it is `g_feel.long_press_ms` (§7.8), starting at 500 ms.
+Press timing is not a constant here; it is `g_feel.long_press_ms` (§7.10), starting at 500 ms.
 
 ### 7.3. Navigation state
 
@@ -348,11 +350,12 @@ Press timing is not a constant here; it is `g_feel.long_press_ms` (§7.8), start
 enum class SubjectId : std::uint8_t {
   kPart = 0,                       ///< part-level settings
   kOsc1, kOsc2, kOsc3, kOsc4,
-  kMix, kFilt, kAmp,
+  kFilt, kAmp,
   kEnv1, kEnv2, kEnv3,
   kLfo1, kLfo2, kLfo3,
-  kMod, kFx,
-  kPatch, kConf,                   ///< globals, below the pane rule
+  kMod,
+  kOut, kFx,                       ///< globals, below the pane rule
+  kPatch, kConf,
   kCount,
 };
 
@@ -371,6 +374,7 @@ struct NavState {
   std::int8_t  focus_col;             ///< focused column, -1 = none
   ViewMode     mode;
   ModSourceId  armed_source;          ///< persists between kModArm entries
+  SubjectId    prev_subject;          ///< return target for the OUT button only
 };
 ```
 
@@ -380,9 +384,33 @@ not of the navigation as a whole.
 
 ### 7.4. Pages
 
+A column does not always drive an engine parameter. The MOD page's columns are fields of a
+route, the PATCH page's are view controls, and the CONF page's are `FeelProfile` fields. A
+column is therefore a tagged reference, not a `ParamId`:
+
 ```cpp
-inline constexpr ParamId kParamPending = ParamId::kCount;             ///< declared, engine lacks it
-inline constexpr ParamId kParamNone    = static_cast<ParamId>(0xFF);  ///< past the end of a group
+enum class ColumnKind : std::uint8_t {
+  kNone = 0,     ///< past the end of a partial final group
+  kParam,        ///< an engine parameter of the current subject
+  kPending,      ///< declared, but ParamId does not define it yet
+  kRouteField,   ///< a field of the item the page's item axis selects
+  kViewCtl,      ///< a browser or settings control
+};
+
+enum class RouteField : std::uint8_t { kSource, kDest, kAmount, kCurve, kEnable };
+enum class ViewCtl    : std::uint8_t {
+  kCategory, kSort, kFavourite, kAction,        // PATCH
+  kDetents, kAccelMax, kAccelThresh, kLongPress, kFineDiv,  // CONF
+};
+
+struct ColumnSpec {
+  ColumnKind kind;
+  union {
+    ParamId    param;
+    RouteField field;
+    ViewCtl    ctl;
+  };
+};
 
 enum class ItemAxis : std::uint8_t {
   kNone = 0,   ///< NAV2 idle
@@ -392,39 +420,97 @@ enum class ItemAxis : std::uint8_t {
 };
 
 struct PageDesc {
-  SubjectId      subject;
-  const char    *label;     ///< pane text; see the length invariant in §9
-  const ParamId *params;    ///< ORDERED. Head of the list is the hot set.
-  std::uint8_t   n_params;  ///< grouping is derived, not authored
-  ItemAxis       item_axis;
-  std::int8_t    dyn_slot;  ///< plot slot, or -1
+  SubjectId         subject;
+  const char       *label;    ///< pane text; see the length invariant in §9
+  const ColumnSpec *cols;     ///< ORDERED. Head of the list is the hot set.
+  std::uint8_t      n_cols;   ///< grouping is derived, not authored
+  ItemAxis          item_axis;
+  std::int8_t       dyn_slot; ///< plot slot, or -1
 };
 
-/// Groups are ceil(n/E) slices of `params`. Changing geom::kColumns re-groups
+/// Groups are ceil(n/E) slices of `cols`. Changing geom::kColumns re-groups
 /// every page; no page is re-authored.
 constexpr int GroupCount(const PageDesc &p) {
-  return (p.n_params + geom::kColumns - 1) / geom::kColumns;
+  return (p.n_cols + geom::kColumns - 1) / geom::kColumns;
 }
 
-constexpr ParamId ColumnParam(const PageDesc &p, int group, int col) {
+constexpr ColumnSpec Column(const PageDesc &p, int group, int col) {
   const int i = group * geom::kColumns + col;
-  return i < p.n_params ? p.params[i] : kParamNone;
+  return i < p.n_cols ? p.cols[i] : ColumnSpec{ColumnKind::kNone, {}};
 }
 
 extern const PageDesc g_pages[static_cast<int>(SubjectId::kCount)];
 ```
 
-Two sentinels, rendered differently. `kParamPending` marks a column whose parameter the engine
-does not yet define: header dim, value empty, input ignored. It keeps the page taxonomy
-complete and honest while `ParamId` grows from its current 11 entries toward the target
-surface. `kParamNone` marks a column past the end of a partial final group: nothing drawn, the
-encoder inert.
+`kPending` renders its header dim with an empty value and ignores input. It keeps the page
+taxonomy complete and honest while `ParamId` grows from its current 11 entries. `kNone` is a
+column past the end of a partial final group: nothing drawn, encoder inert.
 
-Ordering is the page author's only control over packing, and it is enough. Put the parameters
+Ordering is the page author's only control over packing, and it is enough. Put the columns
 that carry most of the editing first and they occupy group 0 at $E = 5$; at $E = 6$ they
 occupy group 0 with a sixth alongside. Nothing is re-authored either way.
 
-### 7.5. Bindings
+### 7.5. `ParamId` names a kind, not an instance
+
+Under product addressing (study §4.1) a parameter is $(p, m, i, k)$. The part comes from
+`NavState::part` and the instance from `SubjectId` — `kOsc3` *is* $i = 3$ — so `ParamId` needs
+to carry only $m$ and $k$: the kind of parameter within a module. `kOscCoarse`, not
+`kOsc3Coarse`.
+
+This is a decision, and it has a large consequence. Per-instance enumerators would make
+`ParamId` roughly $4 \times 7 + 3 \times 6 + 3 \times 7 + \ldots \approx 130$ entries and
+would duplicate every oscillator page four times in `g_pages`. Per-kind makes it about 39, and
+the four oscillator pages share one column list. It also means the engine's parameter API
+needs an instance argument it does not currently have — `EngineSetParam(part, instance, id,
+value)` — which is engine work this design depends on and does not perform.
+
+### 7.6. The page table
+
+Ordered by pane position. `∗` marks a column whose `ParamId` exists today; everything else is
+`kPending`. Group boundaries are derived at $E = 5$ and shown only to make the packing visible.
+
+| Subject | Label | Columns, in order (group 0 ‖ group 1) | Item axis | Plot |
+|---|---|---|---|---|
+| `kPart` | `PART` | chan, voices, transpose, glide, mono/poly ‖ bend range | — | — |
+| `kOsc1..4` | `OSC1`..`OSC4` | wave, coarse∗, fine, level, shape ‖ pan, sync | — | wave |
+| `kFilt` | `FILT` | cutoff∗, resonance∗, env amt, drive∗, keytrack∗ ‖ mode | — | response |
+| `kAmp` | `AMP` | level∗, pan, velo sens, send A, send B | — | — |
+| `kEnv1..3` | `ENV1`..`ENV3` | A∗, D∗, S∗, R∗, curve ‖ velo sens | — | envelope |
+| `kLfo1..3` | `LFO1`..`LFO3` | rate, shape, depth, sync, fade ‖ phase, retrig | — | shape |
+| `kMod` | `MOD` | source, dest, amount, curve, enable | slots | — |
+| `kOut` | `OUT` | source∗, view∗, timebase, scale, trigger | — | scope / cycle / spectrum |
+| `kFx` | `FX` | *pending* | — | — |
+| `kPatch` | `PATCH` | category, sort, favourite, action | patches | — |
+| `kConf` | `CONF` | detents/rev, accel max, accel thresh, long press, fine div | — | — |
+
+Three pages are buildable today: `kFilt` (four of six columns exist), `kEnv1..3` (four of six),
+and `kOut`, whose machinery — `PlotOut`, the FFT, `TraceState`, `ColumnUpdate` and the
+scope/cycle/spectrum toggle — is the most complete in `panel.cc`. They are the natural first
+screens.
+
+**`kOut` is the visual keystone, and it is global.** The output section is where the user sees
+what the engine is actually doing, so it is the page the instrument is left sitting on and the
+one glanced at mid-edit. It monitors the master bus (`output-stage_arch-design.md`), but its
+first column selects the source — master, or one part — so scoping a single part while
+dialling it needs no mode and no second page.
+
+Its plot is 900 × 446 like every other page's. The keystone quality comes from availability,
+not size: a larger plot would break the band registration that makes switching pages cheap to
+read.
+
+**`kMix` is gone, folded into `kAmp`.** Level, pan, velo sens, send A and send B is one clean
+group, and the two subjects were never distinct — both answer "how much of this part, and
+where." That keeps `SubjectId::kCount` at 18 against `geom::kPaneRows`, which `kOut` would
+otherwise have pushed to 19 and failed the build.
+
+**Ordering rationale, where it is not obvious.** Filter puts drive ahead of keytrack because
+drive is dialled while listening and keytrack is set once per patch. Filter mode is in group 1
+for the same reason — discrete, set early, rarely revisited — even though it is arguably more
+fundamental than anything in group 0. Oscillator pan and sync sit in group 1 on the same
+test. Envelope curve is in group 0 rather than velo sens because curve changes the shape you
+are looking at in the plot directly above it.
+
+### 7.7. Bindings
 
 ```cpp
 enum class BindKind : std::uint8_t {
@@ -446,7 +532,7 @@ struct Binding {
 Binding ResolveBinding(const NavState &nav, Control c);
 ```
 
-### 7.6. Change required in `engine/params.h`
+### 7.8. Change required in `engine/params.h`
 
 Acceleration is a property of the parameter, so `ParamDesc` gains two fields:
 
@@ -459,10 +545,10 @@ struct ParamDesc {
 ```
 
 This is the only change this design imposes outside `nostromo/`. `accel_max` defaults to
-`FeelProfile::accel_max_default` (§7.8); `zero_notch` is true for bipolar amounts, whose zero
+`FeelProfile::accel_max_default` (§7.10); `zero_notch` is true for bipolar amounts, whose zero
 state the split well renders distinctly.
 
-### 7.7. Surface profile
+### 7.9. Surface profile
 
 ```cpp
 struct ControlMap {
@@ -494,7 +580,7 @@ at startup rather than silently tolerated.
 carry value feedback (study §4.5). A profile with rings drives them from the same resolved
 binding the column header uses, so the two cannot disagree.
 
-### 7.8. Feel profile
+### 7.10. Feel profile
 
 ```cpp
 struct FeelProfile {
@@ -567,6 +653,10 @@ Resolution by mode, for a column encoder $n$ in group $g$:
 - **MOD down** — enters `kModArm`. **MOD up within `kLongPressMs` with no other input** —
   toggles `kModView` instead. **MOD up otherwise** — returns to the prior mode.
 - **Group button** — cycles `group` over `[0, n_groups)`.
+- **OUT button** — if `subject != kOut`, stores `subject` in `prev_subject` and jumps to
+  `kOut`; otherwise returns to `prev_subject`. Self-inverse, so it needs no LED and cannot
+  strand the user on a page they did not choose. `group` and `focus_col` reset on the jump and
+  are not restored on return; `item` is per-subject and survives on its own.
 
 ### Route creation
 
@@ -738,6 +828,16 @@ Draft-only. Each must close or move before `approved`.
    covers the common case, and it is the reason `geom::kColumns` is a parameter rather than a
    constant. Resolve by completing §13.3 and re-running the count. If most pages still need
    two groups at six, that is a new design study, not an edit to this one.
+
+   **First count, from the page table (§7.6).** At $E = 5$, thirteen of eighteen pages carry
+   two column groups: `kPart`, the four oscillators, `kFilt`, the three envelopes, the three
+   LFOs, and `kFx`. At $E = 6$ only the oscillators and LFOs do — seven of eighteen. At
+   $E = 7$ every page fits in one, but pitch falls to 19.4 mm, below the ergonomic floor the
+   `static_assert` enforces. So the real choice is five against six, at 27.1 mm and 22.6 mm
+   pitch respectively, and the study's claim that five covers the common case does not
+   survive its own parameter lists once discrete parameters are counted. This is not resolved
+   here: `geom::kColumns` is a parameter precisely so the answer can come from a prototype
+   rather than from arithmetic.
 5. **A slot's damage extent is described twice.** `MarkDirty` hardcodes the fact that plot
    slot *n*'s hook also paints a readout at `kReadoutY`, outside the slot's own rect. The hook
    and `MarkDirty` are two descriptions of what a region touches with nothing enforcing
