@@ -506,9 +506,13 @@ The distinguishing test between Option 4 and a semantic grid: if the cursor need
 encoders, the space is 2D and the affordance problem returns; if one encoder suffices, it is
 reflow.
 
-Edge-crossing detents arrive in bursts when spinning. Coalescing the *repaint* on settle —
-not the input, which accumulates exactly — reduces a burst of crossings to one repaint. A
-settle threshold in the 30–50 ms region is the starting point; see §7.
+Edge-crossing detents arrive in bursts when spinning, so a burst must not become a burst of
+full-region repaints. No new mechanism is needed: the invalidation model
+(`engine-recommendations.md` §5.7) already coalesces to one repaint per frame, and input
+accumulates exactly regardless, so the cursor lands where the detents put it. An explicit
+settle window would be coarser than the frame period and would only withhold the feedback
+that tells the user when to stop. The residual question is cost, not timing — whether one
+list-region repaint fits in a frame (§7.2).
 
 **Conclusion.** Per site:
 
@@ -516,6 +520,7 @@ settle threshold in the 30–50 ms region is the starting point; see §7.
 |---|---|
 | Parameters exceeding $E$ | Option 2, pagination, via the column-group button |
 | Long item lists (MOD page slots) | Option 3, moving cursor with wrapping viewport |
+| Patch list within a category (§4.10) | Option 3. Category selection bounds most lists; `All` on a large library overflows by construction |
 | Route lists in a focused column | Option 4, reflow across the widened column (§4.8) |
 
 ### 4.8. Modulation Route Creation and Local Display
@@ -637,6 +642,11 @@ comprehension.
 Global comprehension is a real need, separate from editing — understanding a patch's topology
 is part of what the instrument is for. But it is a *read*, and reads may be dense without
 being navigable.
+
+Rejecting the grid removes four dependent problems, not one: the two-axis cursor and its
+axis-ambiguity display, the viewport homing policy, the destination-grouping scheme needed to
+fit the destination axis, and the repaint-coalescing question (§7.2). That four sub-problems
+had to be invented to make the grid work is itself evidence against it.
 
 Capacity is the deciding structural property. The edge list's length tracks route count in
 one dimension; every other option overflows in two. Since the route, source and destination
@@ -854,14 +864,21 @@ rings on the parameter row, navigation cluster left of the display.
    §4.6's ×⅒ fine adjust: if coarse turns accelerate, the effective ratio between a fast
    coarse turn and a held fine turn reaches ~30×, which may make the fine mode redundant.
    Settled elsewhere: no acceleration on cursor traversal (§4.7 Option 3 — wrap already
-   bounds worst case, and overshoot on a grid is silent); capped 3× with a zero-crossing
-   notch on modulation amounts, preserving the split well's distinct zero state. *Affects
+   bounds the worst case); capped 3× with a zero-crossing notch on modulation amounts,
+   preserving the split well's distinct zero state. *Affects
    §4.6. Resolve by instrumenting the simulator over a fixed task suite, measuring
    $S(\tau)$ — page and modifier actions — separately from $A(\tau)$, total discrete
    actions.*
-2. **Repaint coalescing threshold** for edge-crossing scroll (§4.7). Input accumulates
-   exactly; only the repaint is deferred. 30–50 ms is the starting estimate. *Needs
-   measurement on hardware.*
+2. ~~**Repaint coalescing threshold** for edge-crossing scroll.~~ **Withdrawn.** Raised for
+   the source × destination grid rejected in §4.9, where a fixed cursor repainted 96 cells
+   and two label axes on every detent. Option 3 now applies only to list regions, and the
+   invalidation model (`engine-recommendations.md` §5.7) already coalesces detents to one
+   repaint per frame; a settle window coarser than the frame period would only remove the
+   feedback that tells the user when to stop spinning. What survives is a *cost* question,
+   already open as `engine-recommendations.md` §7.2 — whether one list-region repaint
+   exceeds a frame period. If it does not, the dirty flag is the whole answer. *Check first
+   whether GLCDC base-address scrolling makes the repaint unnecessary; if so the question
+   closes outright.*
 3. **Route-list overflow beyond a reflowed column.** §4.7's Option 4 gives a widened column
    roughly 100 visible routes. Behaviour past that is undefined; scroll-when-focused is the
    candidate. *Affects §4.8. Low priority — the bound is generous.*
