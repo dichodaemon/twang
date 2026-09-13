@@ -1,6 +1,6 @@
 ---
 title: Panel Interaction Model
-status: review
+status: resolved
 date: 2026-09-12
 author: Dizan Vasquez
 ---
@@ -374,6 +374,10 @@ Column width is 18 characters at the 10 px advance. Pane width is 9 characters: 
 space, four-character label, 32 px slack. **Column pitch is now a mechanical constant, not a
 layout choice.**
 
+The 32 px of pane slack is the designated give. Should a subject label need five characters,
+it is taken from the 16 px left margin or the pane, never from a column — the pitch is drilled
+and the margin is not.
+
 ### 4.5. Value Feedback Channel
 
 *Governed by: P1, P2.*
@@ -457,8 +461,23 @@ flat and turning already commits, and a dead push is discoverable in a second. N
 enters or leaves whatever NAV2 is currently walking — one rule covering the browser, the
 modulation view and modals.
 
+**Acceleration is a per-parameter property, not a global one.** Three policies are already in
+force across this study — none on cursor traversal (§4.7), capped 3× with a zero-crossing
+notch on modulation amounts (§4.9), and an open default for ordinary parameters — so a single
+input-layer constant cannot express what the design already requires. The multiplier is
+therefore a field in the parameter descriptor table, alongside range and formatter.
+
+That placement is the architectural commitment; the ordinary-parameter *value* is a
+coefficient. It cannot be settled before the shipping encoder exists, because it depends on
+detent count and detent feel, and any figure measured on the X-Touch is a projection either
+way. The study fixes the mechanism and hands the default to the arch-design, in the same
+shape as the output-stage study's "ship one curve, build the dispatch now." What re-opens it:
+a detent count materially different from the X-Touch's, or the ×⅒ fine adjust proving
+redundant once a coarse default is chosen.
+
 **Conclusion.** Option 2. No SHIFT. Control complement: PART×4 (latching, LED), MOD
 (momentary and tap, §4.8), PERF (latching, LED, deferred), column-group (momentary, §4.7).
+Acceleration is a per-parameter descriptor field; defaults are named in the arch-design.
 
 ### 4.7. Overflow Policy
 
@@ -521,7 +540,7 @@ list-region repaint fits in a frame (§7.2).
 | Parameters exceeding $E$ | Option 2, pagination, via the column-group button |
 | Long item lists (MOD page slots) | Option 3, moving cursor with wrapping viewport |
 | Patch list within a category (§4.10) | Option 3. Category selection bounds most lists; `All` on a large library overflows by construction |
-| Route lists in a focused column | Option 4, reflow across the widened column (§4.8) |
+| Route lists in a focused column | Option 4, reflow across the widened column (§4.8); past the ~100 the reflow holds, Option 3 within the focused column |
 
 ### 4.8. Modulation Route Creation and Local Display
 
@@ -860,37 +879,42 @@ rings on the parameter row, navigation cluster left of the display.
 
 ## 7. Open Questions
 
-1. **Encoder acceleration for ordinary parameters.** Undecided, and it interacts with
-   §4.6's ×⅒ fine adjust: if coarse turns accelerate, the effective ratio between a fast
-   coarse turn and a held fine turn reaches ~30×, which may make the fine mode redundant.
-   Settled elsewhere: no acceleration on cursor traversal (§4.7 Option 3 — wrap already
-   bounds the worst case); capped 3× with a zero-crossing notch on modulation amounts,
-   preserving the split well's distinct zero state. *Affects
-   §4.6. Resolve by instrumenting the simulator over a fixed task suite, measuring
-   $S(\tau)$ — page and modifier actions — separately from $A(\tau)$, total discrete
-   actions.*
-2. ~~**Repaint coalescing threshold** for edge-crossing scroll.~~ **Withdrawn.** Raised for
-   the source × destination grid rejected in §4.9, where a fixed cursor repainted 96 cells
-   and two label axes on every detent. Option 3 now applies only to list regions, and the
+None. All six are closed below, with the resolution recorded where it belongs. Two closed by
+decision, one by withdrawal, one by reclassification as a task, and two by separating a
+structural commitment from a coefficient that cannot be fixed before the shipping hardware
+exists.
+
+1. ~~**Encoder acceleration for ordinary parameters.**~~ Resolved, in two parts. The
+   *structural* half — per-parameter rather than global — is decided in §4.6 and is a field
+   in the parameter descriptor table. The *coefficient* is a tunable: it depends on detent
+   count and feel, so no figure obtainable before the shipping encoder exists is more than a
+   projection, and the arch-design carries the default. Its interaction with the ×⅒ fine
+   adjust is named there as the condition that re-opens the choice.
+2. ~~**Repaint coalescing threshold** for edge-crossing scroll.~~ Withdrawn. Raised for the
+   source × destination grid rejected in §4.9, where a fixed cursor repainted 96 cells and
+   two label axes on every detent. Option 3 now applies only to list regions, and the
    invalidation model (`engine-recommendations.md` §5.7) already coalesces detents to one
    repaint per frame; a settle window coarser than the frame period would only remove the
    feedback that tells the user when to stop spinning. What survives is a *cost* question,
-   already open as `engine-recommendations.md` §7.2 — whether one list-region repaint
-   exceeds a frame period. If it does not, the dirty flag is the whole answer. *Check first
-   whether GLCDC base-address scrolling makes the repaint unnecessary; if so the question
-   closes outright.*
-3. **Route-list overflow beyond a reflowed column.** §4.7's Option 4 gives a widened column
-   roughly 100 visible routes. Behaviour past that is undefined; scroll-when-focused is the
-   candidate. *Affects §4.8. Low priority — the bound is generous.*
-4. **Part hue against the emphasis ladder.** Hue is restricted to the title-bar indicator and
-   button LEDs, but the specific hues must remain legible against the four-level brightness
-   palette. *Needs the real panel.*
-5. **Pane width at 92 px** allows four-character labels with 32 px slack. If a subject label
-   needs five characters, the margin gives way, not the column pitch. *Affects §4.4;
-   confirm the subject list's final naming.*
-6. **Non-square pixel correction.** $p_x/p_y = 1.0517$ (§3.4) affects every layout constant
-   authored on the assumption of square pixels. *Affects the existing plot geometry; a
-   sweep of `panel.cc` is required.*
+   held in `engine-recommendations.md` §7.2 — whether one list-region repaint fits in a
+   frame — and it belongs to that document, not this one. Check first whether GLCDC
+   base-address scrolling makes the repaint unnecessary.
+3. ~~**Route-list overflow beyond a reflowed column.**~~ Resolved: scroll within the focused
+   column, per §4.7. No evidence was required — reflow and scroll are already the two
+   sanctioned overflow policies, and the focused column is the one place where scrolling a
+   list is justified, since entering it is a deliberate act with a visible indicator.
+   Recorded in §4.7's conclusion table.
+4. ~~**Part hue against the emphasis ladder.**~~ Reclassified as a tunable. The architectural
+   commitment is in §5, Option B: hue carries exactly one meaning — part identity — on the
+   title-bar indicator and the four button LEDs, leaving the brightness ladder untouched.
+   Which hues satisfy that against the five-entry palette (`kBg/kFaint/kDim/kMid/kBright`) is
+   a palette value, verified on the panel, and changes no type. Carried to the arch-design.
+5. ~~**Pane width at 92 px.**~~ Resolved: the pane's 32 px slack and the 16 px left margin are
+   the designated give; the column pitch is not. Recorded in §4.4. This was a constraint
+   stated as a question.
+6. ~~**Non-square pixel correction.**~~ Reclassified as a task, not a question. $p_x/p_y =
+   1.0517$ (§3.4) is a measured fact with no decision attached — every layout constant
+   authored assuming square pixels is simply wrong by 5.2% in one axis. Moved to §8.
 
 ## 8. Deliverables
 
@@ -903,13 +927,23 @@ rings on the parameter row, navigation cluster left of the display.
   verbatim** — they govern screens not yet designed, and re-deriving them per screen is how
   the present inconsistency arose. Its *live regions* are the descriptor's DYN slots: each
   screen's chrome stays a descriptor, and the arch-design names the DYN hooks — what is
-  live, what a control drives, and how it invalidates (§3.1).
+  live, what a control drives, and how it invalidates (§3.1). It also carries the two
+  **tunables** this study deliberately did not fix, each with a starting value and the
+  condition that re-opens it: the ordinary-parameter acceleration coefficient (§7.1) and the
+  four part hues (§7.4).
 - [ ] **Update:** `docs/random/panel-ui-design-state.md`. §9's layouts are superseded by the
   arch-design's page taxonomy; §10 becomes a pointer to it. §1–§8 and §11–§13 stand. The
   following §11 opens close as a consequence: the matrix's 2D traversal (grid rejected,
   §4.9), modal entry and exit (§4.6 — modal actions become ordinary columns; NAV2 push
   enters and leaves), the save dialogue's destructive default (same), and encoder
   acceleration (partially — see §7.1).
-- [ ] **Simulator instrumentation** for the acceleration measurement in §7.1: an action log
-  over a fixed task suite, comparing configurations on $S(\tau)$ and $A(\tau)$.
+- [ ] **Layout sweep of `panel.cc`** for the pixel anisotropy (§7.6). $p_x/p_y = 1.0517$, so
+  every constant authored as square is wrong by 5.2% in one axis — the graticule, the
+  envelope plot's time-versus-level proportions, and any circle. Cheap now, expensive after
+  the panel is cut. Independent of the arch-design and can land first.
+- [ ] **Simulator instrumentation:** an action log over a fixed task suite, reporting
+  $S(\tau)$ — page and modifier actions — separately from $A(\tau)$, total discrete actions.
+  Note that $S(\tau)$ is a property of the *layout*, not the encoder, so it validates
+  $E = 5$ against $E = 4$ without waiting for hardware; only the acceleration coefficient
+  (§7.1) is gated on the shipping encoder.
 - Implementation is out of scope; it begins from the arch-design's plan.
