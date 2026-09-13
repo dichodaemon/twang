@@ -4,6 +4,12 @@
 # Scratch files (screenshots dropped here for review)
 /tmp/
 
+# Mockup render output (mockup_screens writes these four names)
+mockup_signal.png
+mockup_matrix.png
+mockup_patch.png
+mockup_save.png
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
