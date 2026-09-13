@@ -192,7 +192,7 @@ The layer is a singleton initialised once and never destroyed.
 
 1. **Init** — `InteractionInit(DynSlot *slots, int n_slots, const SurfaceProfile &surface)`.
    Binds the slot array and the surface, loads `g_feel` from persisted settings or its
-   defaults, zeroes `NavState` to part 0, subject `kOut`, `prev_subject` `kFilt`, group 0,
+   defaults, zeroes `NavState` to part 0, subject `kOut`, `prev` `{kFilt, 0, -1}`, group 0,
    mode `kEdit`, and marks all slots dirty. `kOut` is the power-on page for the same reason it
    has a button: it is what the instrument shows when nobody is editing. Reports once if `surface.n_encoders < geom::kColumns`.
 2. **Steady state** — events arrive, gestures are recognised, bindings resolve, the engine is
@@ -366,6 +366,13 @@ enum class ViewMode : std::uint8_t {
   kPerform,    ///< PERF — latched, LED lit
 };
 
+/// A navigation position: everything the OUT button must restore.
+struct NavPos {
+  SubjectId    subject;
+  std::uint8_t group;
+  std::int8_t  focus_col;
+};
+
 struct NavState {
   std::uint8_t part;                  ///< [0, kNumParts)
   SubjectId    subject;               ///< pane cursor; global across parts
@@ -374,7 +381,7 @@ struct NavState {
   std::int8_t  focus_col;             ///< focused column, -1 = none
   ViewMode     mode;
   ModSourceId  armed_source;          ///< persists between kModArm entries
-  SubjectId    prev_subject;          ///< return target for the OUT button only
+  NavPos       prev;                  ///< return position for the OUT button only
 };
 ```
 
@@ -483,10 +490,17 @@ Ordered by pane position. `∗` marks a column whose `ParamId` exists today; eve
 | `kPatch` | `PATCH` | category, sort, favourite, action | patches | — |
 | `kConf` | `CONF` | detents/rev, accel max, accel thresh, long press, fine div | — | — |
 
-Three pages are buildable today: `kFilt` (four of six columns exist), `kEnv1..3` (four of six),
-and `kOut`, whose machinery — `PlotOut`, the FFT, `TraceState`, `ColumnUpdate` and the
-scope/cycle/spectrum toggle — is the most complete in `panel.cc`. They are the natural first
-screens.
+Three pages are the natural first screens: `kFilt`, `kEnv1..3` and `kOut`, the last because its
+machinery — `PlotOut`, the FFT, `TraceState`, `ColumnUpdate` and the scope/cycle/spectrum
+toggle — is the most complete in `panel.cc`.
+
+**"Buildable today" is narrower than the ∗ marks suggest.** The four existing filter columns
+and four existing envelope columns are all *continuous*. Filter mode and envelope curve are
+discrete, and `synth-routing_arch-design.md` scopes `ParamId` to modulatable parameters — so
+discrete parameters are outside it by definition, not merely absent from it. They render as
+`kPending` until `ParamId` covers non-modulatable parameters, which is part of the engine
+dependency in §13.6, not a matter of adding enumerators. The same applies to every discrete
+column in §7.6: wave select, LFO shape and sync, mono/poly, and the `kOut` view toggle.
 
 **`kOut` is the visual keystone, and it is global.** The output section is where the user sees
 what the engine is actually doing, so it is the page the instrument is left sitting on and the
@@ -515,21 +529,40 @@ are looking at in the plot directly above it.
 ```cpp
 enum class BindKind : std::uint8_t {
   kNone = 0,
-  kParam,        ///< a parameter of the current subject
-  kRouteAmount,  ///< a route amount (kModArm / kModView)
+  kParam,        ///< ColumnKind::kParam — a parameter of the current subject
+  kRouteField,   ///< ColumnKind::kRouteField — a field of the item NAV2 selects
+  kViewCtl,      ///< ColumnKind::kViewCtl — a browser or settings control
+  kRouteAmount,  ///< a route amount reached through kModArm / kModView
   kNavSubject, kNavItem,
-  kPartSelect, kModeToggle, kGroupCycle,
-  kPending,      ///< a declared but unimplemented column
+  kPartSelect, kModeToggle, kGroupCycle, kOutToggle,
+  kPending,      ///< ColumnKind::kPending — declared, unimplemented
 };
 
 struct Binding {
   BindKind    kind;
-  ParamId     param;    ///< kParam, kRouteAmount
-  std::int8_t slot;     ///< kRouteAmount: engine route slot, -1 to allocate
+  union {
+    ParamId    param;   ///< kParam, kRouteAmount
+    RouteField field;   ///< kRouteField
+    ViewCtl    ctl;     ///< kViewCtl
+  };
+  std::int8_t slot;     ///< kRouteAmount / kRouteField: engine route slot, -1 to allocate
   std::int8_t column;   ///< originating column, -1 if not column-derived
 };
 
 Binding ResolveBinding(const NavState &nav, Control c);
+
+`ColumnKind` and `BindKind` are in one-to-one correspondence for the four column kinds, so
+resolving a column encoder is a tag copy plus the operand. The resolution rules for the three
+non-parameter kinds:
+
+| `ColumnKind` | Turn | Short press | Long press | Hold + turn |
+|---|---|---|---|---|
+| `kRouteField` | change the field of the item at `item[subject]` — `kSource` and `kDest` cycle enums, `kAmount` is continuous, `kEnable` toggles | — | clear the slot (`kSource`/`kDest`), else revert | fine adjust, `kAmount` only |
+| `kViewCtl` | change the view control; no engine write for `kCategory`/`kSort`/`kFavourite`, a `g_feel` write for the CONF controls | `kAction` executes; others none | revert to default | fine adjust where continuous |
+| `kPending` | nothing | nothing | nothing | nothing |
+
+`kRouteField` is the one kind whose operand is not addressed by the column alone: it needs
+`item[subject]` for the slot, which is why `Binding::slot` is populated for it.
 ```
 
 ### 7.8. Change required in `engine/params.h`
@@ -628,7 +661,7 @@ Binding ResolveBinding(const NavState &nav, Control c);
 - **Pure.** No side effects, no engine reads, no globals beyond `g_pages`.
 - **Total.** Every `(nav, c)` pair resolves; unreachable combinations return
   `BindKind::kNone`.
-- **Postcondition on `kParam`**: `param` is a valid `ParamId` — never `kParamPending`, which
+- **Postcondition on `kParam`**: `param` is a valid `ParamId` — never a pending column, which
   returns `kPending` instead.
 
 Resolution by mode, for a column encoder $n$ in group $g$:
@@ -653,10 +686,13 @@ Resolution by mode, for a column encoder $n$ in group $g$:
 - **MOD down** — enters `kModArm`. **MOD up within `kLongPressMs` with no other input** —
   toggles `kModView` instead. **MOD up otherwise** — returns to the prior mode.
 - **Group button** — cycles `group` over `[0, n_groups)`.
-- **OUT button** — if `subject != kOut`, stores `subject` in `prev_subject` and jumps to
-  `kOut`; otherwise returns to `prev_subject`. Self-inverse, so it needs no LED and cannot
-  strand the user on a page they did not choose. `group` and `focus_col` reset on the jump and
-  are not restored on return; `item` is per-subject and survives on its own.
+- **OUT button** — if `subject != kOut`, writes `{subject, group, focus_col}` into
+  `NavState::prev` and jumps to `kOut`; otherwise restores all three from `prev`. Self-inverse, so it needs no LED and cannot strand
+  the user on a page they did not choose. `item` is per-subject and survives on its own.
+  The round trip is **lossless**: a glance at `kOut` mid-edit returns to the exact column
+  group and focused column that was left, because a glance that costs you your place is not a
+  glance. `kOut`'s own group is always 0 — it has one group — so nothing needs saving on that
+  side.
 
 ### Route creation
 
@@ -678,7 +714,7 @@ bool InteractionCreateRoute(std::uint8_t part, ModSourceId src, ParamId dst, flo
    `Panel::pending` or the damage list. The only output channels are the engine API and
    `MarkDirty`.
 2. **Every column resolves.** For every page and group, `n_cols <= geom::kColumns`, and every
-   entry in `cols[0..n_cols)` is either a valid `ParamId` or `kParamPending`.
+   entry in `cols[0..n_cols)` carries a valid operand for its `ColumnKind`, or is `kPending`.
 3. **Pane labels fit.** Every `PageDesc::label` is at most
    $\lfloor (\text{kPaneW} - \text{bracket} - 2\cdot\text{pad}) / \text{advance} \rfloor$
    characters. The give is the pane slack and the left margin, never the column pitch (study
@@ -695,7 +731,7 @@ bool InteractionCreateRoute(std::uint8_t part, ModSourceId src, ParamId dst, flo
    of encoders, columns or buttons. A loop over columns bounds on `geom::kColumns`; a loop
    over physical controls bounds on `Surface().n_map`.
 10. **Grouping is derived.** No `PageDesc` states a group count or a per-group column list;
-    both come from `GroupCount` and `ColumnParam`. A page authored at one $E$ is valid at
+    both come from `GroupCount` and `Column`. A page authored at one $E$ is valid at
     every $E$.
 11. **Feel never changes shape.** No field of `FeelProfile` can alter which parameter a control
     drives, how many columns exist, or what is drawn where — only how far a turn moves and how
@@ -757,7 +793,10 @@ is a property of the layout rather than of the encoder, so it validates $E$ with
       starting subject.
 - [ ] Given a page with `n_groups > 1`, the group button cycles groups and each column
       encoder drives the parameter in the active group.
-- [ ] Given a column marked `kParamPending`, a turn of that encoder changes no engine state.
+- [ ] Given a column marked `kPending`, a turn of that encoder changes no engine state.
+- [ ] Given a `kRouteField` column, its binding carries the slot from `item[subject]`.
+- [ ] Given the OUT button pressed twice from any page, `subject`, `group` and `focus_col`
+      are identical to their values before the first press.
 - [ ] Every `PageDesc` satisfies `n_cols <= geom::kColumns` for all groups, checked at build
       time.
 - [ ] Changing `geom::kColumns` and rebuilding produces a coherent layout or a compile error;
@@ -782,14 +821,14 @@ is a property of the layout rather than of the encoder, so it validates $E$ with
 |---|---|
 | `nostromo/geom.h` | Parameterised geometry; the only home for layout numbers |
 | `nostromo/interaction.{h,cc}` | `NavState`, `GestureRecognizer`, `Dispatcher`, `InteractionOnInput` |
-| `nostromo/pages.{h,cc}` | `PageDesc`, `g_pages`, `GroupCount`, `ColumnParam`, `ResolveBinding` |
+| `nostromo/pages.{h,cc}` | `PageDesc`, `ColumnSpec`, `g_pages`, `GroupCount`, `Column`, `ResolveBinding` |
 | `nostromo/surface.{h,cc}` | `SurfaceProfile`, `ControlMap`, one table per prototype |
 | `nostromo/feel.{h,cc}` | `FeelProfile`, `g_feel`, CONF-page bindings |
 | `nostromo/screens.{h,cc}` | Existing — descriptor chrome and DYN hooks; hooks read `NavState` |
 | `nostromo/panel.{h,cc}` | Existing — owns `spike::Damage`, `pending[]`, and `MarkDirty`; the sole invalidation entry point |
 | `spike/descriptor.h` | Existing — `DynSlot`, `DescriptorCtx` |
-| `engine/params.h` | `ParamDesc` gains `accel_max`, `zero_notch` (§7.6) |
-| `engine/engine.h` | Existing — `EngineSetParam`, `EngineSetRoute`, `ModSourceId`, `ParamId` |
+| `engine/params.h` | `ParamDesc` gains `accel_max`, `zero_notch` (§7.8) |
+| `engine/engine.h` | **Changes required** — `ParamId` semantics and the `EngineSetParam` signature (§7.5, §13.6). `EngineSetRoute` and `ModSourceId` unchanged |
 | `tests/test_bindings.cc` | Exhaustive resolution and page-table validation |
 | `tests/test_gestures.cc` | Gesture recognition boundaries |
 
@@ -805,13 +844,13 @@ Draft-only. Each must close or move before `approved`.
 2. **Part hues.** The tunable carried from study §7.4. Four hues against the five-entry
    palette (`kBg/kFaint/kDim/kMid/kBright`), carrying one meaning only — part identity, on
    the title-bar indicator and the button LEDs. Verified on the panel.
-3. **The pending parameter surface.** Most pages are declared with `kParamPending` columns
+3. **The pending parameter surface.** Most pages are declared with `kPending` columns
    because `ParamId` holds 11 entries against a target near 130. Closing this is engine work,
    not interaction work. It does **not** gate starting: build the mechanism against the
-   `ParamId`s that exist, let `kParamPending` carry the rest, and treat `approved` as the
+   `ParamId`s that exist, let `kPending` carry the rest, and treat `approved` as the
    milestone at which the taxonomy is complete rather than a precondition for implementation.
    The project is at a learning stage and iteration speed matters more than a complete table.
-   See §13.4 for the part that does need resolving.
+   See §13.4 for the sizing question and §13.6 for the structural one, which does block.
 4. **Whether $E = 5$ survives the full parameter surface.** The study's five-parameter module
    lists were drawn from the routing study's *modulation destination* list.
    [`synth-routing_arch-design.md`](synth-routing_arch-design.md) makes the exclusion
@@ -846,7 +885,25 @@ Draft-only. Each must close or move before `approved`.
    paints a header, a value, a well and possibly a route list. Resolve by giving the slot its
    full extent — a second rect on `DynSlot`, or a DYN op reserving the union — before the
    column slots are built. *Affects `nostromo/panel.cc`; not blocking, but cheapest now.*
-6. **`MarkDirty`'s signature.** It is an internal helper taking a bare `int`; `MarkDirty(p, 3)`
+6. **The engine parameter API (structural, blocking the addressing model).** §7.5 requires two
+   changes to `ParamId` that are semantic, not additive, and neither is covered by §13.3:
+   - **An instance argument.** `EngineSetParam(id, value)` becomes
+     `EngineSetParam(part, instance, id, value)`. Kind-not-instance addressing is what keeps
+     `ParamId` near 39 entries instead of 130 and lets the four oscillator pages share one
+     column list; without it, `g_pages` and the enum both quadruple.
+   - **Scope beyond modulatable parameters.** `synth-routing_arch-design.md` defines `ParamId`
+     as the set of *modulatable* destinations. The interaction layer addresses every
+     parameter, including discrete ones — filter mode, wave select, LFO shape and sync,
+     mono/poly. Either `ParamId` widens and modulation takes a subset of it, or the two
+     addressing spaces diverge and every column carries a tag saying which it is. The first is
+     simpler; both are engine decisions.
+
+   This is engine-wide and structural, so it is a *dependency*, not interaction work: this
+   document cannot be planned against until it is settled, whereas §13.3's growth of the
+   parameter set can proceed alongside. *Owner: `synth-routing_arch-design.md` and
+   `engine/engine.h`. Blocks: §7.5's addressing model, §7.6's discrete columns, §7.7's
+   `kParam` resolution, and the plan.*
+7. **`MarkDirty`'s signature.** It is an internal helper taking a bare `int`; `MarkDirty(p, 3)`
    at `panel.cc:894` means the output plot only by convention. For this layer to call it, it
    needs to be a declared entry point in `panel.h` taking `SlotIdx`. Trivial, and it should
    land with the first interaction code rather than after it.
