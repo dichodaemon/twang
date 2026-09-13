@@ -49,11 +49,6 @@ struct TraceState {
 /// @brief Opaque panel state (owned by the caller; never freed in practice).
 struct Panel;
 
-/// @brief Draws a dynamic region if its invalidation flag is set.
-///
-/// @param d Region to possibly redraw.
-/// @param fb Framebuffer to draw into.
-void DrawDyn(DynRegion &d, FrameBuffer &fb);
 
 /// @brief Allocates the panel (fixed SDRAM placement on the target).
 ///

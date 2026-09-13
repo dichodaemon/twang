@@ -834,10 +834,6 @@ void DrawChrome(FrameBuffer &fb, Panel &p) {
 
 // ---- Panel API ----
 
-void DrawDyn(DynRegion &d, FrameBuffer &fb) {
-  if (d.dirty) d.draw(fb, d.rect, d.state);
-}
-
 #ifdef TWANG_UI_SDRAM
 /// Fixed SDRAM address for the Panel on the target. SDRAM spans
 /// 0x68000000..0x6c000000 (64 MiB); the GLCDC frame buffers occupy the first
@@ -920,9 +916,16 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
     return;
   }
 
+  // `pending` and `damage` look duplicative and are complementary: `pending`
+  // decides whether a hook *re-runs* into the second buffer (double buffering
+  // means one MarkDirty must repaint twice), `damage` decides which *rects*
+  // are repainted at all. Both are required; removing either leaves a stale
+  // half. The gate is `dirty && pending` — `dirty` says *redraw*, `pending`
+  // says *a buffer is still owed* — and they coincide because MarkDirty is the
+  // sole writer of both.
   const int n = p->damage.Repaint();
   for (int k = 0; k < 4; ++k) {
-    if (p->pending[k] <= 0) continue;
+    if (!p->dyn[k].dirty || p->pending[k] <= 0) continue;
     const Rect &pr = p->dyn[k].rect;
     bool hit = false;
     for (int i = 0; i < n && !hit; ++i) {
