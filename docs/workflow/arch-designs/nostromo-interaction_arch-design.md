@@ -223,6 +223,21 @@ inline constexpr int   kPaneW        = 92;
 inline constexpr float kKnobDiaMm    = 20.0f;
 inline constexpr float kFingerGapMm  = 5.0f;
 
+// --- Vertical band parameters. Plot-dominant: the plot takes the residue. ---
+inline constexpr int kTitleH   = 26;  // title bar
+inline constexpr int kBandGap  = 16;  // title -> content
+inline constexpr int kHeaderH  = 26;  // column header (segmented)
+inline constexpr int kHeaderGap = 6;
+inline constexpr int kValueH   = 20;  // one primary-atlas line
+inline constexpr int kValueGap = 4;
+inline constexpr int kWellH    = 8;   // split well
+inline constexpr int kPlotGap  = 16;
+inline constexpr int kRowPitch = 20;  // list rows, route lines
+inline constexpr int kPanePitch = 28; // pane entries
+inline constexpr int kPaneRule = 3;   // globals separator
+inline constexpr int kPrimaryH = 20;  // ter-u20n cell height
+inline constexpr int kPlotMinH = 120; // below this a plot is decoration
+
 // --- Derived. Never write these as literals elsewhere. ---
 inline constexpr float kPxMm    = kPanelWmm / kFbWidth;    // 0.150600
 inline constexpr float kPyMm    = kPanelHmm / kFbHeight;   // 0.143200
@@ -231,18 +246,67 @@ inline constexpr int   kColW    = (kFbWidth - 2 * kMargin - kPaneW) / kColumns;
 inline constexpr int   kColX(int n) { return kMargin + kPaneW + n * kColW; }
 inline constexpr float kPitchMm = kColW * kPxMm;
 
+inline constexpr int kTitleY   = kMargin;                              //  16
+inline constexpr int kContentY = kTitleY + kTitleH + kBandGap;         //  58
+inline constexpr int kHeaderY  = kContentY;                            //  58
+inline constexpr int kValueY   = kHeaderY + kHeaderH + kHeaderGap;     //  90
+inline constexpr int kWellY    = kValueY + kValueH + kValueGap;        // 114
+inline constexpr int kPlotY    = kWellY + kWellH + kPlotGap;           // 138
+inline constexpr int kBottom   = kFbHeight - kMargin;                  // 584
+
+inline constexpr int kPlotH = kBottom - kPlotY;                        // 446
+inline constexpr int kPlotW = kColumns * kColW;                        // 900
+inline constexpr int kPlotX = kMargin + kPaneW;                        // 108
+
+// List pages (MOD, PATCH) have no value row: rows start under the headers.
+inline constexpr int kListY = kValueY;                                 //  90
+inline constexpr int kListH = kBottom - kListY;                        // 494
+inline constexpr int kListRows = kListH / kRowPitch;                   //  24
+
+// Mod view keeps the header and one value line, and replaces the rest.
+inline constexpr int kRouteY = kWellY;                                 // 114
+inline constexpr int kRouteH = kBottom - kRouteY;                      // 470
+inline constexpr int kRouteLines = kRouteH / kRowPitch;                //  23
+
+inline constexpr int kPaneY = kContentY;                               //  58
+inline constexpr int kPaneH = kBottom - kPaneY;                        // 526
+inline constexpr int kPaneRows = (kPaneH - kPaneRule) / kPanePitch;    //  18
+
 // A configuration that cannot be built must not compile.
 static_assert(kColumns * kColW + kPaneW + 2 * kMargin == kFbWidth,
               "columns must tile the content width exactly");
 static_assert(kPitchMm >= kKnobDiaMm + kFingerGapMm,
               "encoder pitch below the ergonomic floor: reduce kColumns "
               "or widen the panel");
+static_assert(kPlotH >= kPlotMinH,
+              "plot band collapsed: the vertical bands above it have grown "
+              "past what a plot-dominant layout allows");
+static_assert(kValueH >= kPrimaryH && kHeaderH >= kPrimaryH,
+              "a text band is shorter than the primary atlas cell");
+static_assert(kRouteLines >= 6,
+              "mod view cannot show a useful number of routes per column");
+static_assert(kPaneRows >= static_cast<int>(SubjectId::kCount),
+              "the subject pane cannot show every subject without scrolling");
 }  // namespace nostromo::geom
 ```
 
 `kAspect` is the correction factor for any drawing that must read as geometrically square:
 a shape intended to be $h$ px tall and visually square is $\lceil h / \text{kAspect} \rceil$
 px wide.
+
+**Plot-dominant, and what it costs.** The bands above the plot are fixed at their minimum
+legible size and the plot takes the residue — 446 px against 900 px wide, roughly 2.1:1 after
+aspect correction, and nearly double the 232 px the current four-module layout gives it. The
+price is paid in edit mode: one value line and one well per column, with no room for a
+secondary readout under a column. Mod view is unaffected, because it replaces the plot rather
+than sharing with it — 23 route lines per column, which is past any plausible inbound count
+and well past the point where §4.7's reflow takes over.
+
+**The pane is the tightest band.** 18 entries at 28 px against `SubjectId::kCount`, currently
+18, with the `static_assert` as the guard. A nineteenth subject requires either a smaller
+pitch — 26 px still clears the 20 px cell — or the globals moving off the pane. This is the
+one derived value with no headroom, and it is deliberate: the pane showing every subject
+without scrolling is what makes the navigator its own breadcrumb (§4.1).
 
 ### 7.2. Controls and input
 
