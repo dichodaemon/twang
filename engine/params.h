@@ -34,6 +34,8 @@ struct ParamDesc {
     const char *const *labels;  ///< Discrete value labels; nullptr = continuous.
     std::uint8_t n_labels;      ///< Number of labels; 0 = continuous.
     CombinationClass comb;  ///< How routes combine; meaningful only when modulatable.
+    std::uint8_t accel_max; ///< Acceleration cap: 1 = none, N = capped at Nx.
+    bool zero_notch;        ///< Require one extra detent to cross zero (bipolar).
 };
 
 /// The single source of truth for the parameter surface.
