@@ -13,6 +13,7 @@
 
 #include "descriptor.h"
 #include "fb.h"
+#include "screens.h"
 
 namespace nostromo {
 
@@ -54,6 +55,16 @@ struct Panel;
 ///
 /// @return The panel context (owned by the caller; never freed in practice).
 Panel *PanelCreate();
+
+/// @brief Marks a slot dirty, repainting it into both buffers.
+///
+/// The single invalidation entry point: the slot's plot and its readout band
+/// are repainted together. `idx` names a plot slot (kSlotOsc..kSlotOut); the
+/// mode slot (kSlotMode) is drawn by DrawChrome, not through this path.
+///
+/// @param p Panel context.
+/// @param idx Plot slot to invalidate.
+void MarkDirty(Panel *p, SlotIdx idx);
 
 /// @brief Repaints the panel into the current framebuffer.
 ///

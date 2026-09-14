@@ -759,14 +759,22 @@ void ReadoutText(Panel &p, int idx, char lines[2][32]) {
   }
 }
 
+// The readout band below plot `idx`, painted by the plot's hook outside its
+// own rect. One source of truth, shared by DrawReadout and MarkDirty, so the
+// painted region and the invalidation region can never drift apart.
+Rect ReadoutRect(int idx) {
+  return {kPx0[idx] + kPlotDX, kReadoutY, kReadoutX - kPlotDX,
+          2 * kPrimaryFont.h + 2};
+}
+
 void DrawReadout(FrameBuffer &fb, Panel &p, int idx) {
   char lines[2][32] = {{0}, {0}};
   ReadoutText(p, idx, lines);
   // Clear the two-line band to the background before redrawing: the text is
   // right-aligned and changes width, so a fixed band avoids stale pixels.
-  FillRect(fb, kPx0[idx] + kPlotDX, kReadoutY, kReadoutX - kPlotDX,
-           2 * kPrimaryFont.h + 2, kBg);
-  const Color c = idx == 3 ? kMid : kBright;
+  const Rect band = ReadoutRect(idx);
+  FillRect(fb, band.x, band.y, band.w, band.h, kBg);
+  const Color c = idx == kSlotOut ? kMid : kBright;
   for (int i = 0; i < 2; ++i) {
     if (lines[i][0] == '\0') break;
     TextRight(fb, lines[i], kPx0[idx] + kReadoutX,
@@ -866,14 +874,13 @@ Panel *PanelCreate() {
 
 void SyncFromEngine(Panel *p);  // defined below (after PanelDraw)
 
-void MarkDirty(Panel *p, int idx) {
+void MarkDirty(Panel *p, SlotIdx idx) {
   p->dyn[idx].dirty = true;
   p->pending[idx] = 2;  // repaint into BOTH buffers (double buffering)
   p->damage.Add(p->dyn[idx].rect);
   // The readout text below the plot is drawn by the same hook and sits
-  // outside plots[idx].rect; track it separately so damage stays complete.
-  p->damage.Add(Rect{kPx0[idx] + kPlotDX, kReadoutY, kReadoutX - kPlotDX,
-                     2 * kPrimaryFont.h + 2});
+  // outside the slot's own rect; track it separately so damage stays complete.
+  p->damage.Add(ReadoutRect(idx));
 }
 
 void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
@@ -888,14 +895,14 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   // Drain the audio thread's scope-dirty flag into the output plot's
   // invalidation — the scope animates in steady state.
   if (p->scope_dirty.exchange(false, std::memory_order_relaxed))
-    MarkDirty(p, 3);
+    MarkDirty(p, kSlotOut);
 
   // The envelope playhead traces the ADSR while a note is held or releasing;
   // invalidate the env plot each frame so it animates (the scope does the same
   // via the audio thread's flag). The curve itself is unchanged, so the
   // column-update skip makes this cheap — only the moving playhead redraws.
   if (p->note_on || EnvLevel(NowMs(), *p) > 0.001f)
-    MarkDirty(p, 2);
+    MarkDirty(p, kSlotEnv);
 
   const int b = p->fb_index;
 
@@ -1005,7 +1012,7 @@ void SyncFromEngine(Panel *p) {
   if (cutoff != p->cutoff || resonance != p->resonance) {
     p->cutoff = cutoff;
     p->resonance = resonance;
-    MarkDirty(p, 1);
+    MarkDirty(p, kSlotFilter);
   }
   if (attack != p->attack || decay != p->decay || sustain != p->sustain ||
       release != p->release) {
@@ -1013,7 +1020,7 @@ void SyncFromEngine(Panel *p) {
     p->decay = decay;
     p->sustain = sustain;
     p->release = release;
-    MarkDirty(p, 2);
+    MarkDirty(p, kSlotEnv);
   }
 }
 
@@ -1089,9 +1096,9 @@ void PanelNoteOn(Panel *p, float freq_hz, std::uint8_t velocity) {
   p->note_on = true;
   p->note_at = NowMs();
   p->freq = freq_hz;
-  MarkDirty(p, 0);
-  MarkDirty(p, 2);
-  MarkDirty(p, 3);
+  MarkDirty(p, kSlotOsc);
+  MarkDirty(p, kSlotEnv);
+  MarkDirty(p, kSlotOut);
 }
 
 void PanelNoteOff(Panel *p, float freq_hz) {
@@ -1099,8 +1106,8 @@ void PanelNoteOff(Panel *p, float freq_hz) {
   p->note_on = false;
   p->release_at = NowMs();
   engine::EngineNoteOff(0, freq_hz);
-  MarkDirty(p, 2);
-  MarkDirty(p, 3);
+  MarkDirty(p, kSlotEnv);
+  MarkDirty(p, kSlotOut);
 }
 
 void PanelAudioTap(Panel *p, const float *samples, int n) {
