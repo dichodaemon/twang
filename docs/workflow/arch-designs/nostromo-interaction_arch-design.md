@@ -212,9 +212,9 @@ The layer is a singleton initialised once and never destroyed.
 
 1. **Init** — `InteractionInit(DynSlot *slots, int n_slots, const SurfaceProfile &surface)`.
    Binds the slot array and the surface, loads `g_feel` from persisted settings or its
-   defaults, zeroes `NavState` to part 0, subject `kOut`, `prev` `{kFilt, 0, -1}`, group 0,
-   mode `kEdit`, and marks all slots dirty. `kOut` is the power-on page for the same reason it
-   has a button: it is what the instrument shows when nobody is editing. Reports once if `surface.n_encoders < geom::kColumns`.
+   defaults, zeroes `NavState` to part 0, subject `kOutScope`, `prev` `{kFilt, 0, -1}`, group 0,
+   mode `kEdit`, and marks all slots dirty. `kOutScope` is the power-on page for the same reason
+   the OUT button targets it: it is what the instrument shows when nobody is editing. Reports once if `surface.n_encoders < geom::kColumns`.
 2. **Steady state** — events arrive, gestures are recognised, bindings resolve, the engine is
    written, slots are marked. No allocation, no blocking.
 3. **Mode transitions** — entering `kModArm` (MOD pressed) or `kModView` (MOD tapped) calls
@@ -373,7 +373,7 @@ enum class Control : std::uint8_t {
   kMod,               ///< momentary (arm) and tap (view)
   kPerf,              ///< latching, reserved
   kGroup,             ///< momentary, column-group cycle
-  kOut,               ///< momentary, jump to kOut and back
+  kOut,               ///< momentary, jump to kOutScope and back
   kCount,
 };
 
@@ -547,9 +547,9 @@ except where the acronym is the established term (`LFO`). Group boundaries are d
 | `kPatch` | `PATCH` | category, sort, favourite, action | patches | — |
 | `kConf` | `CONF` | detents/rev, accel max, accel thresh, long press, fine div | — | — |
 
-Three pages are the natural first screens: `kFilt`, `kEnv1..3` and `kOut`, the last because its
-machinery — `PlotOut`, the FFT, `TraceState`, `ColumnUpdate` and the scope/cycle/spectrum
-toggle — is the most complete in `panel.cc`.
+Three pages are the natural first screens: `kFilt`, `kEnv1..3` and the OUT views, the last
+because their machinery — `PlotOut`, the FFT, `TraceState`, `ColumnUpdate` and the
+scope/cycle/spectrum toggle — is the most complete in `panel.cc`.
 
 **"Buildable today" is narrower than the ∗ marks suggest.** The four existing filter columns
 and four existing envelope columns are all *continuous*. Filter mode and envelope curve are
@@ -560,11 +560,12 @@ dependency in §13.6, not a matter of adding enumerators. The same applies to ev
 column in §7.6: wave select, LFO shape and sync, mono/poly, and the OUT views' window and
 trigger settings.
 
-**`kOut` is the visual keystone, and it is global.** The output section is where the user sees
-what the engine is actually doing, so it is the page the instrument is left sitting on and the
-one glanced at mid-edit. It monitors the master bus (`output-stage_arch-design.md`), but its
-first column selects the source — master, or one part — so scoping a single part while
-dialling it needs no mode and no second page.
+**The OUT views are the visual keystone, and they are global.** The output section is where the
+user sees what the engine is actually doing, so it is the section the instrument is left
+sitting on and the one glanced at mid-edit. It monitors the master bus
+(`output-stage_arch-design.md`), but its first column — shared across the three views —
+selects the source, master or one part, so scoping a single part while dialling it needs no
+mode and no second page.
 
 Its plot is 900 × 404 like every other page's. The keystone quality comes from availability,
 not size: a larger plot would break the band registration that makes switching pages cheap to
@@ -750,13 +751,13 @@ Resolution by mode, for a column encoder $n$ in group $g$:
 - **MOD down** — enters `kModArm`. **MOD up within `kLongPressMs` with no other input** —
   toggles `kModView` instead. **MOD up otherwise** — returns to the prior mode.
 - **Group button** — cycles `group` over `[0, n_groups)`.
-- **OUT button** — if `subject != kOut`, writes `{subject, group, focus_col}` into
-  `NavState::prev` and jumps to `kOut`; otherwise restores all three from `prev`. Self-inverse, so it needs no LED and cannot strand
-  the user on a page they did not choose. `item` is per-subject and survives on its own.
-  The round trip is **lossless**: a glance at `kOut` mid-edit returns to the exact column
-  group and focused column that was left, because a glance that costs you your place is not a
-  glance. `kOut`'s own group is always 0 — it has one group — so nothing needs saving on that
-  side.
+- **OUT button** — if `subject` is not one of `kOutScope`/`kOutCycle`/`kOutSpec`, writes
+  `{subject, group, focus_col}` into `NavState::prev` and jumps to `kOutScope`; otherwise
+  restores all three from `prev`. Self-inverse, so it needs no LED and cannot strand the user
+  on a page they did not choose. `item` is per-subject and survives on its own. The round trip
+  is **lossless**: a glance at the output mid-edit returns to the exact column group and
+  focused column that was left, because a glance that costs you your place is not a glance.
+  `kOutScope`'s group is always 0 — it has one group — so nothing needs saving on that side.
 
 ### Route creation
 
