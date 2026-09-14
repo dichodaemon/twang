@@ -544,7 +544,11 @@ void DrawScopePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const int mid = h / 2;
   const int amp = static_cast<int>(h * 0.42f);
 
-  constexpr int kStride = 48;
+  // One ring window across the plot: ReadLast requires count * stride <=
+  // kCapacity, so stride = kCapacity / kPlotW (16384 / 900 = 18). The old
+  // stride 48 was sized for the 230 px module plot and, at 900 px, wrapped
+  // the ring ~2.6 times — three copies of the waveform.
+  constexpr int kStride = ScopeRing::kCapacity / geom::kPlotW;
   float buf[geom::kPlotW];
   p.scope_ring.ReadLast(buf, w, kStride);
 
@@ -844,6 +848,30 @@ const char *ColumnLabel(const ColumnSpec &cs) {
   return cs.label;  // the column's uppercase display name (pages.cc)
 }
 
+// The split well: a bipolar value bar under the value text. Two segments meet
+// at a centre gap (the parameter's mid); the value fills left (below mid) or
+// right (above mid), and exactly mid is a full-height tick — the distinct zero
+// state that `zero_notch` parameters get (arch-design §7.8).
+void SplitWell(FrameBuffer &fb, int x, int y, int value) {
+  constexpr int kHeadEnd = 8, kWellGap = 6;
+  const int kBarW = geom::kColW - kHeadEnd;
+  const int kWellSegW = (kBarW - kWellGap) / 2;
+  FillRect(fb, x, y + 2, kWellSegW, 4, kDim);
+  FillRect(fb, x + kWellSegW + kWellGap, y + 2, kWellSegW, 4, kDim);
+  if (value == 0) {
+    FillRect(fb, x + kWellSegW, y - 3, kWellGap, geom::kWellH + 6, kBright);
+  } else {
+    int len = (std::abs(value) * kWellSegW + 50) / 99;
+    if (len < 2) len = 2;
+    if (value > 0)
+      FillRect(fb, x + kWellSegW + kWellGap, y + 2, len, 4, kBright);
+    else
+      FillRect(fb, x + kWellSegW - len, y + 2, len, 4, kBright);
+  }
+  DrawVLine(fb, x, y, geom::kWellH, kMid);
+  DrawVLine(fb, x + kBarW - 1, y, geom::kWellH, kMid);
+}
+
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
   for (int c = 0; c < geom::kColumns; ++c) {
     const ColumnSpec cs = Column<>(page, nav.group, c);
@@ -868,6 +896,8 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
           &engine::g_params[static_cast<std::size_t>(cs.param)], norm, val,
           sizeof(val));
       TextLeft(fb, val, x + 6, geom::kValueY + 1, kPrimaryFont, kMid);
+      const int well = static_cast<int>(std::lround((norm - 0.5f) * 198.0f));
+      SplitWell(fb, x, geom::kWellY, well);
     }
     // kPending / kRouteField / kViewCtl: header only, empty value row.
   }
