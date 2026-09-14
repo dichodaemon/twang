@@ -1,0 +1,154 @@
+// geom.h — parameterised panel geometry.
+//
+// Every layout number in nostromo lives here. Screens derive their
+// coordinates from these; a literal coordinate anywhere else is a defect
+// (nostromo-interaction_arch-design.md, invariant 8).
+//
+// Change the parameters in the first block and everything below re-derives.
+// A configuration that cannot be built fails a static_assert rather than
+// producing a silently overlapping layout.
+
+#ifndef NOSTROMO_GEOM_H_
+#define NOSTROMO_GEOM_H_
+
+namespace nostromo::geom {
+
+// ---- parameters --------------------------------------------------------
+
+inline constexpr int   kFbWidth     = 1024;
+inline constexpr int   kFbHeight    = 600;
+inline constexpr float kPanelWmm    = 154.2144f;  // ER-TFT070-6 active area
+inline constexpr float kPanelHmm    = 85.92f;
+inline constexpr int   kColumns     = 5;          // E
+inline constexpr int   kMargin      = 16;
+inline constexpr int   kPaneW       = 92;
+inline constexpr float kKnobDiaMm   = 20.0f;
+inline constexpr float kFingerGapMm = 5.0f;
+
+inline constexpr int kTitleH    = 26;
+inline constexpr int kBandGap   = 16;
+inline constexpr int kHeaderH   = 26;
+inline constexpr int kHeaderGap = 6;
+inline constexpr int kValueH    = 20;
+inline constexpr int kValueGap  = 4;
+inline constexpr int kWellH     = 8;
+inline constexpr int kSumGap    = 6;
+inline constexpr int kSumLines  = 2;    // inbound-route summary, edit mode
+inline constexpr int kSumPitch  = 18;   // secondary atlas + leading
+inline constexpr int kPlotGap   = 16;
+inline constexpr int kRowPitch  = 26;  // list rows: 20px cell + leading
+inline constexpr int kPanePitch = 26;
+inline constexpr int kPaneRule  = 3;
+inline constexpr int kPrimaryH  = 20;   // ter-u20n cell height
+inline constexpr int kPlotMinH  = 120;
+
+// Selectable subjects in the pane. Class labels (OSC, ENV, LFO, OUT) are
+// presentation, not subjects: NAV1 skips them. 20 = PART, FILT, AMP, MOD,
+// OSC1-4, ENV1-3, LFO1-3, OUT scope/cycle/spectrum, FX, PATCH, CONF.
+// pages.h static_asserts SubjectId::kCount against this.
+inline constexpr int kSubjectCount = 20;
+
+// ---- derived -----------------------------------------------------------
+
+inline constexpr float kPxMm   = kPanelWmm / kFbWidth;   // 0.150600
+inline constexpr float kPyMm   = kPanelHmm / kFbHeight;  // 0.143200
+inline constexpr float kAspect = kPxMm / kPyMm;          // 1.0517
+
+inline constexpr int   kColW = (kFbWidth - 2 * kMargin - kPaneW) / kColumns;
+inline constexpr int   kColX(int n) { return kMargin + kPaneW + n * kColW; }
+inline constexpr float kPitchMm = kColW * kPxMm;
+
+// The pane owns the full left column, top margin to bottom margin. The title
+// bar starts where the columns start, so no vertical space is spent on a band
+// the pane could be using.
+// The title bar spans the full width again: the strip pane freed enough
+// vertical space that the pane no longer needs the top band, and a full-width
+// title gives the part swatches a home outside the navigator.
+inline constexpr int kTitleY   = kMargin;                           //  16
+inline constexpr int kTitleX   = kMargin;                           //  16
+inline constexpr int kTitleW   = kFbWidth - 2 * kMargin;            // 992
+inline constexpr int kContentY = kTitleY + kTitleH + kBandGap;      //  58
+inline constexpr int kHeaderY  = kContentY;                         //  58
+inline constexpr int kValueY   = kHeaderY + kHeaderH + kHeaderGap;  //  90
+inline constexpr int kWellY    = kValueY + kValueH + kValueGap;     // 114
+inline constexpr int kSumY     = kWellY + kWellH + kSumGap;         // 128
+inline constexpr int kSumH     = kSumLines * kSumPitch;             //  36
+inline constexpr int kPlotY    = kSumY + kSumH + kPlotGap;          // 180
+inline constexpr int kBottom   = kFbHeight - kMargin;               // 584
+
+inline constexpr int kPlotX = kMargin + kPaneW;                     // 108
+
+inline constexpr int kPlotW = kColumns * kColW;                     // 900
+inline constexpr int kPlotH = kBottom - kPlotY;                     // 404
+
+inline constexpr int kListY    = kValueY;                           //  90
+inline constexpr int kListH    = kBottom - kListY;                  // 494
+inline constexpr int kListRows = kListH / kRowPitch;                //  19
+
+inline constexpr int kRouteY     = kWellY;                          // 114
+inline constexpr int kRouteH     = kBottom - kRouteY;               // 470
+inline constexpr int kRouteLines = kRouteH / kRowPitch;             //  18
+
+inline constexpr int kPaneX    = kMargin;                           //  16
+inline constexpr int kPaneY    = kContentY;                         //  58
+inline constexpr int kPaneH    = kBottom - kPaneY;                  // 526
+// Instance strips. Cells have a fixed pitch so digits line up between
+// classes; padding shrinks as the token grows, since a lone digit needs air
+// to read as a cell and a two-letter token already has width of its own.
+inline constexpr int kStripH    = 22;
+inline constexpr int kStripX0   = 6;
+inline constexpr int kLabelX    = 8;
+inline constexpr int kStripAvail = kPaneW - 8 - kStripX0;           //  78
+inline constexpr int kGlyphW    = 10;   // primary atlas cell width
+
+// Title bar fields. The screen name occupies a fixed-width slot so the patch
+// name never moves: at a variable width the eye has to find it again on every
+// page change. The slot is sized to the longest screen name (CONFIGURATION),
+// and a cut in the filled bar separates the two, the same gesture used for
+// the navigator boundary.
+inline constexpr int kTitleNameChars = 13;
+inline constexpr int kTitleNameX = kPlotX + 6;                      // 114
+inline constexpr int kTitleNameW = kTitleNameChars * kGlyphW;       // 130
+inline constexpr int kTitleSepX  = kTitleNameX + kTitleNameW + 8;   // 252
+inline constexpr int kTitlePatchX = kTitleSepX + 10;                // 262
+
+inline constexpr int StripCellW(int chars) {
+  return chars * kGlyphW + (chars == 1 ? 8 : 4);
+}
+inline constexpr int StripW(int cells, int chars) {
+  return cells * StripCellW(chars);
+}
+
+// Pane height requirement. Rows are class labels and singletons; each class
+// with instances adds a strip and its trailing gap. Computed, not assumed.
+inline constexpr int kPaneRowsN   = 11;  // PART FILT AMP MOD OSC ENV LFO OUT FX PATCH CONF
+inline constexpr int kPaneStripsN = 4;   // OSC ENV LFO OUT
+inline constexpr int kPaneNeedH   = kPaneRowsN * kPanePitch +
+                                    kPaneStripsN * (kStripH + 8) +
+                                    kPaneRule + 6;
+
+// ---- guards ------------------------------------------------------------
+
+static_assert(kColumns * kColW + kPaneW + 2 * kMargin == kFbWidth,
+              "columns must tile the content width exactly");
+static_assert(kPitchMm >= kKnobDiaMm + kFingerGapMm,
+              "encoder pitch below the ergonomic floor: reduce kColumns "
+              "or widen the panel");
+static_assert(kPlotH >= kPlotMinH,
+              "plot band collapsed: the bands above it have grown past what "
+              "a plot-dominant layout allows");
+static_assert(kValueH >= kPrimaryH && kHeaderH >= kPrimaryH,
+              "a text band is shorter than the primary atlas cell");
+static_assert(kRouteLines >= 6,
+              "mod view cannot show a useful number of routes per column");
+static_assert(kPaneH >= kPaneNeedH,
+              "the subject pane cannot show every class and its instance "
+              "strips without scrolling");
+// Every strip must fit the pane. A four-cell alphabetic strip is 96 px and
+// would silently overflow, which is how the OUT strip first shipped wrong.
+static_assert(StripW(4, 1) <= kStripAvail, "digit strip overflows the pane");
+static_assert(StripW(3, 2) <= kStripAvail, "OUT view strip overflows the pane");
+
+}  // namespace nostromo::geom
+
+#endif  // NOSTROMO_GEOM_H_

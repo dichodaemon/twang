@@ -51,27 +51,42 @@ add_library(nostromo STATIC nostromo/panel.cc nostromo/screens.cc)
 target_include_directories(nostromo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
 target_link_libraries(nostromo PUBLIC spike engine scope)
 
-# ---- Vendored RtMidi (sim-only MIDI input, Linux/ALSA) ----
-find_package(ALSA REQUIRED)
-add_library(rtmidi STATIC third_party/rtmidi/RtMidi.cpp)
-target_include_directories(rtmidi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/rtmidi)
-target_compile_definitions(rtmidi PRIVATE __LINUX_ALSA__)
-target_compile_options(rtmidi PRIVATE -fexceptions)  # RtMidi throws RtMidiError
-target_link_libraries(rtmidi PUBLIC ALSA::ALSA)
+# ---- Desktop simulator (SDL2 + ALSA/RtMidi) ----
+# Only `host` and `midi_dump` need these. They were found at file scope, which
+# made SDL2 and ALSA configure-time preconditions for the whole project: on a
+# machine without libasound2-dev, cmake aborted before generating anything, so
+# the renderers, the mockups and the entire ctest suite were unbuildable for
+# want of a MIDI library none of them use. Scoping the lookups to the targets
+# that need them lets the project configure anywhere.
+#
+# Turning this OFF drops `host` and `midi_dump` and nothing else.
+option(TWANG_BUILD_HOST "Build the desktop simulator (needs SDL2 and ALSA)" ON)
 
-# ---- Minimal MIDI dump: raw input via RtMidi's callback API ----
-# Reference reader for diagnosing surface behaviour; agrees with aseqdump.
-add_executable(midi_dump tools/midi_dump.cc)
-target_compile_options(midi_dump PRIVATE -fexceptions)  # RtMidi throws RtMidiError
-target_link_libraries(midi_dump PRIVATE rtmidi)
+if(TWANG_BUILD_HOST)
+    # ---- Vendored RtMidi (sim-only MIDI input, Linux/ALSA) ----
+    find_package(ALSA REQUIRED)
+    add_library(rtmidi STATIC third_party/rtmidi/RtMidi.cpp)
+    target_include_directories(rtmidi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/rtmidi)
+    target_compile_definitions(rtmidi PRIVATE __LINUX_ALSA__)
+    target_compile_options(rtmidi PRIVATE -fexceptions)  # RtMidi throws RtMidiError
+    target_link_libraries(rtmidi PUBLIC ALSA::ALSA)
 
-# ---- Desktop host: SDL + RtMidi + miniaudio wiring around the spike panel ----
-find_package(SDL2 REQUIRED)
-add_executable(host host/main.cc host/midi_io.cc host/sdl_backend.cc)
-target_include_directories(host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/host)
-target_include_directories(host PRIVATE ${SDL2_INCLUDE_DIRS})
-target_compile_options(host PRIVATE -fexceptions)  # host/midi_io.cc catches RtMidiError
-target_link_libraries(host PRIVATE nostromo audio rtmidi ${SDL2_LIBRARIES})
+    # ---- Minimal MIDI dump: raw input via RtMidi's callback API ----
+    # Reference reader for diagnosing surface behaviour; agrees with aseqdump.
+    add_executable(midi_dump tools/midi_dump.cc)
+    target_compile_options(midi_dump PRIVATE -fexceptions)  # RtMidi throws RtMidiError
+    target_link_libraries(midi_dump PRIVATE rtmidi)
+
+    # ---- Desktop host: SDL + RtMidi + miniaudio around the spike panel ----
+    find_package(SDL2 REQUIRED)
+    add_executable(host host/main.cc host/midi_io.cc host/sdl_backend.cc)
+    target_include_directories(host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/host)
+    target_include_directories(host PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_compile_options(host PRIVATE -fexceptions)  # host/midi_io.cc catches RtMidiError
+    target_link_libraries(host PRIVATE nostromo audio rtmidi ${SDL2_LIBRARIES})
+else()
+    message(STATUS "TWANG_BUILD_HOST=OFF: skipping host and midi_dump")
+endif()
 
 # ---- WAV renderer: hear the engine output ----
 add_executable(wav_render tools/wav_render.cc)
@@ -97,12 +112,20 @@ add_executable(mockup_screens tools/mockup_screens.cc)
 target_include_directories(mockup_screens PRIVATE tools ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
 target_link_libraries(mockup_screens PRIVATE nostromo)
 
+# ---- Interaction-model pages: the design surface for the new layout ----
+# Draws through nostromo/geom.h only; no literal coordinates. Its hashes are
+# separate from mockup_screens' so the superseded screens keep their own.
+add_executable(mockup_pages tools/mockup_pages.cc)
+target_include_directories(mockup_pages PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
+target_link_libraries(mockup_pages PRIVATE spike)
+
 # ---- Tests ----
 enable_testing()
 add_executable(test_engine tests/test_engine.cc)
 target_link_libraries(test_engine PRIVATE engine)
 add_test(NAME engine_render COMMAND test_engine)
 add_test(NAME mockups COMMAND mockup_screens --check)
+add_test(NAME mockup_pages COMMAND mockup_pages --check)
 
 # The signal-flow mockup must keep matching the panel's chrome; that identity
 # is what makes the mockup file a usable reference for the other screens.
