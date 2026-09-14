@@ -553,8 +553,8 @@ scope/cycle/spectrum toggle — is the most complete in `panel.cc`.
 
 **"Buildable today" is narrower than the ∗ marks suggest.** The four existing filter columns
 and four existing envelope columns are all *continuous*. Filter mode and envelope curve are
-discrete, and `synth-routing_arch-design.md` scopes `ParamId` to modulatable parameters — so
-discrete parameters are outside it by definition, not merely absent from it. They render as
+discrete, and `engine-parameter-surface_arch-design.md` marks parameters modulatable — so
+discrete parameters are outside the modulatable subset by definition, not merely absent from it. They render as
 `kPending` until `ParamId` covers non-modulatable parameters, which is part of the engine
 dependency in §13.6, not a matter of adding enumerators. The same applies to every discrete
 column in §7.6: wave select, LFO shape and sync, mono/poly, and the OUT views' window and
@@ -918,13 +918,13 @@ Draft-only. Each must close or move before `approved`.
    See §13.4 for the sizing question and §13.6 for the structural one, which does block.
 4. **Whether $E = 5$ survives the full parameter surface.** The study's five-parameter module
    lists were drawn from the routing study's *modulation destination* list.
-   [`synth-routing_arch-design.md`](synth-routing_arch-design.md) makes the exclusion
-   explicit: it defines a destination as "a modulatable parameter" and scopes `ParamId` to
-   that subset — osc pitch coarse/fine, wave/shape index, cutoff, resonance, amp, pan, the
-   three LFO rates, the three envelopes' A/D/S/R, and the two send amounts. Discrete and
-   configuration parameters are therefore outside `ParamId`'s stated scope in the document
-   that owns it: filter mode, oscillator wave select, LFO shape and sync, envelope curve,
-   MIDI channel, mono/poly, glide, bend range.
+   [`engine-parameter-surface_arch-design.md`](engine-parameter-surface_arch-design.md) makes
+   the exclusion explicit: `ParamId` spans every parameter, and a route targets only the
+   modulatable subset — osc pitch coarse/fine, wave/shape index, cutoff, resonance, amp, pan,
+   the three LFO rates, the three envelopes' A/D/S/R, and the two send amounts. Discrete and
+   configuration parameters are therefore outside the modulatable subset: filter mode,
+   oscillator wave select, LFO shape and sync, envelope curve, MIDI channel, mono/poly, glide,
+   bend range.
    Counting those, a first pass puts oscillator near 7, LFO near 7, filter and envelope and
    part near 6. If that holds, most pages carry two column groups at $E = 5$ rather than the
    one the study projected. This does not invalidate $E = 5$ — §4.7 sanctions pagination and
@@ -956,8 +956,9 @@ Draft-only. Each must close or move before `approved`.
      `EngineSetParam(part, instance, id, value)`. Kind-not-instance addressing is what keeps
      `ParamId` near 39 entries instead of 130 and lets the four oscillator pages share one
      column list; without it, `g_pages` and the enum both quadruple.
-   - **Scope beyond modulatable parameters.** `synth-routing_arch-design.md` defines `ParamId`
-     as the set of *modulatable* destinations. The interaction layer addresses every
+   - **Scope beyond modulatable parameters.** `engine-parameter-surface_arch-design.md` defines
+     `ParamId` as the full parameter surface, of which the *modulatable* subset is routing's.
+     The interaction layer addresses every
      parameter, including discrete ones — filter mode, wave select, LFO shape and sync,
      mono/poly. Either `ParamId` widens and modulation takes a subset of it, or the two
      addressing spaces diverge and every column carries a tag saying which it is. The first is
@@ -965,7 +966,7 @@ Draft-only. Each must close or move before `approved`.
 
    This is engine-wide and structural, so it is a *dependency*, not interaction work: this
    document cannot be planned against until it is settled, whereas §13.3's growth of the
-   parameter set can proceed alongside. *Owner: `synth-routing_arch-design.md` and
+   parameter set can proceed alongside. *Owner: `engine-parameter-surface_arch-design.md` and
    `engine/engine.h`. Blocks: §7.5's addressing model, §7.6's discrete columns, §7.7's
    `kParam` resolution, and the plan.*
 7. **`MarkDirty`'s signature.** It is an internal helper taking a bare `int`; `MarkDirty(p, 3)`

@@ -28,7 +28,7 @@ The twang engine hardcodes its modulation — velocity→amp, envelope→cutoff,
 |---|---|---|
 | Route / slot | One source→destination modulation with a signed amount. Slots are fixed (16 per part). | `ModRoute`, `Part.routes[]` |
 | Source | Where a modulation value comes from (LFO, envelope, velocity, controller, note). | `ModSourceId` |
-| Destination | A modulatable parameter that a route targets. | `ParamId` (the modulatable subset) |
+| Destination | A parameter a route targets, where its descriptor marks it modulatable. | `ParamId` (modulatable subset; see `engine-parameter-surface_arch-design.md`) |
 | Combination class | How a destination combines its base value with accumulated modulation: additive, multiplicative, or exponential. | `CombinationClass`, `ParamDesc` |
 | Key follow | Keyboard tracking: the note pitch (in octaves from middle C) as a modulation source; routes to filter cutoff by default, combining exponentially. | `kNote`, `Part.key_follow_depth` |
 | Control step | The 16-sample (3 kHz) subdivision of a block where modulation is evaluated. | `kControlDecimation` |
@@ -193,9 +193,13 @@ enum class ModSourceId : uint8_t {
 };
 ```
 
-### ParamId and CombinationClass
+### Combination classes
 
-`ParamId` is extended to cover every modulatable destination: osc pitch (coarse/fine), osc wave/shape index, filter cutoff, resonance, amp/level, pan, the 3 LFO rates, the 3 envelopes' A/D/S/R, and the 2 send amounts. Each param's descriptor carries its `CombinationClass`:
+A destination combines its base value with accumulated modulation per its combination class.
+`ParamId` — and the parameter surface it addresses — is owned by
+[`engine-parameter-surface_arch-design.md`](engine-parameter-surface_arch-design.md); routing
+consumes only the modulatable subset (§3). Each modulatable parameter's descriptor carries its
+`CombinationClass`:
 
 ```cpp
 enum class CombinationClass : uint8_t { kAdditive, kMultiplicative, kExponential };
@@ -207,7 +211,10 @@ enum class CombinationClass : uint8_t { kAdditive, kMultiplicative, kExponential
 | `kMultiplicative` | `base × Π(1 + amount·(src−1))` unipolar; `base × Π(1 + amount·src)` bipolar | amp/level, sends |
 | `kExponential` | `base × 2^(Σ amount·src)` | pitch, LFO rate, envelope times; `kNote` always uses this |
 
-The full `ParamId` enumeration and its `ParamDesc` table live in `engine/params.h` (the existing descriptor table, extended); the arch-design's authority is the *shape* — params are float, normalized [0,1] at rest, and each modulatable param carries a combination class.
+`CombinationClass` is a `ParamDesc` field on the parameter-surface descriptor; routing's
+authority is the *combination semantics* — how each class folds `amount × source` into the base
+value. The descriptor's shape (params are float, normalized [0,1] at rest) is owned by the
+parameter surface, not here.
 
 ### ModRoute
 
