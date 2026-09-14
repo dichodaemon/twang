@@ -12,6 +12,7 @@
 
 #include <SDL2/SDL.h>
 
+#include "interaction.h"
 #include "panel.h"
 
 namespace spike {
@@ -20,6 +21,35 @@ using nostromo::Panel;
 using nostromo::PanelPointer;
 using nostromo::PointerEvent;
 using nostromo::PointerKind;
+
+namespace {
+
+// Dev keyboard → logical control. `turn` reports whether the key is a turn
+// (nav/encoder — emits a detent) or a button (emits a press/release edge).
+// Returns false if the key is unmapped. Used only when no X-Touch is present;
+// the smoke test (7.4) drives the layer through these keys.
+bool KeyControl(SDL_Keycode sym, nostromo::Control *control,
+                std::int8_t *detents, bool *turn) {
+  switch (sym) {
+  case SDLK_UP:            *control = nostromo::Control::kNav1;  *detents = -1; *turn = true; return true;
+  case SDLK_DOWN:          *control = nostromo::Control::kNav1;  *detents = +1; *turn = true; return true;
+  case SDLK_LEFT:          *control = nostromo::Control::kNav2;  *detents = -1; *turn = true; return true;
+  case SDLK_RIGHT:         *control = nostromo::Control::kNav2;  *detents = +1; *turn = true; return true;
+  case SDLK_LEFTBRACKET:   *control = nostromo::Enc(0);          *detents = -1; *turn = true; return true;
+  case SDLK_RIGHTBRACKET:  *control = nostromo::Enc(0);          *detents = +1; *turn = true; return true;
+  case SDLK_1:             *control = nostromo::Control::kPart0; *detents = 0;  *turn = false; return true;
+  case SDLK_2:             *control = nostromo::Control::kPart1; *detents = 0;  *turn = false; return true;
+  case SDLK_3:             *control = nostromo::Control::kPart2; *detents = 0;  *turn = false; return true;
+  case SDLK_4:             *control = nostromo::Control::kPart3; *detents = 0;  *turn = false; return true;
+  case SDLK_m:             *control = nostromo::Control::kMod;   *detents = 0;  *turn = false; return true;
+  case SDLK_p:             *control = nostromo::Control::kPerf;  *detents = 0;  *turn = false; return true;
+  case SDLK_g:             *control = nostromo::Control::kGroup; *detents = 0;  *turn = false; return true;
+  case SDLK_o:             *control = nostromo::Control::kOut;   *detents = 0;  *turn = false; return true;
+  default: return false;
+  }
+}
+
+}  // namespace
 
 struct SdlBackend::Impl {
   SDL_Window *window = nullptr;
@@ -100,8 +130,33 @@ void SdlBackend::PollEvents(Panel *panel) {
       quit = true;
       break;
     case SDL_KEYDOWN:
-      if (e.key.keysym.sym == SDLK_ESCAPE) quit = true;
+      if (e.key.keysym.sym == SDLK_ESCAPE) {
+        quit = true;
+        break;
+      }
+      if (e.key.repeat) break;  // auto-repeat: one detent/edge per physical press
+      {
+        nostromo::Control c;
+        std::int8_t detents;
+        bool turn;
+        if (KeyControl(e.key.keysym.sym, &c, &detents, &turn)) {
+          nostromo::InteractionOnInput(nostromo::InputEvent{
+              c, turn ? detents : std::int8_t{0},
+              turn ? nostromo::Edge::kNone : nostromo::Edge::kDown,
+              SDL_GetTicks()});
+        }
+      }
       break;
+    case SDL_KEYUP: {
+      nostromo::Control c;
+      std::int8_t detents;
+      bool turn;
+      if (KeyControl(e.key.keysym.sym, &c, &detents, &turn) && !turn) {
+        nostromo::InteractionOnInput(
+            nostromo::InputEvent{c, 0, nostromo::Edge::kUp, SDL_GetTicks()});
+      }
+      break;
+    }
     case SDL_MOUSEBUTTONDOWN:
       if (e.button.button == SDL_BUTTON_LEFT)
         PanelPointer(panel,

@@ -11,9 +11,11 @@
 
 #include "audio_out.h"
 #include "engine.h"
+#include "interaction.h"
 #include "midi_io.h"
 #include "panel.h"
 #include "sdl_backend.h"
+#include "surface.h"
 
 constexpr int kHorRes = 1024;
 constexpr int kVerRes = 600;
@@ -41,6 +43,9 @@ int main() {
 
     // Build the panel first: it owns the scope ring the audio thread taps.
     nostromo::Panel *panel = nostromo::PanelCreate();
+
+    // Bind the interaction layer to the panel and the X-Touch surface map.
+    nostromo::InteractionInit(panel, nostromo::Surface());
 
     audio::Output audio_out;
     if (!audio_out.Start(engine::kSampleRate, AudioCallback, panel))

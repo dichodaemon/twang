@@ -14,9 +14,11 @@ namespace {
 
 // X-Touch Compact mapping (standard MIDI mode, channel 1). The encoder CCs
 // (10-14) extend the existing kXtouchCompact layout (midi.cc maps CC 10-11 as
-// relative). The button CCs (15-27) are placeholders — a tunable, not a code
-// dependency. The encoder encoding is two's-complement, confirmed by the
-// existing, working engine/midi.cc decode (0..63 positive, 64..127 negative).
+// relative). The nav controls (CC 15-16) are rotaries too — the layer drives
+// NAV1/NAV2 by detents, so they decode as turns. The button CCs (20-27) are
+// placeholders — a tunable, not a code dependency. The encoder encoding is
+// two's-complement, confirmed by the existing, working engine/midi.cc decode
+// (0..63 positive, 64..127 negative).
 constexpr ControlMap kXtouchMap[] = {
     {10, Enc(0)}, {11, Enc(1)}, {12, Enc(2)},
     {13, Enc(3)}, {14, Enc(4)},

@@ -43,10 +43,12 @@ const nostromo::Control *FindControl(const nostromo::SurfaceProfile &surface,
     return nullptr;
 }
 
-// Encoders are the contiguous kEnc0..kEncLast range; everything else mapped
-// on the surface is a button.
-bool IsEncoder(nostromo::Control c) {
-    return c >= nostromo::Control::kEnc0 && c <= nostromo::Control::kEncLast;
+// Turn controls (the two nav rotaries + the parameter encoders) send relative
+// detents, decoded by DecodeEnc; everything else mapped on the surface is a
+// button (press/release edge).
+bool IsTurn(nostromo::Control c) {
+    return c == nostromo::Control::kNav1 || c == nostromo::Control::kNav2 ||
+           (c >= nostromo::Control::kEnc0 && c <= nostromo::Control::kEncLast);
 }
 
 // Monotonic milliseconds for InputEvent::t_ms (the gesture recognizer's clock).
@@ -120,7 +122,7 @@ void MidiIo::Poll(nostromo::Panel *panel) {
             nostromo::InputEvent ev{};
             ev.control = *c;
             ev.t_ms = NowMs();
-            if (IsEncoder(*c)) {
+            if (IsTurn(*c)) {
                 ev.detents = static_cast<std::int8_t>(
                     nostromo::DecodeEnc(msg[2], surface.enc));
                 ev.edge = nostromo::Edge::kNone;
