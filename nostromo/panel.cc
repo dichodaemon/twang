@@ -73,7 +73,6 @@ struct Panel {
   float release_from = 0.0f;
   float phase = 0.0f;
   float scope_peak = 0.0f;
-  ScopeMode scope_mode = ScopeMode::kScope;
 
   // Audio tap + draw scratch (owned here, never heap-allocated in the draw).
   ScopeRing scope_ring;
@@ -671,16 +670,28 @@ void DrawSpectrumPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
                grat, 4, kBright);
 }
 
+// The OUT view the current subject wants. The three OUT subjects share one
+// plot slot, so the hook reads the subject to pick the view (the old mode
+// buttons are gone, so scope_mode is no longer driven by anything).
+ScopeMode ScopeModeOf(SubjectId s) {
+  switch (s) {
+    case SubjectId::kOutCycle: return ScopeMode::kCycle;
+    case SubjectId::kOutSpec: return ScopeMode::kSpectrum;
+    default: return ScopeMode::kScope;
+  }
+}
+
 void DrawOutPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
-  switch (p.scope_mode) {
-    case ScopeMode::kScope:
-      DrawScopePlot(fb, ox, oy, w, h, p);
-      break;
+  switch (ScopeModeOf(InteractionNavState().subject)) {
     case ScopeMode::kCycle:
       DrawCyclePlot(fb, ox, oy, w, h, p);
       break;
     case ScopeMode::kSpectrum:
       DrawSpectrumPlot(fb, ox, oy, w, h, p);
+      break;
+    case ScopeMode::kScope:
+    default:
+      DrawScopePlot(fb, ox, oy, w, h, p);
       break;
   }
 }
@@ -769,7 +780,16 @@ const PaneRow kPaneRows[] = {
 
 void DrawStrip(FrameBuffer &fb, int y, int n, int sel,
                const char *const *cells) {
-  const int cw = geom::StripCellW(1);
+  // Pitch the cells at the strip's widest label: OUT's "SC"/"CY"/"SP" are two
+  // glyphs, so the single-digit width (StripCellW(1) = 18) would overdraw by
+  // 6 px. The mockup passed the widest label into StripCellW.
+  int chars = 1;
+  if (cells)
+    for (int k = 0; k < n; ++k) {
+      const int len = static_cast<int>(std::strlen(cells[k]));
+      if (len > chars) chars = len;
+    }
+  const int cw = geom::StripCellW(chars);
   for (int k = 0; k < n; ++k) {
     const int cx = geom::kPaneX + geom::kStripX0 + k * cw;
     char num[2] = {static_cast<char>('1' + k), 0};
@@ -1084,6 +1104,12 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
       --p->pending[k];
       p->dyn[k].dirty = p->pending[k] > 0;
     }
+  }
+  if (active < 0) {
+    // A page with no plot (dyn_slot = -1) must not leave the previous page's
+    // plot in the shared band: MarkPage marks nothing for such pages, so the
+    // band would otherwise keep whatever the last plotted page drew.
+    FillRect(fb, geom::kPlotX, geom::kPlotY, geom::kPlotW, geom::kPlotH, kBg);
   }
   DrawEditChrome(fb);
 }
