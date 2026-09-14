@@ -21,6 +21,26 @@ constexpr std::uint8_t ColCount(const ColumnSpec (&)[N]) {
   return static_cast<std::uint8_t>(N);
 }
 
+// The module instance a subject addresses: osc 1-4 → 0-3, env/lfo 1-3 → 0-2,
+// single-instance subjects → 0. A column declares a ParamId (kind); the
+// instance comes from the subject (arch-design §7.5). This is what makes
+// ResolveBinding return a complete ParamRef.
+constexpr std::uint8_t InstanceOf(SubjectId s) {
+  switch (s) {
+    case SubjectId::kOsc1: return 0;
+    case SubjectId::kOsc2: return 1;
+    case SubjectId::kOsc3: return 2;
+    case SubjectId::kOsc4: return 3;
+    case SubjectId::kEnv1: return 0;
+    case SubjectId::kEnv2: return 1;
+    case SubjectId::kEnv3: return 2;
+    case SubjectId::kLfo1: return 0;
+    case SubjectId::kLfo2: return 1;
+    case SubjectId::kLfo3: return 2;
+    default: return 0;
+  }
+}
+
 // kPending columns render dim and inert until the engine's parameter surface
 // grows (arch-design §13.3); they keep the page taxonomy honest.
 
@@ -191,5 +211,95 @@ const PageDesc g_pages[static_cast<int>(SubjectId::kCount)] = {
         {SubjectId::kConf, "CONF", kColsConf, ColCount(kColsConf),
          ItemAxis::kNone, -1},
 };
+
+Binding ResolveBinding(const NavState &nav, Control c) {
+  Binding b{};
+  b.kind = BindKind::kNone;
+  b.slot = -1;
+  b.column = -1;
+
+  // Parameter-column encoders.
+  if (c >= Control::kEnc0 && c <= Control::kEncLast) {
+    const int n = static_cast<int>(c) - static_cast<int>(Control::kEnc0);
+    b.column = static_cast<std::int8_t>(n);
+    const PageDesc &page = g_pages[static_cast<int>(nav.subject)];
+    const ColumnSpec col = Column<>(page, nav.group, n);
+
+    if (nav.mode == ViewMode::kPerform) return b;  // reserved
+
+    // MOD held: a parameter column becomes a route destination — encoder n
+    // writes armed_source → cols[n]. The modulatable filter is applied at
+    // dispatch (EngineSetRoute rejects non-modulatable destinations), keeping
+    // this function free of engine reads.
+    if (nav.mode == ViewMode::kModArm && col.kind == ColumnKind::kParam) {
+      b.kind = BindKind::kRouteAmount;
+      b.param = engine::ParamRef{InstanceOf(nav.subject), col.param};
+      return b;
+    }
+
+    switch (col.kind) {
+      case ColumnKind::kNone:
+        b.kind = BindKind::kNone;
+        break;
+      case ColumnKind::kPending:
+        b.kind = BindKind::kPending;
+        break;
+      case ColumnKind::kParam:
+        b.kind = BindKind::kParam;
+        b.param = engine::ParamRef{InstanceOf(nav.subject), col.param};
+        break;
+      case ColumnKind::kRouteField:
+        b.kind = BindKind::kRouteField;
+        b.field = col.field;
+        b.slot = static_cast<std::int8_t>(
+            nav.item[static_cast<int>(nav.subject)]);
+        break;
+      case ColumnKind::kViewCtl:
+        b.kind = BindKind::kViewCtl;
+        b.ctl = col.ctl;
+        break;
+    }
+    return b;
+  }
+
+  // Buttons and navigation.
+  switch (c) {
+    case Control::kNav1:
+      b.kind = BindKind::kNavSubject;
+      break;
+    case Control::kNav2: {
+      // MOD held turns the pane into the source list, so NAV2 walks sources
+      // regardless of the page's item axis.
+      if (nav.mode == ViewMode::kModArm) {
+        b.kind = BindKind::kNavItem;
+        break;
+      }
+      const PageDesc &page = g_pages[static_cast<int>(nav.subject)];
+      b.kind = (page.item_axis == ItemAxis::kNone) ? BindKind::kNone
+                                                   : BindKind::kNavItem;
+      break;
+    }
+    case Control::kPart0:
+    case Control::kPart1:
+    case Control::kPart2:
+    case Control::kPart3:
+      b.kind = BindKind::kPartSelect;
+      break;
+    case Control::kMod:
+      b.kind = BindKind::kModeToggle;
+      break;
+    case Control::kGroup:
+      b.kind = BindKind::kGroupCycle;
+      break;
+    case Control::kOut:
+      b.kind = BindKind::kOutToggle;
+      break;
+    case Control::kPerf:  // reserved (§2 non-goals)
+    default:
+      b.kind = BindKind::kNone;
+      break;
+  }
+  return b;
+}
 
 }  // namespace nostromo
