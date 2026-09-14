@@ -36,6 +36,13 @@ enum class Control : std::uint8_t {
   kCount,
 };
 
+/// The n-th parameter encoder (0 <= n < geom::kColumns). kEnc0..kEncLast are
+/// contiguous but only the endpoints are named, so encoders are addressed by
+/// index through this helper.
+constexpr Control Enc(int n) {
+  return static_cast<Control>(static_cast<int>(Control::kEnc0) + n);
+}
+
 /// Button edge for a pure press/release event.
 enum class Edge : std::uint8_t { kNone, kDown, kUp };
 
