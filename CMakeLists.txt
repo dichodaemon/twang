@@ -47,7 +47,7 @@ add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc spike/png.cc 
 target_include_directories(spike PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/spike)
 
 # ---- nostromo: this synth's GUI (panel + vocabulary), built on spike ----
-add_library(nostromo STATIC nostromo/panel.cc nostromo/screens.cc)
+add_library(nostromo STATIC nostromo/panel.cc nostromo/screens.cc nostromo/pages.cc)
 target_include_directories(nostromo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
 target_link_libraries(nostromo PUBLIC spike engine scope)
 
