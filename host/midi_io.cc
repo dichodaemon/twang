@@ -116,7 +116,7 @@ void MidiIo::Poll(nostromo::Panel *panel) {
             ev.t_ms = NowMs();
             if (m->turn) {
                 ev.detents = static_cast<std::int8_t>(
-                    nostromo::DecodeEnc(msg[2], surface.enc));
+                    nostromo::DecodeEnc(msg[2], m->enc));
                 ev.edge = nostromo::Edge::kNone;
             } else {
                 ev.detents = 0;

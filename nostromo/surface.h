@@ -34,10 +34,15 @@ int DecodeEnc(std::uint8_t raw, EncEncoding enc);
 /// encoder byte (decoded by DecodeEnc to detents) from a button (press/release
 /// edge). An encoder has two entries — the rotary CC (turn) and its push
 /// button CC (+100, a button) — so the same logical control appears twice.
+/// `enc` is the control's own encoding, declarable per-control: a mixed
+/// surface (quadrature GPIO on some controls, two's-complement on others) can
+/// state it here rather than assuming one encoding for the whole surface.
+/// Meaningful only when `turn` is true.
 struct ControlMap {
   std::uint16_t physical;   ///< MIDI CC (host) or scan index (target)
   Control       logical;
   bool          turn;       ///< true = relative encoder; false = button
+  EncEncoding   enc = EncEncoding::kTwosComplement;
 };
 
 /// A named physical surface: its control map and what it physically has.
@@ -48,7 +53,6 @@ struct SurfaceProfile {
   std::uint8_t      n_encoders;  ///< parameter encoders physically present
   std::uint8_t      n_buttons;
   bool              has_rings;   ///< LED rings on the parameter encoders
-  EncEncoding       enc;         ///< the encoders' relative encoding
 };
 
 /// The active profile. Set once at startup; swapping prototypes swaps a table.

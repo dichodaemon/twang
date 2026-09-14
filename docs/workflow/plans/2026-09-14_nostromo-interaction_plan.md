@@ -86,7 +86,7 @@ are migrated in phase 6, not rewritten as part of the layer itself.
 | 7.4 | Verify: `cmake --build /tmp/twang-build`; simulator smoke test (user-driven: encoders drive parameters, MOD arms a route, NAV1 walks the pane) | Pending |
 | 8.1 | Update `nostromo-interaction_arch-design.md`: record the `EngineGetRoute` deviation (§4), the `curve`/`enable`-as-pending decision (§7.4), the `SubjectId` enum/pane order reconciliation (§7.3 vs §7.6), `Binding` union `ParamId`→`ParamRef` (§7.7), invariant 2 (n_cols is the page total — totality over `(group, col)`), and the `EncEncoding` surface field | Pending |
 | 8.2 | Update `engine-parameter-surface_arch-design.md` §6: add `accel_max`/`zero_notch` to the `ParamDesc` struct | Pending |
-| 8.3 | Verify: full `cmake --build /tmp/twang-build && ctest --test-dir /tmp/twang-build` green (18 existing + 4 new tests = 22) | Pending |
+| 8.3 | Verify: full `cmake --build /tmp/twang-build && ctest --test-dir /tmp/twang-build` green (17 existing + 4 new = 21 — `test_mockup_chrome` removed as obsolete) | Pending |
 
 ## 3. Architecture
 

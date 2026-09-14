@@ -35,7 +35,6 @@ const SurfaceProfile kXtouchCompact = {
     5,     // n_encoders (parameter encoders)
     13,    // n_buttons (4 parts + 4 mode + 5 encoder pushes)
     true,  // has_rings (LED rings on the parameter encoders)
-    EncEncoding::kTwosComplement,  // confirmed by engine/midi.cc's existing decode
 };
 
 const SurfaceProfile *g_surface = &kXtouchCompact;
