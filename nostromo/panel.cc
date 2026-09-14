@@ -701,6 +701,8 @@ void PlotOsc(FrameBuffer &fb, const Rect &r, void *state) {
   ++p->draw_counts[0];
   const Rect saved = fb.clip;
   fb.clip = r;
+  FillRect(fb, r.x, r.y, r.w, r.h, kBg);
+  std::memset(&p->traces[0][p->fb_index], 0xFF, sizeof(TraceState));
   DrawOscPlot(fb, r.x, r.y, r.w, r.h, *p);
   fb.clip = saved;
 }
@@ -710,6 +712,8 @@ void PlotFilter(FrameBuffer &fb, const Rect &r, void *state) {
   ++p->draw_counts[1];
   const Rect saved = fb.clip;
   fb.clip = r;
+  FillRect(fb, r.x, r.y, r.w, r.h, kBg);
+  std::memset(&p->traces[1][p->fb_index], 0xFF, sizeof(TraceState));
   DrawFilterPlot(fb, r.x, r.y, r.w, r.h, *p);
   fb.clip = saved;
 }
@@ -719,6 +723,8 @@ void PlotEnv(FrameBuffer &fb, const Rect &r, void *state) {
   ++p->draw_counts[2];
   const Rect saved = fb.clip;
   fb.clip = r;
+  FillRect(fb, r.x, r.y, r.w, r.h, kBg);
+  std::memset(&p->traces[2][p->fb_index], 0xFF, sizeof(TraceState));
   DrawEnvPlot(fb, r.x, r.y, r.w, r.h, *p);
   fb.clip = saved;
 }
@@ -728,6 +734,8 @@ void PlotOut(FrameBuffer &fb, const Rect &r, void *state) {
   ++p->draw_counts[3];
   const Rect saved = fb.clip;
   fb.clip = r;
+  FillRect(fb, r.x, r.y, r.w, r.h, kBg);
+  std::memset(&p->traces[3][p->fb_index], 0xFF, sizeof(TraceState));
   DrawOutPlot(fb, r.x, r.y, r.w, r.h, *p);
   fb.clip = saved;
 }
@@ -827,6 +835,8 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
     TextLeft(fb, label, x + 6, geom::kHeaderY + 1, kPrimaryFont, kBright);
     DrawHLine(fb, x + bw + 2, geom::kHeaderY + geom::kHeaderH - 6,
               geom::kColW - bw - 2 - 8, kDim);
+    // Clear the value row so a changed value does not leave stale glyphs.
+    FillRect(fb, x + 6, geom::kValueY, geom::kColW - 6, geom::kValueH, kBg);
     if (cs.kind == ColumnKind::kParam) {
       char val[16];
       const float norm = engine::EngineGetParam(
@@ -998,6 +1008,13 @@ void MarkDirty(Panel *p, SlotIdx idx) {
   p->damage.Add(p->dyn[idx].rect);
 }
 
+// The plot slot the current page shows, or -1 for pages without a plot. The
+// four slots share one band; only the active page's plot may paint into it.
+int ActivePlotSlot() {
+  const NavState &nav = InteractionNavState();
+  return g_pages[static_cast<int>(nav.subject)].dyn_slot;
+}
+
 void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   // Record which buffer we draw into; the backend owns the swap and passes it
   // in, so there is no independent toggle to desync.
@@ -1028,7 +1045,11 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
     // column-update skip does not elide a curve over the wiped background.
     for (int i = 0; i < 4; ++i)
       std::memset(&p->traces[i][b], 0xFF, sizeof(TraceState));
+    // Only the active page's plot paints into the shared band; the other three
+    // slots are different pages and must not paint over it.
+    const int active = ActivePlotSlot();
     for (int i = 0; i < 4; ++i) {
+      if (i != active) continue;
       p->dyn[i].draw(fb, p->dyn[i].rect, p->dyn[i].state);
       p->pending[i] = 0;
       p->dyn[i].dirty = false;
@@ -1047,7 +1068,9 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   // says *a buffer is still owed* — and they coincide because MarkDirty is the
   // sole writer of both.
   const int n = p->damage.Repaint();
+  const int active = ActivePlotSlot();
   for (int k = 0; k < 4; ++k) {
+    if (k != active) continue;  // only the active page's plot paints
     if (!p->dyn[k].dirty || p->pending[k] <= 0) continue;
     const Rect &pr = p->dyn[k].rect;
     bool hit = false;

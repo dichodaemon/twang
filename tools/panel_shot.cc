@@ -23,8 +23,10 @@
 #include <vector>
 
 #include "engine.h"
+#include "interaction.h"
 #include "panel.h"
 #include "png.h"
+#include "surface.h"
 
 namespace {
 
@@ -39,6 +41,7 @@ int main(int argc, char **argv) {
 
   engine::EngineInit();
   nostromo::Panel *p = nostromo::PanelCreate();
+  nostromo::InteractionInit(p, nostromo::Surface());  // power-on page
 
   std::vector<std::uint16_t> buf0(kW * kH), buf1(kW * kH);
   spike::FrameBuffer fb0{buf0.data(), kW, kH, kW, spike::Rect{0, 0, kW, kH}};

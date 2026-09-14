@@ -1,12 +1,14 @@
-// test_panel.cc — golden image, double buffering, and invalidation gating for
-// the migrated edit screen (pane + columns + one 900x404 plot band).
+// test_panel.cc — golden image, double buffering, and active-plot invalidation
+// gating for the migrated edit screen (pane + columns + one 900x404 plot band).
 
 #include <cstdint>
 #include <cstdio>
 
 #include "engine.h"
 #include "fb.h"
+#include "interaction.h"
 #include "panel.h"
+#include "surface.h"
 
 using namespace spike;
 using namespace nostromo;
@@ -32,13 +34,13 @@ static std::uint32_t Hash(const std::uint16_t *px, int n) {
     return h;
 }
 
-// Golden-image hash of the initial (deterministic) full render of the new
-// edit-screen layout.
-static constexpr std::uint32_t kExpectedHash = 0x9D7DF51C;
+// Golden-image hash of the power-on page (kOutScope → scope plot) full render.
+static constexpr std::uint32_t kExpectedHash = 0xB54F651A;
 
 int main() {
     engine::EngineInit();
     Panel *p = PanelCreate();
+    InteractionInit(p, Surface());  // power-on page: kOutScope → scope plot
 
     static std::uint16_t buf0[kW * kH];
     static std::uint16_t buf1[kW * kH];
@@ -55,19 +57,28 @@ int main() {
     Check(h0 == h1, "double buffering: both buffers render identically");
     Check(h0 == kExpectedHash, "golden image matches the reference hash");
 
-    // Invalidation gating: MarkDirty redraws the plot into both buffers.
+    // Invalidation gating: MarkDirty redraws the ACTIVE plot into both buffers.
+    const int out_before = PanelPlotDraws(p, 3);
+    MarkDirty(p, kSlotOut);
+    PanelDraw(p, fb0, 0);
+    PanelDraw(p, fb1, 1);
+    Check(PanelPlotDraws(p, 3) == out_before + 2,
+          "MarkDirty redraws the active plot into both buffers");
+
+    // A non-active plot is not drawn even when marked dirty (the four slots
+    // share one band, so only the active page's plot may paint).
     const int filter_before = PanelPlotDraws(p, 1);
     MarkDirty(p, kSlotFilter);
     PanelDraw(p, fb0, 0);
     PanelDraw(p, fb1, 1);
-    Check(PanelPlotDraws(p, 1) == filter_before + 2,
-          "MarkDirty redraws the plot into both buffers");
+    Check(PanelPlotDraws(p, 1) == filter_before,
+          "a non-active plot is not drawn");
 
     // Steady state: a no-change frame redraws nothing.
-    const int osc_before = PanelPlotDraws(p, 0);
+    const int out_steady = PanelPlotDraws(p, 3);
     PanelDraw(p, fb0, 0);
     PanelDraw(p, fb1, 1);
-    Check(PanelPlotDraws(p, 0) == osc_before, "steady state: no redraw");
+    Check(PanelPlotDraws(p, 3) == out_steady, "steady state: no redraw");
 
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
