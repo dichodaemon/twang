@@ -848,25 +848,34 @@ const char *ColumnLabel(const ColumnSpec &cs) {
   return cs.label;  // the column's uppercase display name (pages.cc)
 }
 
-// The split well: a bipolar value bar under the value text. Two segments meet
-// at a centre gap (the parameter's mid); the value fills left (below mid) or
-// right (above mid), and exactly mid is a full-height tick — the distinct zero
-// state that `zero_notch` parameters get (arch-design §7.8).
-void SplitWell(FrameBuffer &fb, int x, int y, int value) {
+// The well under a parameter's value. A bipolar (zero_notch) parameter gets
+// the split well: two segments meeting at a centre gap, the value filling left
+// (below mid) or right (above mid), and exactly mid a full-height tick — its
+// distinct zero state (arch-design §7.8). A unipolar parameter gets a single
+// left-to-right track, no centre gap, so there is no false "zero" at mid.
+void DrawWell(FrameBuffer &fb, int x, int y, float norm, bool bipolar) {
   constexpr int kHeadEnd = 8, kWellGap = 6;
   const int kBarW = geom::kColW - kHeadEnd;
-  const int kWellSegW = (kBarW - kWellGap) / 2;
-  FillRect(fb, x, y + 2, kWellSegW, 4, kDim);
-  FillRect(fb, x + kWellSegW + kWellGap, y + 2, kWellSegW, 4, kDim);
-  if (value == 0) {
-    FillRect(fb, x + kWellSegW, y - 3, kWellGap, geom::kWellH + 6, kBright);
+  if (bipolar) {
+    const int kWellSegW = (kBarW - kWellGap) / 2;
+    FillRect(fb, x, y + 2, kWellSegW, 4, kDim);
+    FillRect(fb, x + kWellSegW + kWellGap, y + 2, kWellSegW, 4, kDim);
+    const int value = static_cast<int>(std::lround((norm - 0.5f) * 198.0f));
+    if (value == 0) {
+      FillRect(fb, x + kWellSegW, y - 3, kWellGap, geom::kWellH + 6, kBright);
+    } else {
+      int len = (std::abs(value) * kWellSegW + 50) / 99;
+      if (len < 2) len = 2;
+      if (value > 0)
+        FillRect(fb, x + kWellSegW + kWellGap, y + 2, len, 4, kBright);
+      else
+        FillRect(fb, x + kWellSegW - len, y + 2, len, 4, kBright);
+    }
   } else {
-    int len = (std::abs(value) * kWellSegW + 50) / 99;
-    if (len < 2) len = 2;
-    if (value > 0)
-      FillRect(fb, x + kWellSegW + kWellGap, y + 2, len, 4, kBright);
-    else
-      FillRect(fb, x + kWellSegW - len, y + 2, len, 4, kBright);
+    FillRect(fb, x, y + 2, kBarW, 4, kDim);
+    const int len =
+        static_cast<int>(std::lround(norm * static_cast<float>(kBarW)));
+    if (len > 0) FillRect(fb, x, y + 2, len, 4, kBright);
   }
   DrawVLine(fb, x, y, geom::kWellH, kMid);
   DrawVLine(fb, x + kBarW - 1, y, geom::kWellH, kMid);
@@ -889,15 +898,14 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
     DrawHLine(fb, x + bw + 2, geom::kHeaderY + geom::kHeaderH - 6,
               geom::kColW - bw - 2 - 8, kDim);
     if (cs.kind == ColumnKind::kParam) {
+      const engine::ParamDesc &desc =
+          engine::g_params[static_cast<std::size_t>(cs.param)];
       char val[16];
       const float norm = engine::EngineGetParam(
           nav.part, engine::ParamRef{0, cs.param});
-      engine::ParamFormatValue(
-          &engine::g_params[static_cast<std::size_t>(cs.param)], norm, val,
-          sizeof(val));
+      engine::ParamFormatValue(&desc, norm, val, sizeof(val));
       TextLeft(fb, val, x + 6, geom::kValueY + 1, kPrimaryFont, kMid);
-      const int well = static_cast<int>(std::lround((norm - 0.5f) * 198.0f));
-      SplitWell(fb, x, geom::kWellY, well);
+      DrawWell(fb, x, geom::kWellY, norm, desc.zero_notch);
     }
     // kPending / kRouteField / kViewCtl: header only, empty value row.
   }
