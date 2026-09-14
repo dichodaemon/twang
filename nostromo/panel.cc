@@ -847,16 +847,19 @@ const char *ColumnLabel(const ColumnSpec &cs) {
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
   for (int c = 0; c < geom::kColumns; ++c) {
     const ColumnSpec cs = Column<>(page, nav.group, c);
-    if (cs.kind == ColumnKind::kNone) continue;  // past a partial final group
     const int x = geom::kColX(c);
+    // Clear the header and value rows for every column first, so a label
+    // change (TIMEBASE → CYCLES) or a kNone column past a partial final group
+    // leaves no stale glyphs behind.
+    FillRect(fb, x, geom::kHeaderY, geom::kColW, geom::kHeaderH - 4, kBg);
+    FillRect(fb, x + 6, geom::kValueY, geom::kColW - 6, geom::kValueH, kBg);
+    if (cs.kind == ColumnKind::kNone) continue;  // past a partial final group
     const char *label = ColumnLabel(cs);
     const int bw = static_cast<int>(std::strlen(label)) * kPrimaryFont.w + 12;
     FillRect(fb, x, geom::kHeaderY, bw, geom::kHeaderH - 4, kDim);
     TextLeft(fb, label, x + 6, geom::kHeaderY + 1, kPrimaryFont, kBright);
     DrawHLine(fb, x + bw + 2, geom::kHeaderY + geom::kHeaderH - 6,
               geom::kColW - bw - 2 - 8, kDim);
-    // Clear the value row so a changed value does not leave stale glyphs.
-    FillRect(fb, x + 6, geom::kValueY, geom::kColW - 6, geom::kValueH, kBg);
     if (cs.kind == ColumnKind::kParam) {
       char val[16];
       const float norm = engine::EngineGetParam(
