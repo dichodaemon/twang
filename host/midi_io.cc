@@ -1,5 +1,6 @@
 #include "midi_io.h"
 
+#include <chrono>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -7,8 +8,10 @@
 #include <vector>
 
 #include "engine.h"
+#include "interaction.h"
 #include "midi.h"
 #include "panel.h"
+#include "surface.h"
 
 namespace {
 
@@ -27,6 +30,30 @@ int FindXtouch(rt::midi::RtMidi *midi, unsigned int count) {
     for (unsigned int i = 0; i < count; ++i)
         if (IsXtouch(midi->getPortName(i))) return static_cast<int>(i);
     return -1;
+}
+
+// The X-Touch Compact speaks on MIDI channel 1 (status low nibble 0).
+constexpr std::uint8_t kChannel = 0;
+
+// CC number → logical control, or nullptr if the surface does not map it.
+const nostromo::Control *FindControl(const nostromo::SurfaceProfile &surface,
+                                     std::uint8_t cc) {
+    for (std::uint8_t i = 0; i < surface.n_map; ++i)
+        if (surface.map[i].physical == cc) return &surface.map[i].logical;
+    return nullptr;
+}
+
+// Encoders are the contiguous kEnc0..kEncLast range; everything else mapped
+// on the surface is a button.
+bool IsEncoder(nostromo::Control c) {
+    return c >= nostromo::Control::kEnc0 && c <= nostromo::Control::kEncLast;
+}
+
+// Monotonic milliseconds for InputEvent::t_ms (the gesture recognizer's clock).
+std::uint32_t NowMs() {
+    using namespace std::chrono;
+    return static_cast<std::uint32_t>(
+        duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
 }  // namespace
@@ -72,7 +99,7 @@ void MidiIo::Init() {
 
 void MidiIo::Poll(nostromo::Panel *panel) {
     if (!in) return;
-    const engine::MidiLayout &layout = engine::kXtouchCompact;
+    const nostromo::SurfaceProfile &surface = nostromo::Surface();
     std::vector<unsigned char> msg;
     for (;;) {
         msg.clear();
@@ -85,11 +112,26 @@ void MidiIo::Poll(nostromo::Panel *panel) {
             for (unsigned char b : msg) std::fprintf(stderr, " %02X", b);
             std::fprintf(stderr, "\n");
         }
-        if ((status & 0x0F) != layout.channel) continue;  // wrong channel
+        if ((status & 0x0F) != kChannel) continue;  // wrong channel
         switch (status & 0xF0) {
-        case 0xB0:  // Control Change
-            engine::MidiCc(layout, 0, msg[1], msg[2]);
+        case 0xB0: {  // Control Change → logical control via the surface map
+            const nostromo::Control *c = FindControl(surface, msg[1]);
+            if (!c) break;  // unmapped CC (faders and other surplus controls)
+            nostromo::InputEvent ev{};
+            ev.control = *c;
+            ev.t_ms = NowMs();
+            if (IsEncoder(*c)) {
+                ev.detents = static_cast<std::int8_t>(
+                    nostromo::DecodeEnc(msg[2], surface.enc));
+                ev.edge = nostromo::Edge::kNone;
+            } else {
+                ev.detents = 0;
+                ev.edge = (msg[2] > 0) ? nostromo::Edge::kDown
+                                       : nostromo::Edge::kUp;
+            }
+            nostromo::InteractionOnInput(ev);
             break;
+        }
         case 0x90:  // Note On (velocity 0 = note off)
             if (msg[2] == 0) nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(msg[1]));
             else nostromo::PanelNoteOn(panel, engine::MidiNoteToFreq(msg[1]), msg[2]);
