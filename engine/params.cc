@@ -135,8 +135,15 @@ int ParamFormatValue(const ParamDesc *desc, float norm, char *buf,
         else if (idx >= desc->n_labels) idx = desc->n_labels - 1;
         return std::snprintf(buf, n, "%s", desc->labels[idx]);
     }
-    return std::snprintf(buf, n, "%.3g %s", ParamNormToDisp(desc, norm),
-                         desc->unit);
+    const float disp = ParamNormToDisp(desc, norm);
+    const float a = disp < 0.0f ? -disp : disp;
+    // No scientific notation: magnitudes >= 1000 get a "k" suffix (2.40k), and
+    // tiny magnitudes keep enough decimals to stay readable rather than "e-05".
+    if (a >= 1000.0f)
+        return std::snprintf(buf, n, "%.3gk %s", disp * 0.001f, desc->unit);
+    if (a != 0.0f && a < 0.0001f)
+        return std::snprintf(buf, n, "%.6f %s", disp, desc->unit);
+    return std::snprintf(buf, n, "%.3g %s", disp, desc->unit);
 }
 
 int ParamFormat(const Part *p, ParamRef ref, char *buf, std::size_t n) {
