@@ -13,6 +13,7 @@
 
 #include "descriptor.h"
 #include "fb.h"
+#include "geom.h"
 #include "screens.h"
 
 namespace nostromo {
@@ -42,9 +43,13 @@ struct PointerEvent {
 using DynRegion = spike::DynSlot;
 
 /// @brief Per-plot column trace (previous vertical span), for column updates.
+///
+/// Sized to the derived plot width; the element is uint16_t because kPlotH
+/// (404) exceeds uint8_t's range. The sizes derive from geom, so changing the
+/// plot width re-sizes the trace automatically — no silent size coupling.
 struct TraceState {
-  std::uint8_t y0[230];  ///< Lower bound per column.
-  std::uint8_t y1[230];  ///< Upper bound per column.
+  std::uint16_t y0[geom::kPlotW];  ///< Lower bound per column.
+  std::uint16_t y1[geom::kPlotW];  ///< Upper bound per column.
 };
 
 /// @brief Opaque panel state (owned by the caller; never freed in practice).

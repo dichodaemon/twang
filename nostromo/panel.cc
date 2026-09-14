@@ -31,6 +31,8 @@
 #include "engine.h"
 #include "fft.h"
 #include "font.h"
+#include "interaction.h"
+#include "pages.h"
 #include "params.h"
 #include "scope_ring.h"
 
@@ -43,30 +45,13 @@ using namespace spike;
 constexpr int kFrameW = 1024;
 constexpr int kFrameH = 600;
 
-constexpr int kTitleX = 16, kTitleY = 16, kTitleW = 992, kTitleH = 26;
-constexpr int kModY = 84, kModH = 340, kModW = 242;
-constexpr int kPlotDX = 6, kPlotDY = 58, kPlotW = 230, kPlotH = 232;
-
-// Silent size couplings: the column trace (TraceState, panel.h), the draw
-// scratch (col_lo/col_hi and the scope buf), and the uint8_t trace element
-// type all assume these bounds. Changing the plot size without updating them
-// corrupts memory silently — assert instead.
-static_assert(kPlotW <= 230, "TraceState::y0/y1[230] must span the plot width");
-static_assert(kPlotH <= 255, "TraceState columns are uint8_t; kPlotH must fit");
-static_assert(kPlotW <= 256, "col_lo/col_hi[256] and scope buf[256] must span kPlotW");
-constexpr int kReadoutX = kModW - 6;  // right-aligned margin
-constexpr int kReadoutY = kModY + 306;
-constexpr int kKeyY = 440;
-constexpr int kKeyW = 992 / 13;
-constexpr int kNavY = 512;
-
-constexpr int kPx0[4] = {16, 266, 516, 766};
-
 constexpr int kCycleBufSize = 4096;
 constexpr int kFftSize = 8192;
 
-// Column-trace sentinel: a column with y0 == y1 == kEmpty has no curve.
-constexpr std::uint8_t kEmpty = 0xFF;
+// Column-trace sentinel: a column with y0 == y1 == kEmpty has no curve. The
+// trace element is uint16_t (kPlotH = 404 > 255), so the sentinel is 0xFFFF
+// rather than 0xFF.
+constexpr std::uint16_t kEmpty = 0xFFFF;
 
 // ---- Panel struct ----
 
@@ -124,10 +109,6 @@ struct Panel {
   int drag_handle = -1;
   bool filter_drag = false;
 
-  // Keyboard: index of the currently held key (-1 none), for note-off on
-  // release.
-  int held_key = -1;
-
   // Scope invalidation: set by the audio thread (PanelAudioTap), drained by
   // the control thread (PanelDraw) to redraw the output plot — the one plot
   // that animates in steady state. Relaxed ordering: the ring's own
@@ -136,8 +117,8 @@ struct Panel {
 
   // Column-update scratch: per-column lower/upper span (one entry per plot
   // column, <= kPlotW). lo == -1 marks an empty column.
-  int col_lo[256];
-  int col_hi[256];
+  int col_lo[geom::kPlotW];
+  int col_hi[geom::kPlotW];
 
   // Previous overlay-element rects (plot-local), per buffer, so moving cursor/
   // handles/playhead erase their old position before redrawing. Zero rects
@@ -275,8 +256,8 @@ void ColumnUpdate(FrameBuffer &fb, int ox, int oy, int w, const int *lo,
       const int y1 = std::min<int>(hi[x], y_bot);
       for (int y = y0; y <= y1; ++y)
         fb.px[static_cast<std::size_t>(oy + y) * fb.stride + (ox + x)] = line;
-      tr.y0[x] = static_cast<std::uint8_t>(y0);
-      tr.y1[x] = static_cast<std::uint8_t>(y1);
+      tr.y0[x] = static_cast<std::uint16_t>(y0);
+      tr.y1[x] = static_cast<std::uint16_t>(y1);
     } else {
       tr.y0[x] = tr.y1[x] = kEmpty;
     }
@@ -565,7 +546,7 @@ void DrawScopePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const int amp = static_cast<int>(h * 0.42f);
 
   constexpr int kStride = 48;
-  float buf[256];
+  float buf[geom::kPlotW];
   p.scope_ring.ReadLast(buf, w, kStride);
 
   float peak = 0.0f;
@@ -708,78 +689,9 @@ void DrawOutPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
 
 void FmtTime(float norm, engine::ParamId id, char *buf, int n) {
   const float s = engine::ParamNormToDisp(&engine::g_params[static_cast<int>(id)], norm);
-  if (s <= 0.0f)
-    std::snprintf(buf, n, "0ms");
-  else if (s < 1.0f)
-    std::snprintf(buf, n, "%.0fms", s * 1000.0f);
-  else
-    std::snprintf(buf, n, "%.2fs", s);
-}
-
-void ReadoutText(Panel &p, int idx, char lines[2][32]) {
-  lines[0][0] = lines[1][0] = '\0';
-  switch (idx) {
-    case 0:  // oscillator
-      std::snprintf(lines[0], 32, "%.0fHz", p.freq);
-      break;
-    case 1: {  // filter (two lines, like the mockup)
-      const float hz = NormToHz(p.cutoff);
-      if (hz >= 1000.0f)
-        std::snprintf(lines[0], 32, "%.2fkHz", hz / 1000.0f);
-      else
-        std::snprintf(lines[0], 32, "%.0fHz", hz);
-      std::snprintf(lines[1], 32, "RES %.0f%%", p.resonance * 100.0f);
-      break;
-    }
-    case 2: {  // envelope (two lines)
-      char a[16], d[16], r[16];
-      FmtTime(p.attack, engine::ParamId::kAttack, a, sizeof(a));
-      FmtTime(p.decay, engine::ParamId::kDecay, d, sizeof(d));
-      FmtTime(p.release, engine::ParamId::kRelease, r, sizeof(r));
-      std::snprintf(lines[0], 32, "A %s  D %s", a, d);
-      std::snprintf(lines[1], 32, "S %.0f%%  R %s", p.sustain * 100.0f, r);
-      break;
-    }
-    default:  // output
-      switch (p.scope_mode) {
-        case ScopeMode::kScope:
-          if (p.scope_peak > 0.01f)
-            std::snprintf(lines[0], 32, "env %.0f%%", p.scope_peak * 100.0f);
-          else
-            std::snprintf(lines[0], 32, "NO SIGNAL");
-          break;
-        case ScopeMode::kCycle:
-          std::snprintf(lines[0], 32, "1 cycle  %.0fHz", p.freq);
-          break;
-        case ScopeMode::kSpectrum:
-          std::snprintf(lines[0], 32, "FFT 8192  Hann");
-          break;
-      }
-      break;
-  }
-}
-
-// The readout band below plot `idx`, painted by the plot's hook outside its
-// own rect. One source of truth, shared by DrawReadout and MarkDirty, so the
-// painted region and the invalidation region can never drift apart.
-Rect ReadoutRect(int idx) {
-  return {kPx0[idx] + kPlotDX, kReadoutY, kReadoutX - kPlotDX,
-          2 * kPrimaryFont.h + 2};
-}
-
-void DrawReadout(FrameBuffer &fb, Panel &p, int idx) {
-  char lines[2][32] = {{0}, {0}};
-  ReadoutText(p, idx, lines);
-  // Clear the two-line band to the background before redrawing: the text is
-  // right-aligned and changes width, so a fixed band avoids stale pixels.
-  const Rect band = ReadoutRect(idx);
-  FillRect(fb, band.x, band.y, band.w, band.h, kBg);
-  const Color c = idx == kSlotOut ? kMid : kBright;
-  for (int i = 0; i < 2; ++i) {
-    if (lines[i][0] == '\0') break;
-    TextRight(fb, lines[i], kPx0[idx] + kReadoutX,
-              kReadoutY + i * (kPrimaryFont.h + 2), kPrimaryFont, c);
-  }
+  if (s <= 0.0f) std::snprintf(buf, n, "0s");
+  else if (s < 1.0f) std::snprintf(buf, n, "%.0fms", s * 1000.0f);
+  else std::snprintf(buf, n, "%.2fs", s);
 }
 
 // ---- module draw hooks (DynRegion callbacks) ----
@@ -791,7 +703,6 @@ void PlotOsc(FrameBuffer &fb, const Rect &r, void *state) {
   fb.clip = r;
   DrawOscPlot(fb, r.x, r.y, r.w, r.h, *p);
   fb.clip = saved;
-  DrawReadout(fb, *p, 0);
 }
 
 void PlotFilter(FrameBuffer &fb, const Rect &r, void *state) {
@@ -801,7 +712,6 @@ void PlotFilter(FrameBuffer &fb, const Rect &r, void *state) {
   fb.clip = r;
   DrawFilterPlot(fb, r.x, r.y, r.w, r.h, *p);
   fb.clip = saved;
-  DrawReadout(fb, *p, 1);
 }
 
 void PlotEnv(FrameBuffer &fb, const Rect &r, void *state) {
@@ -811,7 +721,6 @@ void PlotEnv(FrameBuffer &fb, const Rect &r, void *state) {
   fb.clip = r;
   DrawEnvPlot(fb, r.x, r.y, r.w, r.h, *p);
   fb.clip = saved;
-  DrawReadout(fb, *p, 2);
 }
 
 void PlotOut(FrameBuffer &fb, const Rect &r, void *state) {
@@ -821,23 +730,161 @@ void PlotOut(FrameBuffer &fb, const Rect &r, void *state) {
   fb.clip = r;
   DrawOutPlot(fb, r.x, r.y, r.w, r.h, *p);
   fb.clip = saved;
-  DrawReadout(fb, *p, 3);
 }
 
-// Mode-button geometry (used by the pointer hit test in PanelPointer). The
-// buttons themselves are drawn by nostromo::DrawModeButtons from the DYN slot
-// the descriptor reserved.
-constexpr int kModeY = kModY + 26;
-constexpr int kModeH = 18;
+// ---- edit-screen chrome (title + pane + columns) ----
+// Drawn per-frame (not cached) because it reflects the interaction layer's
+// NavState. Pane rows mirror SubjectId's pane order (§7.6): singletons and
+// instanced classes, with the globals below a rule.
+struct PaneRow {
+  const char *label;
+  int subject0;  // first subject index (SubjectId enum value)
+  int count;     // 1 = singleton, >1 = a strip of cells
+  bool global;
+  const char *const *cells;
+};
+
+const char *const kOutCells[3] = {"SC", "CY", "SP"};
+const PaneRow kPaneRows[] = {
+    {"PART", 0, 1, false, nullptr},
+    {"OSC", 1, 4, false, nullptr},
+    {"FILT", 5, 1, false, nullptr},
+    {"AMP", 6, 1, false, nullptr},
+    {"ENV", 7, 3, false, nullptr},
+    {"LFO", 10, 3, false, nullptr},
+    {"MOD", 13, 1, false, nullptr},
+    {"OUT", 14, 3, true, kOutCells},
+    {"FX", 17, 1, true, nullptr},
+    {"PATCH", 18, 1, true, nullptr},
+    {"CONF", 19, 1, true, nullptr},
+};
+
+void DrawStrip(FrameBuffer &fb, int y, int n, int sel,
+               const char *const *cells) {
+  const int cw = geom::StripCellW(1);
+  for (int k = 0; k < n; ++k) {
+    const int cx = geom::kPaneX + geom::kStripX0 + k * cw;
+    char num[2] = {static_cast<char>('1' + k), 0};
+    const char *d = cells ? cells[k] : num;
+    const int dw = static_cast<int>(std::strlen(d)) * kPrimaryFont.w + 4;
+    if (k == sel) {
+      FillRect(fb, cx, y, dw, geom::kStripH, kBright);
+      TextLeft(fb, d, cx + 2, y + 3, kPrimaryFont, kBg);
+    } else {
+      TextLeft(fb, d, cx + 2, y + 3, kPrimaryFont, kMid);
+    }
+  }
+}
+
+void DrawPane(FrameBuffer &fb, const NavState &nav) {
+  const int tx = geom::kPaneX + geom::kLabelX;
+  int y = geom::kPaneY;
+  bool rule = false;
+  const int subj = static_cast<int>(nav.subject);
+  for (const PaneRow &row : kPaneRows) {
+    if (row.global && !rule) {
+      DrawHLine(fb, geom::kPaneX, y + 4, geom::kPaneW - 8, kDim);
+      y += geom::kPaneRule + 6;
+      rule = true;
+    }
+    if (row.count == 1) {
+      const bool sel = (subj == row.subject0);
+      const int ty = y + (geom::kPanePitch - kPrimaryFont.h) / 2;
+      if (sel) {
+        FillRect(fb, geom::kPaneX, y + 1, geom::kPaneW - 8,
+                 geom::kPanePitch - 2, kBright);
+        TextLeft(fb, row.label, tx, ty, kPrimaryFont, kBg);
+      } else {
+        TextLeft(fb, row.label, tx, ty, kPrimaryFont, kMid);
+      }
+      y += geom::kPanePitch;
+    } else {
+      const int hdr_h = geom::kPanePitch - 6;
+      TextLeft(fb, row.label, tx, y, kPrimaryFont, kMid);
+      const int sel_cell =
+          (subj >= row.subject0 && subj < row.subject0 + row.count)
+              ? subj - row.subject0
+              : -1;
+      DrawStrip(fb, y + hdr_h, row.count, sel_cell, row.cells);
+      DrawVLine(fb, geom::kPaneX + 1, y, hdr_h + geom::kStripH, kMid);
+      y += hdr_h + geom::kStripH + 8;
+    }
+  }
+}
+
+const char *ColumnLabel(const ColumnSpec &cs) {
+  switch (cs.kind) {
+    case ColumnKind::kParam: return engine::ParamName(cs.param);
+    case ColumnKind::kRouteField:
+      switch (cs.field) {
+        case RouteField::kSource: return "SOURCE";
+        case RouteField::kDest: return "DEST";
+        case RouteField::kAmount: return "AMOUNT";
+      }
+      return "-";
+    case ColumnKind::kViewCtl:
+      switch (cs.ctl) {
+        case ViewCtl::kCategory: return "CATEGORY";
+        case ViewCtl::kSort: return "SORT";
+        case ViewCtl::kFavourite: return "FAV";
+        case ViewCtl::kAction: return "ACTION";
+        case ViewCtl::kDetents: return "DETENTS";
+        case ViewCtl::kAccelMax: return "ACCEL";
+        case ViewCtl::kAccelThresh: return "THRESH";
+        case ViewCtl::kLongPress: return "PRESS";
+        case ViewCtl::kFineDiv: return "FINE";
+      }
+      return "-";
+    default: return "-";
+  }
+}
+
+void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
+  for (int c = 0; c < geom::kColumns; ++c) {
+    const ColumnSpec cs = Column<>(page, nav.group, c);
+    const int x = geom::kColX(c);
+    const char *label = ColumnLabel(cs);
+    const int bw = static_cast<int>(std::strlen(label)) * kPrimaryFont.w + 12;
+    FillRect(fb, x, geom::kHeaderY, bw, geom::kHeaderH - 4, kDim);
+    TextLeft(fb, label, x + 6, geom::kHeaderY + 1, kPrimaryFont, kBright);
+    DrawHLine(fb, x + bw + 2, geom::kHeaderY + geom::kHeaderH - 6,
+              geom::kColW - bw - 2 - 8, kDim);
+    char val[16];
+    if (cs.kind == ColumnKind::kParam) {
+      const float norm = engine::EngineGetParam(
+          nav.part, engine::ParamRef{0, cs.param});
+      engine::ParamFormatValue(
+          &engine::g_params[static_cast<std::size_t>(cs.param)], norm, val,
+          sizeof(val));
+    } else {
+      std::snprintf(val, sizeof(val), "-");
+    }
+    TextLeft(fb, val, x + 6, geom::kValueY + 1, kPrimaryFont, kMid);
+  }
+}
+
+void DrawEditChrome(FrameBuffer &fb, Panel &p) {
+  const NavState &nav = InteractionNavState();
+  const PageDesc &page = g_pages[static_cast<int>(nav.subject)];
+
+  FillRect(fb, geom::kTitleX, geom::kTitleY, geom::kTitleW, geom::kTitleH,
+           kDim);
+  char title[32];
+  std::snprintf(title, sizeof(title), "%s  P%d", page.label, nav.part + 1);
+  TextLeft(fb, title, geom::kTitleX + 8, geom::kTitleY + 3, kPrimaryFont,
+           kBright);
+
+  DrawPane(fb, nav);
+  DrawColumns(fb, nav, page);
+}
 
 void DrawChrome(FrameBuffer &fb, Panel &p) {
-  // The screen descriptor draws the static chrome (background, titlebar,
-  // module frames, keyboard, nav) and fills the DYN slot rects. The output
-  // module's mode buttons depend on scope_mode, so they are drawn here from
-  // the slot the descriptor reserved — not encoded in the stream.
+  // The screen descriptor draws the static chrome (background, pane boundary,
+  // column header frames) and fills the DYN slot rects. The dynamic edit
+  // chrome (title, pane cursor, column values) is drawn per-frame by
+  // DrawEditChrome, not cached here.
   const auto &bytes = SignalScreen();
   spike::Interpret(bytes.data(), fb, MakeCtx(p.dyn, kNumSlots));
-  DrawModeButtons(fb, p.dyn[kSlotMode].rect, static_cast<int>(p.scope_mode));
 }
 
 // ---- Panel API ----
@@ -878,9 +925,6 @@ void MarkDirty(Panel *p, SlotIdx idx) {
   p->dyn[idx].dirty = true;
   p->pending[idx] = 2;  // repaint into BOTH buffers (double buffering)
   p->damage.Add(p->dyn[idx].rect);
-  // The readout text below the plot is drawn by the same hook and sits
-  // outside the slot's own rect; track it separately so damage stays complete.
-  p->damage.Add(ReadoutRect(idx));
 }
 
 void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
@@ -918,6 +962,7 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
       p->pending[i] = 0;
       p->dyn[i].dirty = false;
     }
+    DrawEditChrome(fb, *p);
     p->chrome_drawn[b] = true;
     p->damage.Repaint();  // the full render subsumes the pending damage
     return;
@@ -946,6 +991,7 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
       p->dyn[k].dirty = p->pending[k] > 0;
     }
   }
+  DrawEditChrome(fb, *p);
 }
 
 // ---- pointer (touch/drag) ----
@@ -1025,29 +1071,6 @@ void SyncFromEngine(Panel *p) {
 }
 
 void PanelPointer(Panel *p, PointerEvent e) {
-  // Release of a held key: note-off regardless of where the release lands —
-  // a touch that drifts off the keyboard band must still stop the note.
-  if (e.kind == PointerKind::kRelease && p->held_key >= 0) {
-    const float freq = 261.63f * std::pow(2.0f, p->held_key / 12.0f);
-    PanelNoteOff(p, freq);
-    p->held_key = -1;
-    return;
-  }
-
-  // Keyboard: press → note-on (track the held key). `e.x >= kTitleX` guards
-  // against the phantom key from C++ truncation (negative idx -> 0).
-  if (e.y >= kKeyY && e.y < kKeyY + 56) {
-    if (e.kind == PointerKind::kPress) {
-      const int idx = (e.x - kTitleX) / kKeyW;
-      if (e.x >= kTitleX && idx < 13) {
-        const float freq = 261.63f * std::pow(2.0f, idx / 12.0f);
-        PanelNoteOn(p, freq, 127);
-        p->held_key = idx;
-      }
-    }
-    return;  // kMove/kRelease over the keyboard (no held key) is a no-op.
-  }
-
   // Locate the plot under the pointer.
   for (int m = 0; m < 4; ++m) {
     const Rect &pr = p->dyn[m].rect;
@@ -1070,24 +1093,6 @@ void PanelPointer(Panel *p, PointerEvent e) {
       return;
     }
     return;
-  }
-
-  // Output-mode buttons (SCOPE / CYCLE / SPEC).
-  if (e.kind == PointerKind::kPress && e.y >= kModeY && e.y < kModeY + kModeH) {
-    const char *names[3] = {"SCOPE", "CYCLE", "SPEC"};
-    int bx = kPx0[3] + 6;
-    for (int i = 0; i < 3; ++i) {
-      const int bw = TextW(kSecondaryFont, names[i]) + 6;
-      if (e.x >= bx && e.x < bx + bw) {
-        if (static_cast<int>(p->scope_mode) != i) {
-          p->scope_mode = static_cast<ScopeMode>(i);
-          // Mode highlight + output axes are chrome: redraw both buffers.
-          p->chrome_drawn[0] = p->chrome_drawn[1] = false;
-        }
-        return;
-      }
-      bx += bw + 6;
-    }
   }
 }
 

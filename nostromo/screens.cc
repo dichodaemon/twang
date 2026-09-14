@@ -16,6 +16,7 @@
 
 #include <cstring>
 
+#include "geom.h"
 #include "palette.h"
 
 namespace nostromo {
@@ -29,15 +30,13 @@ using spike::kOpText;
 using spike::kOpVLine;
 
 // ---- frame / layout constants (1024x600) -------------------------------
+// The edit screen's geometry (pane, columns, plot band) comes from geom.h;
+// these remain for the shared title/nav chrome and the superseded
+// matrix/patch/save screens.
 
 constexpr int kFrameW = 1024, kFrameH = 600;
 constexpr int kTitleX = 16, kTitleY = 16, kTitleW = 992, kTitleH = 26;
-constexpr int kModY = 84, kModH = 340, kModW = 242;
-constexpr int kPlotDX = 6, kPlotDY = 58, kPlotW = 230, kPlotH = 232;
-constexpr int kKeyY = 440, kKeyW = 992 / 13;
 constexpr int kNavY = 512;
-constexpr int kPx0[4] = {16, 266, 516, 766};
-constexpr int kModeY = kModY + 26, kModeH = 18;
 
 // Matrix / patch / save shared block geometry (mirrors mockup_screens.cc).
 constexpr int kBlockY = 88, kBlockH = 388;
@@ -165,72 +164,24 @@ void EncoderLegend(Enc &e, const char *s) {
   e.Text(kTitleX, kNavY + 54, kF_Secondary, kC_Dim, s);
 }
 
-// Three horizontal graticule lines (17% / 50% / 83% of the plot height).
-void PlotFrame(Enc &e, int x, int y, int w, int h) {
-  e.HLine(x, y + (h * 17) / 100, w, kC_Faint);
-  e.HLine(x, y + h / 2, w, kC_Dim);
-  e.HLine(x, y + (h * 83) / 100, w, kC_Faint);
-}
+// ---- screen 0: edit (pane + columns + plot band) ------------------------
 
-// Bottom + left axis for a plot (filter/envelope only; baseline per module).
-void PlotAxes(Enc &e, int X, int module) {
-  const int px = X + kPlotDX, py = kModY + kPlotDY;
-  const int L = 14, T = 12;
-  const int B = (module == 1) ? kPlotH - 18 : kPlotH - 20;
-  e.HLine(px + L, py + B, (kPlotW - 14) - L, kC_Dim);
-  e.VLine(px + L, py + T, B - T, kC_Dim);
-}
-
-// ---- screen 0: signal flow ---------------------------------------------
-
-// The static chrome of the signal-flow screen. The four plots (slots 0-3) and
-// the output module's mode buttons (slot 4) are DYN — reserved here, drawn by
-// the consumer's hooks.
+// The static chrome of the edit screen: the background, the pane gutter, and
+// the four plot DYN slots (which share the one 900x404 band). Everything else
+// — the title, the pane contents, the column headers/values — is dynamic and
+// drawn per-frame by the panel's DrawEditChrome (it reads NavState).
 void EncodeSignal(Enc &e) {
-  static const char *const kLabels[4] = {"OSCILLATOR", "FILTER", "ENVELOPE",
-                                         "OUTPUT"};
-  static const char *const kModes[4] = {"POLYBLEP SAW", "TPT SVF LOWPASS",
-                                        "ADSR", nullptr};
-
   e.Rect(0, 0, kFrameW, kFrameH, kC_Bg);
 
-  TitleBar(e, "SIGNAL FLOW", "VOICE 01/16  NOMINAL");
+  // Pane gutter: the boundary between the navigator and the page.
+  e.VLine(geom::kPaneX + geom::kPaneW - 5, geom::kPaneY, geom::kPaneH, kC_Dim);
+  e.VLine(geom::kPaneX + geom::kPaneW - 4, geom::kPaneY, geom::kPaneH, kC_Dim);
 
-  for (int m = 0; m < 4; ++m) {
-    const int X = kPx0[m];
-    Brackets(e, X, kModY, kModW, kModH, kC_Mid);
-    BlockTail(e, X, kModY, kModW, kLabels[m]);
-    if (kModes[m]) {
-      e.Text(X + 6, kModY + 29, kF_Secondary, kC_Mid, kModes[m]);
-    }
-    e.HLine(X, kModY + 50, kModW, kC_Dim);
-    PlotFrame(e, X + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH);
-    if (m == 1 || m == 2) PlotAxes(e, X, m);
-    e.HLine(X, kModY + 298, kModW, kC_Dim);
-  }
-
-  // Keyboard.
-  e.HLine(kTitleX, kKeyY, kTitleW, kC_Dim);
-  static const char *const kKeys[13] = {"C", "C#", "D", "D#", "E", "F", "F#",
-                                        "G", "G#", "A", "A#", "B", "C"};
-  static const bool kBlack[13] = {false, true,  false, true,  false, false, true,
-                                  false, true,  false, true,  false, false};
-  for (int i = 0; i < 13; ++i) {
-    const int X = kTitleX + i * kKeyW;
-    if (kBlack[i]) e.Rect(X, kKeyY + 1, kKeyW, 54, kC_Dim);
-    const int tx = X + (kKeyW - TextW(spike::kPrimaryFont, kKeys[i])) / 2;
-    e.Text(tx, kKeyY + 19, kF_Primary, kBlack[i] ? kC_Bright : kC_Mid, kKeys[i]);
-  }
-  e.HLine(kTitleX, kKeyY + 56, kTitleW, kC_Dim);
-
-  NavBar(e, 0);
-  EncoderLegend(e, "ENC1 CUTOFF   ENC2 RES   ENC3 ENV AMT   ENC4 LEVEL");
-
-  // DYN slots: the four plots, then the output module's mode buttons.
+  // The four plots share the one plot band; the page's dyn_slot picks which
+  // hook draws. The mode slot (4) is reserved but unused by the edit screen.
   for (int m = 0; m < 4; ++m)
-    e.Dyn(m, kPx0[m] + kPlotDX, kModY + kPlotDY, kPlotW, kPlotH);
-  // SCOPE(46) + gap + CYCLE(46) + gap + SPEC(38) = 142 px of buttons.
-  e.Dyn(kSlotMode, kPx0[3] + 6, kModeY, 142, kModeH);
+    e.Dyn(m, geom::kPlotX, geom::kPlotY, geom::kPlotW, geom::kPlotH);
+  e.Dyn(kSlotMode, 0, 0, 0, 0);
 
   e.End();
 }

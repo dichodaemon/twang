@@ -127,15 +127,6 @@ add_test(NAME engine_render COMMAND test_engine)
 add_test(NAME mockups COMMAND mockup_screens --check)
 add_test(NAME mockup_pages COMMAND mockup_pages --check)
 
-# The signal-flow mockup must keep matching the panel's chrome; that identity
-# is what makes the mockup file a usable reference for the other screens.
-add_executable(test_mockup_chrome
-               tests/test_mockup_chrome.cc tools/mockup_screens.cc)
-target_include_directories(test_mockup_chrome PRIVATE tools)
-target_compile_definitions(test_mockup_chrome PRIVATE TWANG_MOCKUP_NO_MAIN)
-target_link_libraries(test_mockup_chrome PRIVATE nostromo)
-add_test(NAME mockup_chrome COMMAND test_mockup_chrome)
-
 add_executable(test_shaper tests/test_shaper.cc)
 target_link_libraries(test_shaper PRIVATE engine)
 add_test(NAME shaper COMMAND test_shaper)

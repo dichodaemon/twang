@@ -493,7 +493,7 @@ struct Screen {
 // point: they catch a primitive or atlas change silently altering the mockups,
 // and the mockups only have value while they predict the panel.
 constexpr Screen kScreens[4] = {
-    {"mockup_signal.png", mockup::DrawSignal, 0x1FC013D8u},
+    {"mockup_signal.png", mockup::DrawSignal, 0xE6B7D4F2u},
     {"mockup_matrix.png", mockup::DrawMatrix, 0x2987002Eu},
     {"mockup_patch.png", mockup::DrawPatch, 0xEC738A07u},
     {"mockup_save.png", mockup::DrawSave, 0x64E4DF78u},
