@@ -28,10 +28,10 @@ static float Peak(const std::vector<float> &buf) {
 
 // Standard part setup: fast attack so a note reaches full level quickly.
 static void SetupPart() {
-    EngineSetParamDisp(0, ParamId::kAttack, 0.01f);
-    EngineSetParamDisp(0, ParamId::kDecay, 0.2f);
-    EngineSetParam(0, ParamId::kSustain, 0.7f);
-    EngineSetParamDisp(0, ParamId::kRelease, 0.2f);
+    EngineSetParamDisp(0, ParamRef{0, ParamId::kAttack}, 0.01f);
+    EngineSetParamDisp(0, ParamRef{0, ParamId::kDecay}, 0.2f);
+    EngineSetParam(0, ParamRef{0, ParamId::kSustain}, 0.7f);
+    EngineSetParamDisp(0, ParamRef{0, ParamId::kRelease}, 0.2f);
 }
 
 int main() {
@@ -83,7 +83,7 @@ int main() {
         EngineInit(); SetupPart(); EngineNoteOn(0, 440.0f, 127);
         Render(a.data(), kN);
         EngineInit(); SetupPart();
-        EngineSetRoute(0, 5, ModSourceId::kConstant, ParamId::kDrive, 0.0f);
+        EngineSetRoute(0, 5, ModSourceId::kConstant, ParamRef{0, ParamId::kDrive}, 0.0f);
         EngineNoteOn(0, 440.0f, 127);
         Render(b.data(), kN);
         bool identical = true;
@@ -97,7 +97,7 @@ int main() {
         std::vector<float> dry(kN), wet(kN);
         EngineInit(); SetupPart(); EngineNoteOn(0, 440.0f, 127);
         Render(dry.data(), kN);
-        EngineInit(); SetupPart(); EngineSetParam(0, ParamId::kDrive, 1.0f);
+        EngineInit(); SetupPart(); EngineSetParam(0, ParamRef{0, ParamId::kDrive}, 1.0f);
         EngineNoteOn(0, 440.0f, 127);
         Render(wet.data(), kN);
         bool differs = false;
@@ -109,7 +109,7 @@ int main() {
     /* Bus protection: 24 coherent voices drive the bus over the rail; the
      * output stays in [-1,1] and the meter reads > 1 (pre-saturator). */
     {
-        EngineInit(); SetupPart(); EngineSetParam(0, ParamId::kSustain, 1.0f);
+        EngineInit(); SetupPart(); EngineSetParam(0, ParamRef{0, ParamId::kSustain}, 1.0f);
         for (int i = 0; i < kNumVoices; ++i) EngineNoteOn(0, 440.0f, 127);
         std::vector<float> buf(kN);
         Render(buf.data(), kN);
@@ -125,10 +125,10 @@ int main() {
      * the rail (headroom is on the bus, not the level). */
     {
         std::vector<float> buf(kN);
-        EngineInit(); SetupPart(); EngineSetParam(0, ParamId::kAmp, 0.25f);
+        EngineInit(); SetupPart(); EngineSetParam(0, ParamRef{0, ParamId::kAmp}, 0.25f);
         EngineNoteOn(0, 440.0f, 127);
         Render(buf.data(), kN); const float p025 = Peak(buf);
-        EngineInit(); SetupPart(); EngineSetParam(0, ParamId::kAmp, 1.0f);
+        EngineInit(); SetupPart(); EngineSetParam(0, ParamRef{0, ParamId::kAmp}, 1.0f);
         EngineNoteOn(0, 440.0f, 127);
         Render(buf.data(), kN); const float p100 = Peak(buf);
         const float ratio = p100 / p025;
@@ -140,7 +140,7 @@ int main() {
     {
         EngineInit(); SetupPart();
         for (int i = 0; i < kNumVoices; ++i) EngineNoteOn(0, 440.0f + i, 127);
-        EngineSetParam(0, ParamId::kDrive, 1.0f);    // discontinuous enable
+        EngineSetParam(0, ParamRef{0, ParamId::kDrive}, 1.0f);    // discontinuous enable
         EngineNoteOn(0, 440.0f + kNumVoices, 127);   // 25th note -> steal
         std::vector<float> buf(kN);
         Render(buf.data(), kN);

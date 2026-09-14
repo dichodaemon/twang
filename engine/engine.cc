@@ -171,7 +171,7 @@ constexpr float kStealTime = 0.005f;  // 5 ms
 // decay time is zero (instant).
 void EnterDecay(Voice *v, const Part *p) {
     v->env = 1.0f;
-    float decay_s = ParamGetDisp(p, ParamId::kDecay);
+    float decay_s = ParamGetDisp(p, ParamRef{0, ParamId::kDecay});
     if (decay_s <= 0.0f) {
         v->env = p->params[static_cast<std::size_t>(ParamId::kSustain)];
         v->stage = Voice::Stage::kSustain;
@@ -239,7 +239,7 @@ void StartNote(Voice *v, float freq_hz, float velocity, const Part *p) {
     v->shaper.Fp = 0.0f;
     v->last_env_cutoff = -1.0f;  // sentinel: force the coefficient recompute
 
-    float attack_s = ParamGetDisp(p, ParamId::kAttack);
+    float attack_s = ParamGetDisp(p, ParamRef{0, ParamId::kAttack});
     if (attack_s <= 0.0f) {
         EnterDecay(v, p);  // instant attack
     } else {
@@ -252,7 +252,7 @@ void StartNote(Voice *v, float freq_hz, float velocity, const Part *p) {
 void ReleaseNote(Voice *v, const Part *p) {
     if (v->stage == Voice::Stage::kIdle) return;
     v->gate = 0.0f;
-    float release_s = ParamGetDisp(p, ParamId::kRelease);
+    float release_s = ParamGetDisp(p, ParamRef{0, ParamId::kRelease});
     if (release_s <= 0.0f) {
         v->env = 0.0f;
         v->stage = Voice::Stage::kIdle;
@@ -327,7 +327,7 @@ void RenderBlock(float *out, int frames) {
                 for (int slot = 0; slot < kModSlots; ++slot) {
                     const ModRoute &r = g_parts[p].routes[slot];
                     if (r.source != ModSourceId::kNone &&
-                        r.destination == ParamId::kDrive) {
+                        r.dst.id == ParamId::kDrive) {
                         in_use = true;
                         break;
                     }
@@ -381,7 +381,7 @@ void RenderBlock(float *out, int frames) {
                 // (arch-design §5.3); the switch only selects which accumulator
                 // a destination folds into.
                 float *acc;
-                switch (r.destination) {
+                switch (r.dst.id) {
                 case ParamId::kAmp:         acc = &amp_eff; break;
                 case ParamId::kCutoff:      acc = &cutoff_eff; break;
                 case ParamId::kPitchCoarse: acc = &pitch_route; break;
@@ -389,7 +389,7 @@ void RenderBlock(float *out, int frames) {
                 default:                    continue;  // deferred destination
                 }
 
-                switch (g_params[static_cast<std::size_t>(r.destination)].comb) {
+                switch (g_params[static_cast<std::size_t>(r.dst.id)].comb) {
                 case CombinationClass::kMultiplicative: {
                     // A unipolar source attenuates (x(1 + amount*(src-1))), a
                     // bipolar source tremolos around the base (x(1 + amount*src)).
@@ -535,11 +535,11 @@ void EngineInit() {
     // amount is a seed only — key-follow depth is read from the named
     // Part::key_follow_depth field, not this route's amount.
     for (int p = 0; p < kNumParts; ++p) {
-        EngineSetRoute(p, 0, ModSourceId::kVelocity, ParamId::kAmp, 1.0f);
-        EngineSetRoute(p, 1, ModSourceId::kEnv0, ParamId::kAmp, 1.0f);
-        EngineSetRoute(p, 2, ModSourceId::kEnv1, ParamId::kCutoff, 0.0f);
-        EngineSetRoute(p, 3, ModSourceId::kNote, ParamId::kCutoff, 0.5f);
-        EngineSetRoute(p, 4, ModSourceId::kPitchBend, ParamId::kPitchCoarse, 0.0f);
+        EngineSetRoute(p, 0, ModSourceId::kVelocity, ParamRef{0, ParamId::kAmp}, 1.0f);
+        EngineSetRoute(p, 1, ModSourceId::kEnv0, ParamRef{0, ParamId::kAmp}, 1.0f);
+        EngineSetRoute(p, 2, ModSourceId::kEnv1, ParamRef{0, ParamId::kCutoff}, 0.0f);
+        EngineSetRoute(p, 3, ModSourceId::kNote, ParamRef{0, ParamId::kCutoff}, 0.5f);
+        EngineSetRoute(p, 4, ModSourceId::kPitchBend, ParamRef{0, ParamId::kPitchCoarse}, 0.0f);
     }
     g_param_block.Commit(g_parts);
 }
@@ -564,41 +564,33 @@ void EngineNoteOff(int part, float freq_hz) {
     EngineEventsPending();
 }
 
-void EngineSetParam(int part, ParamId id, float norm) {
+void EngineSetParam(int part, ParamRef ref, float norm) {
     if (part < 0 || part >= kNumParts) return;
-    g_param_block.Set(part, id, norm);
+    g_param_block.Set(part, ref, norm);
     if (!g_batching) g_param_block.Flush();
 }
 
-void EngineSetParamDisp(int part, ParamId id, float disp) {
+void EngineSetParamDisp(int part, ParamRef ref, float disp) {
     if (part < 0 || part >= kNumParts) return;
     g_param_block.Set(
-        part, id,
-        ParamDispToNorm(&g_params[static_cast<std::size_t>(id)], disp));
+        part, ref,
+        ParamDispToNorm(&g_params[static_cast<std::size_t>(ref.id)], disp));
     if (!g_batching) g_param_block.Flush();
 }
 
-float EngineGetParam(int part, ParamId id) {
+float EngineGetParam(int part, ParamRef ref) {
     if (part < 0 || part >= kNumParts) return 0.0f;
-    return g_param_block.Get(part, id);
+    return g_param_block.Get(part, ref);
 }
 
-bool EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
+bool EngineSetRoute(int part, int slot, ModSourceId src, ParamRef dst,
                     float amount) {
     if (part < 0 || part >= kNumParts) return false;
     if (slot < 0 || slot >= kModSlots) return false;
-    // dst must be a destination the matrix folds. Named fields
-    // (kKeyFollowDepth), performance inputs (kPitchBend), and kCount are not
-    // destinations; reject them so a stored route can never silently do nothing.
-    switch (dst) {
-    case ParamId::kCutoff:
-    case ParamId::kAmp:
-    case ParamId::kPitchCoarse:
-    case ParamId::kDrive:
-        break;
-    default:
-        return false;
-    }
+    // dst must name a modulatable parameter. Named fields (kKeyFollowDepth),
+    // performance inputs (kPitchBend), and kCount are not destinations; reject
+    // them so a stored route can never silently do nothing.
+    if (!g_params[static_cast<std::size_t>(dst.id)].modulatable) return false;
     g_param_block.SetRoute(part, slot, src, dst, amount);
     if (!g_batching) g_param_block.Flush();
     return true;

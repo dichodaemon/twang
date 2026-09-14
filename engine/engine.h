@@ -50,6 +50,19 @@ enum class ParamId : std::uint8_t {
     kCount,            ///< Parameter count (not a parameter).
 };
 
+/// A fully-qualified parameter address: the module instance and the parameter
+/// kind. `ParamId` names a kind; the instance disambiguates per-module
+/// occurrences (osc 0-3, env 0-2, lfo 0-2). Single-instance modules use 0.
+///
+/// Packs to 16 bits; this size is part of the persisted route-destination
+/// format (`ModRoute.dst`), so it is asserted, not assumed.
+struct ParamRef {
+    std::uint8_t instance;  ///< 0 for single-instance modules
+    ParamId      id;        ///< parameter kind
+};
+static_assert(sizeof(ParamRef) == 2,
+              "ParamRef must stay 16-bit: it is the persisted route format");
+
 /// How a destination combines its base value with accumulated modulation.
 enum class CombinationClass : std::uint8_t {
     kAdditive,        ///< base + sum(amount*source).
@@ -100,8 +113,8 @@ inline constexpr bool kSourceBipolar[] = {
 /// One source->destination modulation route with a signed amount.
 struct ModRoute {
     ModSourceId source = ModSourceId::kNone;  ///< kNone == empty slot.
-    ParamId destination;                      ///< valid only when source != kNone.
-    float amount = 0.0f;                      ///< signed; 0 == "present but silent".
+    ParamRef dst;                              ///< destination; valid only when source != kNone.
+    float amount = 0.0f;                       ///< signed; 0 == "present but silent".
 };
 
 /// Number of modulation route slots per part.
@@ -241,33 +254,33 @@ void EngineNoteOff(int part, float freq_hz);
 
 /// @brief Set a parameter's normalized value for a part (control thread).
 /// @param part Part index in [0, kNumParts).
-/// @param id Parameter identifier.
+/// @param ref Parameter address ({instance, id}).
 /// @param norm Value in [0, 1].
-void EngineSetParam(int part, ParamId id, float norm);
+void EngineSetParam(int part, ParamRef ref, float norm);
 
 /// @brief Set a parameter from display units for a part (control thread).
 /// @param part Part index in [0, kNumParts).
-/// @param id Parameter identifier.
+/// @param ref Parameter address ({instance, id}).
 /// @param disp Display value.
-void EngineSetParamDisp(int part, ParamId id, float disp);
+void EngineSetParamDisp(int part, ParamRef ref, float disp);
 
 /// @brief Read a parameter's current normalized value for a part (control
 /// thread).
 /// @param part Part index in [0, kNumParts).
-/// @param id Parameter identifier.
+/// @param ref Parameter address ({instance, id}).
 /// @return Value in [0, 1].
-float EngineGetParam(int part, ParamId id);
+float EngineGetParam(int part, ParamRef ref);
 
 /// @brief Set one modulation route for a part (control thread).
 /// @param part Part index in [0, kNumParts).
 /// @param slot Route slot in [0, kModSlots).
 /// @param src Modulation source; kNone clears the slot.
-/// @param dst Destination parameter (kCutoff, kAmp, kPitchCoarse, kDrive).
+/// @param dst Destination address (a modulatable parameter).
 /// @param amount Signed normalized amount in [-1, 1] (key follow [0, 1]).
-/// @return true if applied; false if rejected (invalid part/slot or an
-///         unimplemented destination) so the UI can grey out unavailable
+/// @return true if applied; false if rejected (invalid part/slot or a
+///         non-modulatable destination) so the UI can grey out unavailable
 ///         destinations.
-bool EngineSetRoute(int part, int slot, ModSourceId src, ParamId dst,
+bool EngineSetRoute(int part, int slot, ModSourceId src, ParamRef dst,
                     float amount);
 
 /// @brief Begin a batched update (control thread).

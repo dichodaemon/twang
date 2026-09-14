@@ -948,8 +948,8 @@ void ApplyFilterDrag(int x, int y, int w, int h) {
   const float cutoff = Clamp01(static_cast<float>(x - L) / static_cast<float>(R - L));
   const float db = kDbTop - static_cast<float>(y - T) / static_cast<float>(B - T) * (kDbTop - kDbBot);
   const float resonance = Clamp01(DbToRes(db));
-  engine::EngineSetParam(0, engine::ParamId::kCutoff, cutoff);
-  engine::EngineSetParam(0, engine::ParamId::kResonance, resonance);
+  engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kCutoff}, cutoff);
+  engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kResonance}, resonance);
 }
 
 int HitTestEnv(int x, int y, int w, int h, const Panel &p) {
@@ -973,19 +973,19 @@ void ApplyEnvDrag(Panel *p, int handle, int x, int y, int w, int h) {
   const int L = 14, R = w - 14, T = 12, B = h - 20;
   const int W = R - L, H = B - T;
   if (handle == 0) {
-    engine::EngineSetParam(0, engine::ParamId::kAttack,
+    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kAttack},
         Clamp01(static_cast<float>(x - L) / (0.25f * W)));
   } else if (handle == 1) {
     const int xA = L + static_cast<int>(p->attack * 0.25f * W);
-    engine::EngineSetParam(0, engine::ParamId::kDecay,
+    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kDecay},
         Clamp01(static_cast<float>(x - xA) / (0.25f * W)));
-    engine::EngineSetParam(0, engine::ParamId::kSustain,
+    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kSustain},
         Clamp01(1.0f - static_cast<float>(y - T) / H));
   } else {
     const int xH = L + static_cast<int>(p->attack * 0.25f * W) +
                    static_cast<int>(p->decay * 0.25f * W) +
                    static_cast<int>(0.20f * W);
-    engine::EngineSetParam(0, engine::ParamId::kRelease,
+    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kRelease},
         Clamp01(static_cast<float>(x - xH) / (0.30f * W)));
   }
 }
@@ -995,12 +995,12 @@ void ApplyEnvDrag(Panel *p, int handle, int x, int y, int w, int h) {
 // any future input source write the engine directly, so the panel watches for
 // changes rather than being pushed (the drag paths are covered too).
 void SyncFromEngine(Panel *p) {
-  const float cutoff = engine::EngineGetParam(0, engine::ParamId::kCutoff);
-  const float resonance = engine::EngineGetParam(0, engine::ParamId::kResonance);
-  const float attack = engine::EngineGetParam(0, engine::ParamId::kAttack);
-  const float decay = engine::EngineGetParam(0, engine::ParamId::kDecay);
-  const float sustain = engine::EngineGetParam(0, engine::ParamId::kSustain);
-  const float release = engine::EngineGetParam(0, engine::ParamId::kRelease);
+  const float cutoff = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kCutoff});
+  const float resonance = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kResonance});
+  const float attack = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kAttack});
+  const float decay = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kDecay});
+  const float sustain = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kSustain});
+  const float release = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kRelease});
 
   if (cutoff != p->cutoff || resonance != p->resonance) {
     p->cutoff = cutoff;

@@ -28,41 +28,41 @@ int main() {
     }
 
     /* clamping */
-    ParamSet(&p, ParamId::kCutoff, 9.0f);
-    Check(ParamGet(&p, ParamId::kCutoff) == 1.0f, "clamp high to 1");
-    ParamSet(&p, ParamId::kCutoff, -9.0f);
-    Check(ParamGet(&p, ParamId::kCutoff) == 0.0f, "clamp low to 0");
+    ParamSet(&p, ParamRef{0, ParamId::kCutoff}, 9.0f);
+    Check(ParamGet(&p, ParamRef{0, ParamId::kCutoff}) == 1.0f, "clamp high to 1");
+    ParamSet(&p, ParamRef{0, ParamId::kCutoff}, -9.0f);
+    Check(ParamGet(&p, ParamRef{0, ParamId::kCutoff}) == 0.0f, "clamp low to 0");
 
     /* NaN must not poison a parameter (regression: resonance NaN killed the
      * filter state and silenced the engine until restart). */
-    ParamSet(&p, ParamId::kResonance, std::nanf(""));
-    Check(ParamGet(&p, ParamId::kResonance) == 0.0f, "NaN clamps to 0");
+    ParamSet(&p, ParamRef{0, ParamId::kResonance}, std::nanf(""));
+    Check(ParamGet(&p, ParamRef{0, ParamId::kResonance}) == 0.0f, "NaN clamps to 0");
 
     /* exponential-from-zero curve: 0 -> 0 s, 1 -> 10 s */
-    ParamSet(&p, ParamId::kAttack, 0.0f);
-    Check(ParamGetDisp(&p, ParamId::kAttack) == 0.0f, "attack 0 -> 0 s");
-    ParamSet(&p, ParamId::kAttack, 1.0f);
-    Check(std::fabs(ParamGetDisp(&p, ParamId::kAttack) - 10.0f) < 1e-3f,
+    ParamSet(&p, ParamRef{0, ParamId::kAttack}, 0.0f);
+    Check(ParamGetDisp(&p, ParamRef{0, ParamId::kAttack}) == 0.0f, "attack 0 -> 0 s");
+    ParamSet(&p, ParamRef{0, ParamId::kAttack}, 1.0f);
+    Check(std::fabs(ParamGetDisp(&p, ParamRef{0, ParamId::kAttack}) - 10.0f) < 1e-3f,
           "attack 1 -> 10 s");
 
     /* display -> normalized round-trip */
-    ParamSetDisp(&p, ParamId::kAttack, 0.1f);
-    Check(std::fabs(ParamGetDisp(&p, ParamId::kAttack) - 0.1f) < 1e-3f,
+    ParamSetDisp(&p, ParamRef{0, ParamId::kAttack}, 0.1f);
+    Check(std::fabs(ParamGetDisp(&p, ParamRef{0, ParamId::kAttack}) - 0.1f) < 1e-3f,
           "attack 0.1 s round-trip");
 
     /* linear curve: sustain 0.6 -> 60 % */
-    ParamSet(&p, ParamId::kSustain, 0.6f);
-    Check(std::fabs(ParamGetDisp(&p, ParamId::kSustain) - 60.0f) < 1e-3f,
+    ParamSet(&p, ParamRef{0, ParamId::kSustain}, 0.6f);
+    Check(std::fabs(ParamGetDisp(&p, ParamRef{0, ParamId::kSustain}) - 60.0f) < 1e-3f,
           "sustain norm 0.6 -> 60 %");
 
     /* cutoff display: norm 1.0 -> 20 kHz */
-    ParamSet(&p, ParamId::kCutoff, 1.0f);
-    Check(std::fabs(ParamGetDisp(&p, ParamId::kCutoff) - 20000.0f) < 0.5f,
+    ParamSet(&p, ParamRef{0, ParamId::kCutoff}, 1.0f);
+    Check(std::fabs(ParamGetDisp(&p, ParamRef{0, ParamId::kCutoff}) - 20000.0f) < 0.5f,
           "cutoff norm 1.0 -> 20000 Hz");
 
     /* format produces a non-empty string */
     char buf[64];
-    ParamFormat(&p, ParamId::kCutoff, buf, sizeof(buf));
+    ParamFormat(&p, ParamRef{0, ParamId::kCutoff}, buf, sizeof(buf));
     Check(buf[0] != '\0', "ParamFormat non-empty");
 
     /* phase-1 matrix params: combination class + default */
@@ -76,9 +76,15 @@ int main() {
           "drive class additive");
     Check(g_params[static_cast<std::size_t>(ParamId::kDrive)].def == 0.0f,
           "drive def 0");
-    Check(g_params[static_cast<std::size_t>(ParamId::kDrive)].offset ==
+    Check(g_params[static_cast<std::size_t>(ParamId::kDrive)].base ==
               offsetof(Part, params) + 9 * sizeof(float),
-          "drive offset == params index 9");
+          "drive base == params index 9");
+    Check(g_params[static_cast<std::size_t>(ParamId::kDrive)].stride == 0,
+          "drive stride 0 (single-instance)");
+    Check(g_params[static_cast<std::size_t>(ParamId::kDrive)].modulatable,
+          "drive is modulatable");
+    Check(!g_params[static_cast<std::size_t>(ParamId::kResonance)].modulatable,
+          "resonance is not yet modulatable");
     Check(g_params[static_cast<std::size_t>(ParamId::kPitchCoarse)].comb ==
               CombinationClass::kExponential,
           "pitch_coarse class exponential");

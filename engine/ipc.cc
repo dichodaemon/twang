@@ -26,12 +26,12 @@ void EventRing::Reset() {
     tail_.store(0, std::memory_order_relaxed);
 }
 
-void ParamBlock::Set(int part, ParamId id, float norm) {
-    ParamSet(&pending_[part], id, norm);
+void ParamBlock::Set(int part, ParamRef ref, float norm) {
+    ParamSet(&pending_[part], ref, norm);
     dirty_ = true;
 }
 
-void ParamBlock::SetRoute(int part, int slot, ModSourceId src, ParamId dst,
+void ParamBlock::SetRoute(int part, int slot, ModSourceId src, ParamRef dst,
                           float amount) {
     pending_[part].routes[slot] = {src, dst, amount};
     dirty_ = true;
@@ -78,7 +78,8 @@ void ParamBlock::Reset(const ParamDesc *table) {
     for (int p = 0; p < kNumParts; ++p) {
         pending_[p] = Part{};
         for (int i = 0; i < static_cast<int>(ParamId::kCount); ++i)
-            ParamSet(&pending_[p], static_cast<ParamId>(i), table[i].def);
+            ParamSet(&pending_[p], ParamRef{0, static_cast<ParamId>(i)},
+                     table[i].def);
     }
     for (int p = 0; p < kNumParts; ++p) {
         buf_[0][p] = pending_[p];

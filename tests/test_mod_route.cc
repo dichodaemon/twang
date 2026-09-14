@@ -20,10 +20,10 @@ static void Check(bool ok, const char *msg) {
 // render reaches a steady sawtooth with no transient, for deterministic
 // frequency / amplitude measurements.
 static void FlatEnvelope() {
-    EngineSetParamDisp(0, ParamId::kAttack, 0.0f);
-    EngineSetParamDisp(0, ParamId::kDecay, 0.0f);
-    EngineSetParam(0, ParamId::kSustain, 1.0f);
-    EngineSetParamDisp(0, ParamId::kRelease, 0.0f);
+    EngineSetParamDisp(0, ParamRef{0, ParamId::kAttack}, 0.0f);
+    EngineSetParamDisp(0, ParamRef{0, ParamId::kDecay}, 0.0f);
+    EngineSetParam(0, ParamRef{0, ParamId::kSustain}, 1.0f);
+    EngineSetParamDisp(0, ParamRef{0, ParamId::kRelease}, 0.0f);
 }
 
 // Queue one note and render `samples` frames. The engine must already be
@@ -88,12 +88,12 @@ int main() {
 
         EngineInit();
         FlatEnvelope();
-        EngineSetRoute(0, 5, ModSourceId::kEnv0, ParamId::kCutoff, 0.0f);
+        EngineSetRoute(0, 5, ModSourceId::kEnv0, ParamRef{0, ParamId::kCutoff}, 0.0f);
         std::vector<float> zero = RenderNote(kDur, 440.0f, 127);
 
         EngineInit();
         FlatEnvelope();
-        EngineSetRoute(0, 5, ModSourceId::kNone, ParamId::kCutoff, 0.0f);
+        EngineSetRoute(0, 5, ModSourceId::kNone, ParamRef{0, ParamId::kCutoff}, 0.0f);
         std::vector<float> empty = RenderNote(kDur, 440.0f, 127);
 
         Check(base == zero, "zero-amount route contributes nothing");
@@ -108,14 +108,14 @@ int main() {
         float rms0, rms1;
         EngineInit();
         FlatEnvelope();
-        EngineSetParam(0, ParamId::kCutoff, 0.25f);
-        EngineSetParam(0, ParamId::kKeyFollowDepth, 0.0f);
+        EngineSetParam(0, ParamRef{0, ParamId::kCutoff}, 0.25f);
+        EngineSetParam(0, ParamRef{0, ParamId::kKeyFollowDepth}, 0.0f);
         rms0 = Rms(RenderNote(kDur, 523.2511f, 127));
 
         EngineInit();
         FlatEnvelope();
-        EngineSetParam(0, ParamId::kCutoff, 0.25f);
-        EngineSetParam(0, ParamId::kKeyFollowDepth, 1.0f);
+        EngineSetParam(0, ParamRef{0, ParamId::kCutoff}, 0.25f);
+        EngineSetParam(0, ParamRef{0, ParamId::kKeyFollowDepth}, 1.0f);
         rms1 = Rms(RenderNote(kDur, 523.2511f, 127));
 
         Check(rms1 > rms0 * 1.5f,
@@ -129,25 +129,25 @@ int main() {
 
         EngineInit();
         FlatEnvelope();
-        EngineSetParam(0, ParamId::kPitchBend, 1.0f);  // full bend up
+        EngineSetParam(0, ParamRef{0, ParamId::kPitchBend}, 1.0f);  // full bend up
         f = ZeroCrossFreq(RenderNote(kDur, 440.0f, 127));
         Check(std::fabs(f - 440.0f) < 2.0f,
               "pitchbend amount 0: full bend changes nothing");
 
         EngineInit();
         FlatEnvelope();
-        EngineSetRoute(0, 4, ModSourceId::kPitchBend, ParamId::kPitchCoarse,
+        EngineSetRoute(0, 4, ModSourceId::kPitchBend, ParamRef{0, ParamId::kPitchCoarse},
                        2.0f);
-        EngineSetParam(0, ParamId::kPitchBend, 1.0f);
+        EngineSetParam(0, ParamRef{0, ParamId::kPitchBend}, 1.0f);
         f = ZeroCrossFreq(RenderNote(kDur, 440.0f, 127));
         Check(std::fabs(f - 493.88f) < 3.0f,
               "pitchbend amount 2: full bend +2 semitones");
 
         EngineInit();
         FlatEnvelope();
-        EngineSetRoute(0, 4, ModSourceId::kPitchBend, ParamId::kPitchCoarse,
+        EngineSetRoute(0, 4, ModSourceId::kPitchBend, ParamRef{0, ParamId::kPitchCoarse},
                        2.0f);
-        EngineSetParam(0, ParamId::kPitchBend, 0.0f);
+        EngineSetParam(0, ParamRef{0, ParamId::kPitchBend}, 0.0f);
         f = ZeroCrossFreq(RenderNote(kDur, 440.0f, 127));
         Check(std::fabs(f - 392.0f) < 3.0f,
               "pitchbend amount 2: full bend -2 semitones");
@@ -167,7 +167,7 @@ int main() {
 
         EngineInit();
         FlatEnvelope();
-        EngineSetRoute(0, 5, ModSourceId::kEnv0, ParamId::kAmp, 0.0f);
+        EngineSetRoute(0, 5, ModSourceId::kEnv0, ParamRef{0, ParamId::kAmp}, 0.0f);
         std::vector<float> zero = RenderNote(kDur, 440.0f, 127);
 
         Check(base == zero, "zero-amount amp route is neutral (bit-exact)");
@@ -180,14 +180,14 @@ int main() {
     {
         EngineInit();
         FlatEnvelope();
-        EngineSetRoute(0, 5, ModSourceId::kPitchBend, ParamId::kAmp, 1.0f);
-        EngineSetParam(0, ParamId::kPitchBend, 0.5f);  // center: src = 0
+        EngineSetRoute(0, 5, ModSourceId::kPitchBend, ParamRef{0, ParamId::kAmp}, 1.0f);
+        EngineSetParam(0, ParamRef{0, ParamId::kPitchBend}, 0.5f);  // center: src = 0
         std::vector<float> center = RenderNote(kDur, 440.0f, 127);
 
         EngineInit();
         FlatEnvelope();
-        EngineSetRoute(0, 5, ModSourceId::kPitchBend, ParamId::kAmp, 1.0f);
-        EngineSetParam(0, ParamId::kPitchBend, 1.0f);  // full up: src = +1
+        EngineSetRoute(0, 5, ModSourceId::kPitchBend, ParamRef{0, ParamId::kAmp}, 1.0f);
+        EngineSetParam(0, ParamRef{0, ParamId::kPitchBend}, 1.0f);  // full up: src = +1
         std::vector<float> up = RenderNote(kDur, 440.0f, 127);
 
         EngineInit();

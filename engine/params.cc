@@ -8,47 +8,48 @@ namespace engine {
 constexpr ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)] = {
     [static_cast<std::size_t>(ParamId::kCutoff)] =
         { "cutoff", "Hz", 20.0f, 20000.0f, 1.0f, ParamCurve::kExponential,
-          offsetof(Part, params) + 0 * sizeof(float),
+          offsetof(Part, params) + 0 * sizeof(float), 0, true,
           CombinationClass::kAdditive },
     [static_cast<std::size_t>(ParamId::kResonance)] =
         { "resonance", "%", 0.0f, 100.0f, 0.0f, ParamCurve::kLinear,
-          offsetof(Part, params) + 1 * sizeof(float),
+          offsetof(Part, params) + 1 * sizeof(float), 0, false,
           CombinationClass::kAdditive },
     [static_cast<std::size_t>(ParamId::kAttack)] =
         { "attack", "s", 0.0f, 10.0f, 0.25f, ParamCurve::kExponential,
-          offsetof(Part, params) + 2 * sizeof(float),
+          offsetof(Part, params) + 2 * sizeof(float), 0, false,
           CombinationClass::kExponential },
     [static_cast<std::size_t>(ParamId::kDecay)] =
         { "decay", "s", 0.0f, 10.0f, 0.6f, ParamCurve::kExponential,
-          offsetof(Part, params) + 3 * sizeof(float),
+          offsetof(Part, params) + 3 * sizeof(float), 0, false,
           CombinationClass::kExponential },
     [static_cast<std::size_t>(ParamId::kSustain)] =
         { "sustain", "%", 0.0f, 100.0f, 0.7f, ParamCurve::kLinear,
-          offsetof(Part, params) + 4 * sizeof(float),
+          offsetof(Part, params) + 4 * sizeof(float), 0, false,
           CombinationClass::kMultiplicative },
     [static_cast<std::size_t>(ParamId::kRelease)] =
         { "release", "s", 0.0f, 10.0f, 0.6f, ParamCurve::kExponential,
-          offsetof(Part, params) + 5 * sizeof(float),
+          offsetof(Part, params) + 5 * sizeof(float), 0, false,
           CombinationClass::kExponential },
     [static_cast<std::size_t>(ParamId::kAmp)] =
         { "amp", "%", 0.0f, 100.0f, 1.0f, ParamCurve::kLinear,
-          offsetof(Part, params) + 6 * sizeof(float),
+          offsetof(Part, params) + 6 * sizeof(float), 0, true,
           CombinationClass::kMultiplicative },
     [static_cast<std::size_t>(ParamId::kPitchCoarse)] =
         { "pitch_coarse", "semi", -24.0f, 24.0f, 0.5f, ParamCurve::kLinear,
-          offsetof(Part, params) + 7 * sizeof(float),
+          offsetof(Part, params) + 7 * sizeof(float), 0, true,
           CombinationClass::kExponential },
     [static_cast<std::size_t>(ParamId::kPitchBend)] =
         { "pitchbend", "%", 0.0f, 100.0f, 0.5f, ParamCurve::kLinear,
-          offsetof(Part, params) + 8 * sizeof(float),
+          offsetof(Part, params) + 8 * sizeof(float), 0, false,
           CombinationClass::kAdditive },
     [static_cast<std::size_t>(ParamId::kDrive)] =
         { "drive", "dB", 0.0f, 20.0f, 0.0f, ParamCurve::kExponential,
-          offsetof(Part, params) + 9 * sizeof(float),
+          offsetof(Part, params) + 9 * sizeof(float), 0, true,
           CombinationClass::kAdditive },
     [static_cast<std::size_t>(ParamId::kKeyFollowDepth)] =
         { "key_follow", "%", 0.0f, 100.0f, 0.5f, ParamCurve::kLinear,
-          offsetof(Part, key_follow_depth), CombinationClass::kAdditive },
+          offsetof(Part, key_follow_depth), 0, false,
+          CombinationClass::kAdditive },
 };
 
 int ParamCount() { return static_cast<int>(ParamId::kCount); }
@@ -85,35 +86,37 @@ float ParamDispToNorm(const ParamDesc *p, float disp) {
     return (disp - p->disp_min) / (p->disp_max - p->disp_min);
 }
 
-float ParamGet(const Part *p, ParamId id) {
-    const ParamDesc &desc = g_params[static_cast<std::size_t>(id)];
-    const auto *base = reinterpret_cast<const std::byte *>(p);
-    return *reinterpret_cast<const float *>(base + desc.offset);
+float ParamGet(const Part *p, ParamRef ref) {
+    const ParamDesc &desc = g_params[static_cast<std::size_t>(ref.id)];
+    const auto *bytes = reinterpret_cast<const std::byte *>(p);
+    return *reinterpret_cast<const float *>(
+        bytes + desc.base + ref.instance * desc.stride);
 }
 
-void ParamSet(Part *p, ParamId id, float norm) {
+void ParamSet(Part *p, ParamRef ref, float norm) {
     // `!(norm >= 0)` is true for negative AND NaN; both map to 0 so a NaN
     // parameter can never poison the voice (e.g. filter state).
     if (!(norm >= 0.0f)) norm = 0.0f;
     else if (norm > 1.0f) norm = 1.0f;
-    const ParamDesc &desc = g_params[static_cast<std::size_t>(id)];
-    auto *base = reinterpret_cast<std::byte *>(p);
-    *reinterpret_cast<float *>(base + desc.offset) = norm;
+    const ParamDesc &desc = g_params[static_cast<std::size_t>(ref.id)];
+    auto *bytes = reinterpret_cast<std::byte *>(p);
+    *reinterpret_cast<float *>(bytes + desc.base + ref.instance * desc.stride) =
+        norm;
 }
 
-float ParamGetDisp(const Part *p, ParamId id) {
-    return ParamNormToDisp(&g_params[static_cast<std::size_t>(id)],
-                           ParamGet(p, id));
+float ParamGetDisp(const Part *p, ParamRef ref) {
+    return ParamNormToDisp(&g_params[static_cast<std::size_t>(ref.id)],
+                           ParamGet(p, ref));
 }
 
-void ParamSetDisp(Part *p, ParamId id, float disp) {
-    ParamSet(p, id,
-             ParamDispToNorm(&g_params[static_cast<std::size_t>(id)], disp));
+void ParamSetDisp(Part *p, ParamRef ref, float disp) {
+    ParamSet(p, ref,
+             ParamDispToNorm(&g_params[static_cast<std::size_t>(ref.id)], disp));
 }
 
-int ParamFormat(const Part *p, ParamId id, char *buf, std::size_t n) {
-    return std::snprintf(buf, n, "%.3g %s", ParamGetDisp(p, id),
-                         ParamUnit(id));
+int ParamFormat(const Part *p, ParamRef ref, char *buf, std::size_t n) {
+    return std::snprintf(buf, n, "%.3g %s", ParamGetDisp(p, ref),
+                         ParamUnit(ref.id));
 }
 
 }  // namespace engine

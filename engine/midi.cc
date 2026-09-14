@@ -39,16 +39,16 @@ void MidiCc(const MidiLayout &layout, int part, std::uint8_t cc,
     if (!b) return;
 
     if (b->mode == static_cast<std::uint8_t>(MidiMode::kAbsolute)) {
-        EngineSetParam(part, b->param, static_cast<float>(value) / 127.0f);
+        EngineSetParam(part, ParamRef{0, b->param}, static_cast<float>(value) / 127.0f);
     } else {
         // Two's-complement delta: 0..63 positive, 64..127 negative.
         const float delta = (value < 64)
                                 ? static_cast<float>(value)
                                 : static_cast<float>(value) - 128.0f;
-        float cur = EngineGetParam(part, b->param) + delta * layout.rel_step;
+        float cur = EngineGetParam(part, ParamRef{0, b->param}) + delta * layout.rel_step;
         if (cur < 0.0f) cur = 0.0f;
         if (cur > 1.0f) cur = 1.0f;
-        EngineSetParam(part, b->param, cur);
+        EngineSetParam(part, ParamRef{0, b->param}, cur);
     }
 }
 
@@ -77,7 +77,7 @@ void MidiMessage(const MidiLayout &layout, int part, std::uint8_t status,
         MidiNoteOff(part, d1);
         break;
     case 0xE0:  // Pitch Bend: 14-bit bend (d1 | d2<<7), center 0x2000.
-        EngineSetParam(part, ParamId::kPitchBend,
+        EngineSetParam(part, ParamRef{0, ParamId::kPitchBend},
                        static_cast<float>(d1 | (d2 << 7)) / 16383.0f);
         break;
     default:

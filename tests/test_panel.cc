@@ -148,7 +148,7 @@ int main() {
     // MIDI CC arriving over the wire) must still reach the display — the
     // per-frame poll in PanelDraw detects it and redraws the affected plot.
     const int filter_before_cc = PanelPlotDraws(p, 1);
-    engine::EngineSetParam(0, engine::ParamId::kCutoff, 0.3f);
+    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kCutoff}, 0.3f);
     PanelDraw(p, fb1, 1);
     PanelDraw(p, fb0, 0);
     Check(PanelPlotDraws(p, 1) == filter_before_cc + 2,
@@ -159,9 +159,9 @@ int main() {
     // engine (earlier tests left notes/params) and force an instant envelope
     // so note-on is immediately audible and note-off immediately silent.
     engine::EngineInit();
-    engine::EngineSetParam(0, engine::ParamId::kAttack, 0.0f);
-    engine::EngineSetParam(0, engine::ParamId::kDecay, 0.0f);
-    engine::EngineSetParam(0, engine::ParamId::kRelease, 0.0f);
+    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kAttack}, 0.0f);
+    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kDecay}, 0.0f);
+    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kRelease}, 0.0f);
     float out[64];
     const int keyX = kTitleX + 5 * kKeyW + 20;  // key 5
     PanelPointer(p, PointerEvent{PointerKind::kPress, keyX, kKeyY + 20});

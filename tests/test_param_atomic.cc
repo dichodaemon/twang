@@ -25,8 +25,8 @@ int main() {
     {
         ParamBlock block;
         block.Reset(g_params);
-        block.Set(0, ParamId::kCutoff, 0.5f);
-        block.Set(0, ParamId::kResonance, 0.5f);
+        block.Set(0, ParamRef{0, ParamId::kCutoff}, 0.5f);
+        block.Set(0, ParamRef{0, ParamId::kResonance}, 0.5f);
         block.Flush();  // matched baseline before the reader starts
 
         std::atomic<bool> done{false};
@@ -35,8 +35,8 @@ int main() {
         std::thread writer([&]() {
             for (int i = 0; i < 20000; ++i) {
                 const float v = static_cast<float>(i % 101) / 100.0f;
-                block.Set(0, ParamId::kCutoff, v);
-                block.Set(0, ParamId::kResonance, v);
+                block.Set(0, ParamRef{0, ParamId::kCutoff}, v);
+                block.Set(0, ParamRef{0, ParamId::kResonance}, v);
                 block.Flush();
                 std::this_thread::yield();  // widen the interleaving window
             }
@@ -48,8 +48,8 @@ int main() {
         while (!done.load(std::memory_order_acquire)) {
             block.Commit(snap);
             ++commits;
-            const float c = ParamGet(&snap[0], ParamId::kCutoff);
-            const float r = ParamGet(&snap[0], ParamId::kResonance);
+            const float c = ParamGet(&snap[0], ParamRef{0, ParamId::kCutoff});
+            const float r = ParamGet(&snap[0], ParamRef{0, ParamId::kResonance});
             if (c != r) ++mismatch;
         }
         writer.join();
@@ -62,24 +62,24 @@ int main() {
     {
         EngineInit();
 
-        EngineSetParam(0, ParamId::kCutoff, 0.4f);  // auto-flush
+        EngineSetParam(0, ParamRef{0, ParamId::kCutoff}, 0.4f);  // auto-flush
         Part p[kNumParts] = {};
         Shared().params.Commit(p);
-        Check(ParamGet(&p[0], ParamId::kCutoff) == 0.4f,
+        Check(ParamGet(&p[0], ParamRef{0, ParamId::kCutoff}) == 0.4f,
               "EngineSetParam auto-flushes");
 
         EngineBeginBatch();
-        EngineSetParam(0, ParamId::kCutoff, 0.8f);
-        EngineSetParam(0, ParamId::kResonance, 0.8f);
+        EngineSetParam(0, ParamRef{0, ParamId::kCutoff}, 0.8f);
+        EngineSetParam(0, ParamRef{0, ParamId::kResonance}, 0.8f);
         // Before Flush, the committed snapshot is still the pre-batch state.
         Shared().params.Commit(p);
-        Check(ParamGet(&p[0], ParamId::kCutoff) == 0.4f,
+        Check(ParamGet(&p[0], ParamRef{0, ParamId::kCutoff}) == 0.4f,
               "EngineBeginBatch defers publish");
 
         EngineFlush();
         Shared().params.Commit(p);
-        Check(ParamGet(&p[0], ParamId::kCutoff) == 0.8f &&
-                  ParamGet(&p[0], ParamId::kResonance) == 0.8f,
+        Check(ParamGet(&p[0], ParamRef{0, ParamId::kCutoff}) == 0.8f &&
+                  ParamGet(&p[0], ParamRef{0, ParamId::kResonance}) == 0.8f,
               "EngineFlush publishes the batch atomically");
     }
 

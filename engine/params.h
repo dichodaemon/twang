@@ -28,8 +28,10 @@ struct ParamDesc {
     float disp_max;         ///< Display value at normalized 1.
     float def;              ///< Default normalized value.
     ParamCurve curve;       ///< Display mapping curve.
-    std::size_t offset;     ///< offsetof(Part, field) — the target slot.
-    CombinationClass comb;  ///< How routes combine into this destination.
+    std::size_t base;       ///< Byte offset of instance 0 in the part.
+    std::size_t stride;     ///< Byte distance between instances; 0 = single-instance.
+    bool modulatable;       ///< Whether a route may target this parameter.
+    CombinationClass comb;  ///< How routes combine; meaningful only when modulatable.
 };
 
 /// The single source of truth for the parameter surface.
@@ -51,35 +53,35 @@ const char *ParamUnit(ParamId id);
 
 /// @brief Read a parameter's normalized value.
 /// @param p Part to read from.
-/// @param id Parameter identifier.
+/// @param ref Parameter address ({instance, id}).
 /// @return Value in [0, 1].
-float ParamGet(const Part *p, ParamId id);
+float ParamGet(const Part *p, ParamRef ref);
 
 /// @brief Write a parameter's normalized value (clamped to [0, 1]).
 /// @param p Part to write to.
-/// @param id Parameter identifier.
+/// @param ref Parameter address ({instance, id}).
 /// @param norm Value in [0, 1].
-void ParamSet(Part *p, ParamId id, float norm);
+void ParamSet(Part *p, ParamRef ref, float norm);
 
 /// @brief Read a parameter in display units.
 /// @param p Part to read from.
-/// @param id Parameter identifier.
+/// @param ref Parameter address ({instance, id}).
 /// @return Display value.
-float ParamGetDisp(const Part *p, ParamId id);
+float ParamGetDisp(const Part *p, ParamRef ref);
 
 /// @brief Write a parameter from display units.
 /// @param p Part to write to.
-/// @param id Parameter identifier.
+/// @param ref Parameter address ({instance, id}).
 /// @param disp Display value.
-void ParamSetDisp(Part *p, ParamId id, float disp);
+void ParamSetDisp(Part *p, ParamRef ref, float disp);
 
 /// @brief Format a parameter's display value into `buf`.
 /// @param p Part to read from.
-/// @param id Parameter identifier.
+/// @param ref Parameter address ({instance, id}).
 /// @param buf Destination buffer.
 /// @param n Buffer size in bytes.
 /// @return Characters written (excluding NUL), as snprintf.
-int ParamFormat(const Part *p, ParamId id, char *buf, std::size_t n);
+int ParamFormat(const Part *p, ParamRef ref, char *buf, std::size_t n);
 
 /// @brief Map a normalized value to display units.
 /// @param p Parameter descriptor.

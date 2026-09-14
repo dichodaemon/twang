@@ -80,16 +80,16 @@ class ParamBlock {
     /// Writes `pending_` and sets the dirty flag; the change is not visible to
     /// the audio thread until Flush() publishes it. Control thread only.
     /// @param part Part index in [0, kNumParts).
-    /// @param id Parameter identifier.
+    /// @param ref Parameter address ({instance, id}).
     /// @param norm Normalized value in [0, 1].
-    void Set(int part, ParamId id, float norm);
+    void Set(int part, ParamRef ref, float norm);
 
     /// @brief Read a parameter's current normalized value (control thread).
     /// @param part Part index in [0, kNumParts).
-    /// @param id Parameter identifier.
+    /// @param ref Parameter address ({instance, id}).
     /// @return Value in [0, 1].
-    float Get(int part, ParamId id) const {
-        return ParamGet(&pending_[part], id);
+    float Get(int part, ParamRef ref) const {
+        return ParamGet(&pending_[part], ref);
     }
 
     /// @brief Set one modulation route for a part.
@@ -98,9 +98,9 @@ class ParamBlock {
     /// @param part Part index in [0, kNumParts).
     /// @param slot Route slot in [0, kModSlots).
     /// @param src Modulation source; kNone clears the slot.
-    /// @param dst Destination parameter (a params[] member).
+    /// @param dst Destination address (a modulatable parameter).
     /// @param amount Signed normalized amount in [-1, 1].
-    void SetRoute(int part, int slot, ModSourceId src, ParamId dst,
+    void SetRoute(int part, int slot, ModSourceId src, ParamRef dst,
                   float amount);
 
     /// @brief Publish all pending changes once, atomically.
