@@ -111,7 +111,7 @@ int main() {
         Check(g_params[i].stride % alignof(float) == 0, "stride float-aligned");
     }
 
-    // Discrete parameters render their label, not a number.
+    // Discrete parameters render their label, not a number, in equal thirds.
     {
         static const char *const kShapes[] = {"SAW", "LIN", "HANN"};
         ParamDesc discrete = {};
@@ -120,8 +120,12 @@ int main() {
         char lbuf[32];
         ParamFormatValue(&discrete, 0.0f, lbuf, sizeof(lbuf));
         Check(std::strcmp(lbuf, "SAW") == 0, "discrete 0 -> SAW");
+        ParamFormatValue(&discrete, 0.3f, lbuf, sizeof(lbuf));
+        Check(std::strcmp(lbuf, "SAW") == 0, "discrete 0.3 -> SAW (equal thirds)");
         ParamFormatValue(&discrete, 0.5f, lbuf, sizeof(lbuf));
         Check(std::strcmp(lbuf, "LIN") == 0, "discrete 0.5 -> LIN");
+        ParamFormatValue(&discrete, 0.7f, lbuf, sizeof(lbuf));
+        Check(std::strcmp(lbuf, "HANN") == 0, "discrete 0.7 -> HANN (equal thirds)");
         ParamFormatValue(&discrete, 1.0f, lbuf, sizeof(lbuf));
         Check(std::strcmp(lbuf, "HANN") == 0, "discrete 1 -> HANN");
     }

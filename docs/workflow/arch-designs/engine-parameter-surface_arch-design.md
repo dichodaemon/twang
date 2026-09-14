@@ -186,3 +186,14 @@ void EngineSetParam(int part, ParamRef ref, float norm);
 2. **The `< 256` bound.** `ParamRef` packs to 16 bits while `ParamId < 256` and instances `< 256`.
    If the surface ever exceeds 255 kinds, the packing widens — a named constraint, not an
    assumption.
+3. **Modulating a discrete parameter.** `modulatable` is a flag that can flip, so a discrete
+   parameter (oscillator shape) may one day be a route destination. The matrix folds
+   continuously (`base + Σ amount·src`), producing a value that quantizes to a label only at
+   render — a shape swept smoothly by an LFO. Whether that continuous-then-quantize behavior is
+   the intent, or the base should quantize *before* folding (stepped modulation), is a routing
+   decision left open until the first modulatable discrete parameter lands.
+4. **Display format.** `ParamFormat` renders continuous values as `"%.3g %s"` ("2.4 kHz" — a
+   space, `%g` precision, full unit), while the panel's type-specific formatters render
+   "2.40kHz" / "440Hz" / "12ms" (fixed precision, SI prefix, no space). They must reconcile
+   before the readout switches from the panel formatters to `ParamFormat`, or the display will
+   change format at the switch.

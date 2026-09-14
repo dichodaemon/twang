@@ -128,8 +128,9 @@ void ParamSetDisp(Part *p, ParamRef ref, float disp) {
 int ParamFormatValue(const ParamDesc *desc, float norm, char *buf,
                      std::size_t n) {
     if (desc->n_labels > 0) {
-        // Quantize the normalized value to the nearest label.
-        int idx = static_cast<int>(norm * (desc->n_labels - 1) + 0.5f);
+        // Equal-width buckets: floor(norm * n) gives each label an equal slice
+        // of [0, 1]; the round(norm*(n-1)) form gives the end labels half width.
+        int idx = static_cast<int>(norm * desc->n_labels);
         if (idx < 0) idx = 0;
         else if (idx >= desc->n_labels) idx = desc->n_labels - 1;
         return std::snprintf(buf, n, "%s", desc->labels[idx]);
