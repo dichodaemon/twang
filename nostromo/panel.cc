@@ -890,6 +890,10 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
     // leaves no stale glyphs behind.
     FillRect(fb, x, geom::kHeaderY, geom::kColW, geom::kHeaderH - 4, kBg);
     FillRect(fb, x + 6, geom::kValueY, geom::kColW - 6, geom::kValueH, kBg);
+    // Clear the well row too: the bipolar zero tick overshoots the well
+    // (kWellH + 6 tall), so a column that switches to unipolar — or whose
+    // value moves off zero — would otherwise leave the tick behind.
+    FillRect(fb, x, geom::kWellY - 3, geom::kColW, geom::kWellH + 6, kBg);
     if (cs.kind == ColumnKind::kNone) continue;  // past a partial final group
     const char *label = ColumnLabel(cs);
     const int bw = static_cast<int>(std::strlen(label)) * kPrimaryFont.w + 12;
