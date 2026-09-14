@@ -200,3 +200,7 @@ add_test(NAME bindings COMMAND test_bindings)
 add_executable(test_gestures tests/test_gestures.cc)
 target_link_libraries(test_gestures PRIVATE nostromo)
 add_test(NAME gestures COMMAND test_gestures)
+
+add_executable(test_surface tests/test_surface.cc)
+target_link_libraries(test_surface PRIVATE nostromo)
+add_test(NAME surface COMMAND test_surface)
