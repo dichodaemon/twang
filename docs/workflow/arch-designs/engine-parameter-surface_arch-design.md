@@ -27,7 +27,7 @@ UI, patch save/load, MIDI CC, and, through the modulatable subset, the routing s
   [`output-stage_arch-design.md`](output-stage_arch-design.md).
 - **UI layout** — which page/column a parameter appears on. Owned by
   [`nostromo-interaction_arch-design.md`](nostromo-interaction_arch-design.md).
-- **Populating the full table** — the actual enumeration of every parameter (near 130 entries).
+- **Populating the full table** — the actual enumeration of every parameter (near 60 kinds).
   Additive growth, tracked as an open question; the *shape* here is what matters first.
 
 ## 3. Terminology
@@ -148,8 +148,7 @@ void EngineSetParam(int part, ParamRef ref, float norm);
 
 - `base[id] + instance × stride[id]` always lands inside the flat part-state bank.
 - `stride == 0` iff the parameter is single-instance; `instance` is then ignored.
-- `comb` is meaningful only when `modulatable`; discrete and config parameters are never
-  modulatable.
+- `comb` is meaningful only when `modulatable`.
 - Every `ParamId` has exactly one `ParamDesc` row; `g_params` has `ParamId::kCount` entries.
 - `ref.id < ParamId::kCount` and `ref.instance < 256` — the bounds that keep `ParamRef` at 16
   bits.
@@ -177,7 +176,7 @@ void EngineSetParam(int part, ParamRef ref, float norm);
 ## 11. Open Questions
 
 1. **The full enumeration.** `ParamId` today holds 11 modulatable entries against a target near
-   130. Populating the table (oscillator ×4, envelopes ×3, LFOs ×3, filter, part, FX, the OUT
+   60 (≈39 modulatable kinds plus ≈20 discrete/config). Populating the table (oscillator ×4, envelopes ×3, LFOs ×3, filter, part, FX, the OUT
    views' controls, plus every discrete/config parameter) is additive and does not block the
    shape; it proceeds as the engine grows.
 2. **The `< 256` bound.** `ParamRef` packs to 16 bits while `ParamId < 256` and instances `< 256`.

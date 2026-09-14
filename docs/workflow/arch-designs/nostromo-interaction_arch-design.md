@@ -520,8 +520,8 @@ This is a decision, and it has a large consequence. Per-instance enumerators wou
 `ParamId` roughly $4 \times 7 + 3 \times 6 + 3 \times 7 + \ldots \approx 130$ entries and
 would duplicate every oscillator page four times in `g_pages`. Per-kind makes it about 39, and
 the four oscillator pages share one column list. It also means the engine's parameter API
-needs an instance argument it does not currently have — `EngineSetParam(part, instance, id,
-value)` — which is engine work this design depends on and does not perform.
+needs an address argument it does not currently have — `EngineSetParam(part, ref, value)`, a
+`ParamRef {instance, id}` — which is engine work this design depends on and does not perform.
 
 ### 7.6. The page table
 
@@ -953,7 +953,8 @@ Draft-only. Each must close or move before `approved`.
 6. **The engine parameter API (structural, blocking the addressing model).** §7.5 requires two
    changes to `ParamId` that are semantic, not additive, and neither is covered by §13.3:
    - **An instance argument.** `EngineSetParam(id, value)` becomes
-     `EngineSetParam(part, instance, id, value)`. Kind-not-instance addressing is what keeps
+     `EngineSetParam(part, ref, value)` — `ref` a `ParamRef {instance, id}`. Kind-not-instance
+     addressing is what keeps
      `ParamId` near 39 entries instead of 130 and lets the four oscillator pages share one
      column list; without it, `g_pages` and the enum both quadruple.
    - **Scope beyond modulatable parameters.** `engine-parameter-surface_arch-design.md` defines
