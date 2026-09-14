@@ -47,7 +47,7 @@ add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc spike/png.cc 
 target_include_directories(spike PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/spike)
 
 # ---- nostromo: this synth's GUI (panel + vocabulary), built on spike ----
-add_library(nostromo STATIC nostromo/panel.cc nostromo/screens.cc nostromo/pages.cc nostromo/feel.cc nostromo/surface.cc)
+add_library(nostromo STATIC nostromo/panel.cc nostromo/screens.cc nostromo/pages.cc nostromo/feel.cc nostromo/surface.cc nostromo/interaction.cc)
 target_include_directories(nostromo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
 target_link_libraries(nostromo PUBLIC spike engine scope)
 
@@ -196,3 +196,7 @@ add_test(NAME panel COMMAND test_panel)
 add_executable(test_bindings tests/test_bindings.cc)
 target_link_libraries(test_bindings PRIVATE nostromo)
 add_test(NAME bindings COMMAND test_bindings)
+
+add_executable(test_gestures tests/test_gestures.cc)
+target_link_libraries(test_gestures PRIVATE nostromo)
+add_test(NAME gestures COMMAND test_gestures)

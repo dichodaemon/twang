@@ -56,11 +56,25 @@ struct InputEvent {
 
 /// A recognised input pattern (see GestureRecognizer in interaction.cc).
 enum class Gesture : std::uint8_t {
-  kTurn,        ///< detents, no press held
-  kHoldTurn,    ///< detents while pressed — fine adjust
-  kPressShort,  ///< press and release under g_feel.long_press_ms, no detent
-  kPressLong,   ///< press held past g_feel.long_press_ms, no detent
+  kNone = 0,     ///< no gesture (a press start, or an absorbed release)
+  kTurn,         ///< detents, no press held
+  kHoldTurn,     ///< detents while pressed — fine adjust
+  kPressShort,   ///< press and release under g_feel.long_press_ms, no detent
+  kPressLong,    ///< press held past g_feel.long_press_ms, no detent
 };
+
+/// Per-control press state for gesture recognition. One per Control, held by
+/// the interaction layer; the recognizer mutates it and reads g_feel.
+struct PressState {
+  bool          pressed = false;   ///< a press is in progress
+  std::uint32_t press_t_ms = 0;    ///< kDown timestamp
+  bool          detent = false;    ///< a detent arrived during this press
+};
+
+/// Convert one InputEvent to a Gesture, mutating the per-control `st`. The
+/// hold-versus-press disambiguation lives here (arch-design §5): a detent
+/// during a press is kHoldTurn and the release is absorbed (emits kNone).
+Gesture Recognize(const InputEvent &ev, PressState &st);
 
 /// A subject is an entry in the navigation pane. Enum order is pane order —
 /// NAV1 walks index order — which is arch-design §7.6's order, not §7.3's
