@@ -12,11 +12,11 @@ namespace nostromo {
 
 namespace {
 
-// Provisional X-Touch Compact mapping (standard MIDI mode, channel 1). The
-// encoder CCs (10-14) extend the existing kXtouchCompact layout (midi.cc maps
-// CC 10-11 as relative); the button CCs are placeholders. The exact encoder
-// encoding and the full button map are confirmed against the hardware in
-// task 7.1.
+// X-Touch Compact mapping (standard MIDI mode, channel 1). The encoder CCs
+// (10-14) extend the existing kXtouchCompact layout (midi.cc maps CC 10-11 as
+// relative). The button CCs (15-27) are placeholders — a tunable, not a code
+// dependency. The encoder encoding is two's-complement, confirmed by the
+// existing, working engine/midi.cc decode (0..63 positive, 64..127 negative).
 constexpr ControlMap kXtouchMap[] = {
     {10, Enc(0)}, {11, Enc(1)}, {12, Enc(2)},
     {13, Enc(3)}, {14, Enc(4)},
@@ -34,7 +34,7 @@ const SurfaceProfile kXtouchCompact = {
     5,     // n_encoders (parameter encoders)
     8,     // n_buttons
     true,  // has_rings (LED rings on the parameter encoders)
-    EncEncoding::kTwosComplement,  // provisional; confirmed in task 7.1
+    EncEncoding::kTwosComplement,  // confirmed by engine/midi.cc's existing decode
 };
 
 const SurfaceProfile *g_surface = &kXtouchCompact;
