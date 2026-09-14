@@ -1,6 +1,6 @@
 ---
 title: Nostromo Interaction Layer -- Implementation Plan
-status: draft
+status: approved
 date: 2026-09-14
 author: Dizan Vasquez
 arch-design: ../arch-designs/nostromo-interaction_arch-design.md
@@ -29,7 +29,8 @@ are migrated in phase 6, not rewritten as part of the layer itself.
    headers, plus the `ParamDesc` acceleration fields. No behavior (no deps).
 2. **Static data** — `g_pages`, `g_feel`, and the first `SurfaceProfile` table. Depends on phase 1.
 3. **Engine route read accessor** — `EngineGetRoute` + `ParamBlock::GetRoute` (the one
-   deviation from §4; see Design Decisions). Depends on nothing; phase 5 consumes it.
+   deviation from §4; see Design Decisions). Depends on nothing; phase 5 consumes it — off the
+   critical path (1→2→4→5), so it runs in parallel with 1–2.
 4. **Pure logic + tests** — `ResolveBinding`, `GestureRecognizer`, and their exhaustive tests.
    Depends on phases 1–2.
 5. **Dispatch + lifecycle** — `Dispatcher`, `InteractionOnInput`, `InteractionCreateRoute`,
@@ -187,6 +188,10 @@ struct NavState {
 void InteractionInit(spike::DynSlot *slots, int n_slots, const SurfaceProfile &surface);
 void InteractionOnInput(const InputEvent &ev);
 bool InteractionCreateRoute(std::uint8_t part, ModSourceId src, ParamId dst, float amount);
+/// Read-only view of the navigation state for the renderer (pane/header chrome
+/// and DYN hooks). Returns a const reference so the screen cannot write back —
+/// the layer is the sole writer of `NavState`.
+const NavState &InteractionNavState();
 ```
 
 `SubjectId` carries the §7.6 pane order (kPart, kOsc1..4, kFilt, kAmp, kEnv1..3, kLfo1..3,
@@ -250,9 +255,10 @@ extern FeelProfile g_feel;   ///< mutable; edited from the CONF page
 
 ```cpp
 enum class EncEncoding : std::uint8_t { kSignedBit, kTwosComplement, kBinaryOffset };
-/// Pure decode of one relative-encoder byte to signed detents. Quadrature is
-/// NOT an EncEncoding member: it is a stateful 2-bit Gray-code transition,
-/// handled by a separate reader on the GPIO panel (out of scope here).
+/// Pure decode of one relative-encoder byte to −1 / 0 / +1 (tick direction,
+/// magnitude clamped). Quadrature is NOT an EncEncoding member: it is a
+/// stateful 2-bit Gray-code transition, handled by a separate reader on the
+/// GPIO panel (out of scope here).
 int DecodeEnc(std::uint8_t raw, EncEncoding enc);
 
 struct ControlMap { std::uint16_t physical; Control logical; };
@@ -269,6 +275,10 @@ void SetSurface(const SurfaceProfile &p);
 +1 = 0x41, −1 = 0x3F). Quadrature is deliberately absent — the next panel's GPIO reads A/B
 directly and needs previous-state memory, so it gets its own reader rather than a broken
 "pure" decode.
+
+`DecodeEnc` clamps magnitude to 1 and returns direction only: a wraparound or aggregate byte
+(binary-offset `raw = 0` → −64, signed-bit `raw = 0x7F` → magnitude 63) decodes to −1, never a
+64-detent delta, so one event cannot jump a parameter end-to-end past the `Dispatcher`'s clamp.
 
 ## 5. Solution Breakdown
 
@@ -428,10 +438,11 @@ encoders, part buttons, MOD/PERF/GROUP/OUT), with `n_encoders` reporting the phy
 encoder count and `enc` the relative encoding. Surplus encoders beyond `geom::kColumns` are
 unmapped; the shortfall below it is reported once at startup.
 
-`DecodeEnc(raw, enc)` is a pure, stateless per-byte decode: `kSignedBit` (bit 6 = sign, bits 0–5
-= magnitude), `kTwosComplement` (7-bit sign-extended), `kBinaryOffset` (center 0x40, wraparound
-to a signed delta). Quadrature is not here — it is a stateful 2-bit transition, deferred to the
-GPIO panel.
+`DecodeEnc(raw, enc)` is a pure, stateless per-byte decode returning −1 / 0 / +1: `kSignedBit`
+(bit 6 = sign, bits 0–5 = magnitude, clamped to 1), `kTwosComplement` (7-bit sign-extended,
+clamped), `kBinaryOffset` (center 0x40, sign of the offset, clamped). Magnitude is clamped so a
+wraparound byte (`raw = 0` → −64) reads as one detent. Quadrature is not here — it is a stateful
+2-bit transition, deferred to the GPIO panel.
 
 - **Edge cases**: a profile may be a superset or a subset of `geom::kColumns`; injectivity and
   decode round-trips are asserted by `test_surface.cc` (4.5), not left to the table author. A
@@ -550,7 +561,8 @@ Each traces to a Verify task.
   (task 5.6).
 - [ ] Each `ControlMap` is injective in both directions (task 4.6).
 - [ ] `DecodeEnc` round-trips each scheme against known tick values (binary-offset 0x41→+1,
-  0x3F→−1; signed-bit 0x01→+1, 0x41→−1; two's-complement 0x01→+1, 0x7F→−1) (task 4.6).
+  0x3F→−1; signed-bit 0x01→+1, 0x41→−1; two's-complement 0x01→+1, 0x7F→−1) and clamps
+  wraparound bytes to ±1 (binary-offset 0x00→−1, signed-bit 0x7F→−1) (task 4.6).
 - [ ] No `nostromo/interaction.*` symbol references a drawing primitive, `DynSlot::dirty`,
   `Panel::pending`, or `spike::Damage` — a static check (interaction.cc includes neither
   `fb.h` nor `damage.h`, and links no drawing symbol), verified by code review at task 5.6,
