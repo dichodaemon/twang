@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 #include "engine.h"
 #include "params.h"
@@ -108,6 +109,21 @@ int main() {
     for (int i = 0; i < ParamCount(); ++i) {
         Check(g_params[i].base % alignof(float) == 0, "base float-aligned");
         Check(g_params[i].stride % alignof(float) == 0, "stride float-aligned");
+    }
+
+    // Discrete parameters render their label, not a number.
+    {
+        static const char *const kShapes[] = {"SAW", "LIN", "HANN"};
+        ParamDesc discrete = {};
+        discrete.labels = kShapes;
+        discrete.n_labels = 3;
+        char lbuf[32];
+        ParamFormatValue(&discrete, 0.0f, lbuf, sizeof(lbuf));
+        Check(std::strcmp(lbuf, "SAW") == 0, "discrete 0 -> SAW");
+        ParamFormatValue(&discrete, 0.5f, lbuf, sizeof(lbuf));
+        Check(std::strcmp(lbuf, "LIN") == 0, "discrete 0.5 -> LIN");
+        ParamFormatValue(&discrete, 1.0f, lbuf, sizeof(lbuf));
+        Check(std::strcmp(lbuf, "HANN") == 0, "discrete 1 -> HANN");
     }
 
     if (g_failures) {

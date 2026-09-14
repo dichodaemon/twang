@@ -31,6 +31,8 @@ struct ParamDesc {
     std::uint16_t base;     ///< Byte offset of instance 0 within the Part.
     std::uint16_t stride;   ///< Byte distance between instances; 0 = single-instance.
     bool modulatable;       ///< Whether a route may target this parameter.
+    const char *const *labels;  ///< Discrete value labels; nullptr = continuous.
+    std::uint8_t n_labels;      ///< Number of labels; 0 = continuous.
     CombinationClass comb;  ///< How routes combine; meaningful only when modulatable.
 };
 
@@ -82,6 +84,18 @@ void ParamSetDisp(Part *p, ParamRef ref, float disp);
 /// @param n Buffer size in bytes.
 /// @return Characters written (excluding NUL), as snprintf.
 int ParamFormat(const Part *p, ParamRef ref, char *buf, std::size_t n);
+
+/// @brief Format a normalized value into `buf` against a descriptor.
+///
+/// Discrete parameters (n_labels > 0) render their nearest label ("SAW");
+/// continuous parameters render "value unit" ("440 Hz").
+/// @param desc Parameter descriptor.
+/// @param norm Normalized value in [0, 1].
+/// @param buf Destination buffer.
+/// @param n Buffer size in bytes.
+/// @return Characters written (excluding NUL), as snprintf.
+int ParamFormatValue(const ParamDesc *desc, float norm, char *buf,
+                     std::size_t n);
 
 /// @brief Map a normalized value to display units.
 /// @param p Parameter descriptor.
