@@ -103,6 +103,15 @@ class ParamBlock {
     void SetRoute(int part, int slot, ModSourceId src, ParamRef dst,
                   float amount);
 
+    /// @brief Read one modulation route for a part (control thread).
+    /// Reads `pending_`, the same authoritative state SetRoute writes.
+    /// @param part Part index in [0, kNumParts).
+    /// @param slot Route slot in [0, kModSlots).
+    /// @param out Destination for the route.
+    /// @return true if the slot holds a live route; false if out of range or
+    ///         empty (source == kNone).
+    bool GetRoute(int part, int slot, ModRoute *out) const;
+
     /// @brief Publish all pending changes once, atomically.
     /// No-op when nothing is dirty. A multi-field update (several Set/SetRoute
     /// calls followed by one Flush) lands as a single front_ advance, so the

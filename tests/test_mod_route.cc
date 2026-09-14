@@ -198,6 +198,28 @@ int main() {
         Check(Peak(up) > Peak(center), "bipolar full-up tremolos above center");
     }
 
+    // 8. Route-read round-trip: EngineSetRoute then EngineGetRoute returns the
+    //    same route; an empty slot (source kNone) and out-of-range indices
+    //    report false. EngineInit fills slots 0-4 with the default routes, so
+    //    slot 5 starts empty.
+    {
+        EngineInit();
+        ModRoute r{};
+
+        Check(!EngineGetRoute(0, 5, &r), "empty slot reports false");
+        Check(!EngineGetRoute(0, kModSlots, &r), "slot == kModSlots reports false");
+        Check(!EngineGetRoute(kNumParts, 0, &r), "part == kNumParts reports false");
+
+        EngineSetRoute(0, 6, ModSourceId::kLfo2, ParamRef{0, ParamId::kCutoff}, -0.25f);
+        Check(EngineGetRoute(0, 6, &r), "set route reads back true");
+        Check(r.source == ModSourceId::kLfo2 && r.dst.id == ParamId::kCutoff &&
+                  r.dst.instance == 0 && r.amount == -0.25f,
+              "route round-trips (source, dst, amount)");
+
+        EngineSetRoute(0, 6, ModSourceId::kNone, ParamRef{0, ParamId::kCutoff}, 0.0f);
+        Check(!EngineGetRoute(0, 6, &r), "cleared slot reports false");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

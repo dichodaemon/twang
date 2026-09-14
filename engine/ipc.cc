@@ -37,6 +37,15 @@ void ParamBlock::SetRoute(int part, int slot, ModSourceId src, ParamRef dst,
     dirty_ = true;
 }
 
+bool ParamBlock::GetRoute(int part, int slot, ModRoute *out) const {
+    if (part < 0 || part >= kNumParts || slot < 0 || slot >= kModSlots)
+        return false;
+    const ModRoute &r = pending_[part].routes[slot];
+    if (r.source == ModSourceId::kNone) return false;
+    *out = r;
+    return true;
+}
+
 void ParamBlock::Flush() {
     if (!dirty_) return;
     Publish();

@@ -283,6 +283,13 @@ float EngineGetParam(int part, ParamRef ref);
 bool EngineSetRoute(int part, int slot, ModSourceId src, ParamRef dst,
                     float amount);
 
+/// @brief Read one modulation route for a part (control thread).
+/// @param part Part index in [0, kNumParts).
+/// @param slot Route slot in [0, kModSlots).
+/// @param out Destination for the route.
+/// @return true if the slot holds a live route; false if empty or invalid.
+bool EngineGetRoute(int part, int slot, ModRoute *out);
+
 /// @brief Begin a batched update (control thread).
 ///
 /// Until EngineFlush() is called, EngineSetParam/EngineSetParamDisp and

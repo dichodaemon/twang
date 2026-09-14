@@ -596,6 +596,10 @@ bool EngineSetRoute(int part, int slot, ModSourceId src, ParamRef dst,
     return true;
 }
 
+bool EngineGetRoute(int part, int slot, ModRoute *out) {
+    return g_param_block.GetRoute(part, slot, out);
+}
+
 void EngineBeginBatch() {
     g_batching = true;
 }
