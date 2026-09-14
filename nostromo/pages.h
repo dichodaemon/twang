@@ -37,8 +37,12 @@ enum class ViewCtl : std::uint8_t {
 
 /// A tagged column reference. A column *declares a kind*: `param` names a
 /// ParamId, not a ParamRef — the instance is resolved from SubjectId later.
+/// `label` is the column header's uppercase display name (the mockup's short
+/// forms); it is carried here rather than derived, because a pending column
+/// has no ParamId to derive one from.
 struct ColumnSpec {
-  ColumnKind kind;
+  ColumnKind    kind;
+  const char   *label;   ///< column-header text, uppercase short form
   union {
     engine::ParamId param;
     RouteField      field;
@@ -76,7 +80,7 @@ constexpr int GroupCount(const PageDesc &p) {
 template <int E = geom::kColumns>
 constexpr ColumnSpec Column(const PageDesc &p, int group, int col) {
   const int i = group * E + col;
-  return i < p.n_cols ? p.cols[i] : ColumnSpec{ColumnKind::kNone, {}};
+  return i < p.n_cols ? p.cols[i] : ColumnSpec{ColumnKind::kNone, "", {}};
 }
 
 /// What a resolved control drives.

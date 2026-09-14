@@ -45,107 +45,107 @@ constexpr std::uint8_t InstanceOf(SubjectId s) {
 // grows (arch-design §13.3); they keep the page taxonomy honest.
 
 constexpr ColumnSpec kColsPart[] = {
-    {ColumnKind::kPending, {}},  // chan
-    {ColumnKind::kPending, {}},  // voices
-    {ColumnKind::kPending, {}},  // transpose
-    {ColumnKind::kPending, {}},  // glide
-    {ColumnKind::kPending, {}},  // mono/poly
-    {ColumnKind::kPending, {}},  // bend range
+    {ColumnKind::kPending, "CHAN", {}},
+    {ColumnKind::kPending, "VOICES", {}},
+    {ColumnKind::kPending, "TRANSPOSE", {}},
+    {ColumnKind::kPending, "GLIDE", {}},
+    {ColumnKind::kPending, "MONO", {}},
+    {ColumnKind::kPending, "BEND", {}},
 };
 
 constexpr ColumnSpec kColsOsc[] = {
-    {ColumnKind::kPending, {}},                              // wave
-    {ColumnKind::kParam, {engine::ParamId::kPitchCoarse}},   // coarse
-    {ColumnKind::kPending, {}},                              // fine
-    {ColumnKind::kPending, {}},                              // level
-    {ColumnKind::kPending, {}},                              // shape
-    {ColumnKind::kPending, {}},                              // pan
-    {ColumnKind::kPending, {}},                              // sync
+    {ColumnKind::kPending, "WAVE", {}},
+    {ColumnKind::kParam, "COARSE", {engine::ParamId::kPitchCoarse}},
+    {ColumnKind::kPending, "FINE", {}},
+    {ColumnKind::kPending, "LEVEL", {}},
+    {ColumnKind::kPending, "SHAPE", {}},
+    {ColumnKind::kPending, "PAN", {}},
+    {ColumnKind::kPending, "SYNC", {}},
 };
 
 constexpr ColumnSpec kColsFilt[] = {
-    {ColumnKind::kParam, {engine::ParamId::kCutoff}},        // cutoff
-    {ColumnKind::kParam, {engine::ParamId::kResonance}},     // resonance
-    {ColumnKind::kPending, {}},                              // env amt
-    {ColumnKind::kParam, {engine::ParamId::kDrive}},         // drive
-    {ColumnKind::kParam, {engine::ParamId::kKeyFollowDepth}},  // keytrack
-    {ColumnKind::kPending, {}},                              // mode
+    {ColumnKind::kParam, "CUTOFF", {engine::ParamId::kCutoff}},
+    {ColumnKind::kParam, "RESO", {engine::ParamId::kResonance}},
+    {ColumnKind::kPending, "ENVAMT", {}},
+    {ColumnKind::kParam, "DRIVE", {engine::ParamId::kDrive}},
+    {ColumnKind::kParam, "KEYTRK", {engine::ParamId::kKeyFollowDepth}},
+    {ColumnKind::kPending, "MODE", {}},
 };
 
 constexpr ColumnSpec kColsAmp[] = {
-    {ColumnKind::kParam, {engine::ParamId::kAmp}},  // level
-    {ColumnKind::kPending, {}},                     // pan
-    {ColumnKind::kPending, {}},                     // velo sens
-    {ColumnKind::kPending, {}},                     // send A
-    {ColumnKind::kPending, {}},                     // send B
+    {ColumnKind::kParam, "LEVEL", {engine::ParamId::kAmp}},
+    {ColumnKind::kPending, "PAN", {}},
+    {ColumnKind::kPending, "VELO", {}},
+    {ColumnKind::kPending, "SENDA", {}},
+    {ColumnKind::kPending, "SENDB", {}},
 };
 
 constexpr ColumnSpec kColsEnv[] = {
-    {ColumnKind::kParam, {engine::ParamId::kAttack}},   // A
-    {ColumnKind::kParam, {engine::ParamId::kDecay}},    // D
-    {ColumnKind::kParam, {engine::ParamId::kSustain}},  // S
-    {ColumnKind::kParam, {engine::ParamId::kRelease}},  // R
-    {ColumnKind::kPending, {}},                         // curve
-    {ColumnKind::kPending, {}},                         // velo sens
+    {ColumnKind::kParam, "A", {engine::ParamId::kAttack}},
+    {ColumnKind::kParam, "D", {engine::ParamId::kDecay}},
+    {ColumnKind::kParam, "S", {engine::ParamId::kSustain}},
+    {ColumnKind::kParam, "R", {engine::ParamId::kRelease}},
+    {ColumnKind::kPending, "CURVE", {}},
+    {ColumnKind::kPending, "VELO", {}},
 };
 
 constexpr ColumnSpec kColsLfo[] = {
-    {ColumnKind::kPending, {}},  // rate
-    {ColumnKind::kPending, {}},  // shape
-    {ColumnKind::kPending, {}},  // depth
-    {ColumnKind::kPending, {}},  // sync
-    {ColumnKind::kPending, {}},  // fade
-    {ColumnKind::kPending, {}},  // phase
-    {ColumnKind::kPending, {}},  // retrig
+    {ColumnKind::kPending, "RATE", {}},
+    {ColumnKind::kPending, "SHAPE", {}},
+    {ColumnKind::kPending, "DEPTH", {}},
+    {ColumnKind::kPending, "SYNC", {}},
+    {ColumnKind::kPending, "FADE", {}},
+    {ColumnKind::kPending, "PHASE", {}},
+    {ColumnKind::kPending, "RETRIG", {}},
 };
 
 // The MOD page's source/dest/amount are the three fields ModRoute has; curve
 // and enable are declared kPending until ModRoute grows (Design Decisions).
 constexpr ColumnSpec kColsMod[] = {
-    {ColumnKind::kRouteField, {.field = RouteField::kSource}},  // source
-    {ColumnKind::kRouteField, {.field = RouteField::kDest}},    // dest
-    {ColumnKind::kRouteField, {.field = RouteField::kAmount}},  // amount
-    {ColumnKind::kPending, {}},                                 // curve
-    {ColumnKind::kPending, {}},                                 // enable
+    {ColumnKind::kRouteField, "SOURCE", {.field = RouteField::kSource}},
+    {ColumnKind::kRouteField, "DEST", {.field = RouteField::kDest}},
+    {ColumnKind::kRouteField, "AMOUNT", {.field = RouteField::kAmount}},
+    {ColumnKind::kPending, "CURVE", {}},
+    {ColumnKind::kPending, "ENABLE", {}},
 };
 
 constexpr ColumnSpec kColsOutScope[] = {
-    {ColumnKind::kPending, {}},  // source
-    {ColumnKind::kPending, {}},  // timebase
-    {ColumnKind::kPending, {}},  // scale
-    {ColumnKind::kPending, {}},  // trigger
-    {ColumnKind::kPending, {}},  // hold
+    {ColumnKind::kPending, "SOURCE", {}},
+    {ColumnKind::kPending, "TIMEBASE", {}},
+    {ColumnKind::kPending, "SCALE", {}},
+    {ColumnKind::kPending, "TRIGGER", {}},
+    {ColumnKind::kPending, "HOLD", {}},
 };
 
 constexpr ColumnSpec kColsOutCycle[] = {
-    {ColumnKind::kPending, {}},  // source
-    {ColumnKind::kPending, {}},  // cycles
-    {ColumnKind::kPending, {}},  // scale
-    {ColumnKind::kPending, {}},  // align
-    {ColumnKind::kPending, {}},  // hold
+    {ColumnKind::kPending, "SOURCE", {}},
+    {ColumnKind::kPending, "CYCLES", {}},
+    {ColumnKind::kPending, "SCALE", {}},
+    {ColumnKind::kPending, "ALIGN", {}},
+    {ColumnKind::kPending, "HOLD", {}},
 };
 
 constexpr ColumnSpec kColsOutSpec[] = {
-    {ColumnKind::kPending, {}},  // source
-    {ColumnKind::kPending, {}},  // range
-    {ColumnKind::kPending, {}},  // scale
-    {ColumnKind::kPending, {}},  // average
-    {ColumnKind::kPending, {}},  // window
+    {ColumnKind::kPending, "SOURCE", {}},
+    {ColumnKind::kPending, "RANGE", {}},
+    {ColumnKind::kPending, "SCALE", {}},
+    {ColumnKind::kPending, "AVERAGE", {}},
+    {ColumnKind::kPending, "WINDOW", {}},
 };
 
 constexpr ColumnSpec kColsPatch[] = {
-    {ColumnKind::kViewCtl, {.ctl = ViewCtl::kCategory}},   // category
-    {ColumnKind::kViewCtl, {.ctl = ViewCtl::kSort}},       // sort
-    {ColumnKind::kViewCtl, {.ctl = ViewCtl::kFavourite}},  // favourite
-    {ColumnKind::kViewCtl, {.ctl = ViewCtl::kAction}},     // action
+    {ColumnKind::kViewCtl, "CATEGORY", {.ctl = ViewCtl::kCategory}},
+    {ColumnKind::kViewCtl, "SORT", {.ctl = ViewCtl::kSort}},
+    {ColumnKind::kViewCtl, "FAV", {.ctl = ViewCtl::kFavourite}},
+    {ColumnKind::kViewCtl, "ACTION", {.ctl = ViewCtl::kAction}},
 };
 
 constexpr ColumnSpec kColsConf[] = {
-    {ColumnKind::kViewCtl, {.ctl = ViewCtl::kDetents}},      // detents/rev
-    {ColumnKind::kViewCtl, {.ctl = ViewCtl::kAccelMax}},     // accel max
-    {ColumnKind::kViewCtl, {.ctl = ViewCtl::kAccelThresh}},  // accel thresh
-    {ColumnKind::kViewCtl, {.ctl = ViewCtl::kLongPress}},    // long press
-    {ColumnKind::kViewCtl, {.ctl = ViewCtl::kFineDiv}},      // fine div
+    {ColumnKind::kViewCtl, "DETENTS", {.ctl = ViewCtl::kDetents}},
+    {ColumnKind::kViewCtl, "ACCEL", {.ctl = ViewCtl::kAccelMax}},
+    {ColumnKind::kViewCtl, "THRESH", {.ctl = ViewCtl::kAccelThresh}},
+    {ColumnKind::kViewCtl, "PRESS", {.ctl = ViewCtl::kLongPress}},
+    {ColumnKind::kViewCtl, "FINE", {.ctl = ViewCtl::kFineDiv}},
 };
 
 }  // namespace

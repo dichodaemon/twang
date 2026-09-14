@@ -767,12 +767,10 @@ void DrawStrip(FrameBuffer &fb, int y, int n, int sel,
     char num[2] = {static_cast<char>('1' + k), 0};
     const char *d = cells ? cells[k] : num;
     const int dw = static_cast<int>(std::strlen(d)) * kPrimaryFont.w + 4;
-    if (k == sel) {
-      FillRect(fb, cx, y, dw, geom::kStripH, kBright);
-      TextLeft(fb, d, cx + 2, y + 3, kPrimaryFont, kBg);
-    } else {
-      TextLeft(fb, d, cx + 2, y + 3, kPrimaryFont, kMid);
-    }
+    // Fill either way: the inverse-video cursor must not leave a stale bright
+    // block behind when it moves off a cell.
+    FillRect(fb, cx, y, dw, geom::kStripH, k == sel ? kBright : kBg);
+    TextLeft(fb, d, cx + 2, y + 3, kPrimaryFont, k == sel ? kBg : kMid);
   }
 }
 
@@ -795,6 +793,8 @@ void DrawPane(FrameBuffer &fb, const NavState &nav) {
                  geom::kPanePitch - 2, kBright);
         TextLeft(fb, row.label, tx, ty, kPrimaryFont, kBg);
       } else {
+        FillRect(fb, geom::kPaneX, y + 1, geom::kPaneW - 8,
+                 geom::kPanePitch - 2, kBg);
         TextLeft(fb, row.label, tx, ty, kPrimaryFont, kMid);
       }
       y += geom::kPanePitch;
@@ -813,35 +813,13 @@ void DrawPane(FrameBuffer &fb, const NavState &nav) {
 }
 
 const char *ColumnLabel(const ColumnSpec &cs) {
-  switch (cs.kind) {
-    case ColumnKind::kParam: return engine::ParamName(cs.param);
-    case ColumnKind::kRouteField:
-      switch (cs.field) {
-        case RouteField::kSource: return "SOURCE";
-        case RouteField::kDest: return "DEST";
-        case RouteField::kAmount: return "AMOUNT";
-      }
-      return "-";
-    case ColumnKind::kViewCtl:
-      switch (cs.ctl) {
-        case ViewCtl::kCategory: return "CATEGORY";
-        case ViewCtl::kSort: return "SORT";
-        case ViewCtl::kFavourite: return "FAV";
-        case ViewCtl::kAction: return "ACTION";
-        case ViewCtl::kDetents: return "DETENTS";
-        case ViewCtl::kAccelMax: return "ACCEL";
-        case ViewCtl::kAccelThresh: return "THRESH";
-        case ViewCtl::kLongPress: return "PRESS";
-        case ViewCtl::kFineDiv: return "FINE";
-      }
-      return "-";
-    default: return "-";
-  }
+  return cs.label;  // the column's uppercase display name (pages.cc)
 }
 
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
   for (int c = 0; c < geom::kColumns; ++c) {
     const ColumnSpec cs = Column<>(page, nav.group, c);
+    if (cs.kind == ColumnKind::kNone) continue;  // past a partial final group
     const int x = geom::kColX(c);
     const char *label = ColumnLabel(cs);
     const int bw = static_cast<int>(std::strlen(label)) * kPrimaryFont.w + 12;
@@ -849,30 +827,123 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
     TextLeft(fb, label, x + 6, geom::kHeaderY + 1, kPrimaryFont, kBright);
     DrawHLine(fb, x + bw + 2, geom::kHeaderY + geom::kHeaderH - 6,
               geom::kColW - bw - 2 - 8, kDim);
-    char val[16];
     if (cs.kind == ColumnKind::kParam) {
+      char val[16];
       const float norm = engine::EngineGetParam(
           nav.part, engine::ParamRef{0, cs.param});
       engine::ParamFormatValue(
           &engine::g_params[static_cast<std::size_t>(cs.param)], norm, val,
           sizeof(val));
-    } else {
-      std::snprintf(val, sizeof(val), "-");
+      TextLeft(fb, val, x + 6, geom::kValueY + 1, kPrimaryFont, kMid);
     }
-    TextLeft(fb, val, x + 6, geom::kValueY + 1, kPrimaryFont, kMid);
+    // kPending / kRouteField / kViewCtl: header only, empty value row.
   }
 }
 
-void DrawEditChrome(FrameBuffer &fb, Panel &p) {
+// Part-identity swatches: the active part is filled with its hue, the rest
+// outlined. A global subject has no part, so all four outline. Returns the x
+// just past the swatches.
+int DrawPartSwatches(FrameBuffer &fb, int x, int y, int active) {
+  constexpr int kSw = 8, kSh = 16, kGap = 4;
+  for (int k = 0; k < 4; ++k) {
+    const int sx = x + k * (kSw + kGap);
+    if (k == active) {
+      FillRect(fb, sx, y, kSw, kSh, kPartHue[k]);
+    } else {
+      DrawHLine(fb, sx, y, kSw, kFaint);
+      DrawHLine(fb, sx, y + kSh - 1, kSw, kFaint);
+      DrawVLine(fb, sx, y, kSh, kFaint);
+      DrawVLine(fb, sx + kSw - 1, y, kSh, kFaint);
+    }
+  }
+  return x + 4 * (kSw + kGap);
+}
+
+// Global subjects sit below the pane rule and are not owned by a part.
+bool IsGlobalSubject(SubjectId s) {
+  return static_cast<int>(s) >= static_cast<int>(SubjectId::kOutScope);
+}
+
+// The long-form subject name for the title bar (§7.6), spelled out so the
+// pane's abbreviated cells have their expansion always on screen.
+const char *LongName(SubjectId s) {
+  switch (s) {
+    case SubjectId::kPart: return "PART";
+    case SubjectId::kOsc1: return "OSCILLATOR 1";
+    case SubjectId::kOsc2: return "OSCILLATOR 2";
+    case SubjectId::kOsc3: return "OSCILLATOR 3";
+    case SubjectId::kOsc4: return "OSCILLATOR 4";
+    case SubjectId::kFilt: return "FILTER";
+    case SubjectId::kAmp: return "AMPLIFIER";
+    case SubjectId::kEnv1: return "ENVELOPE 1";
+    case SubjectId::kEnv2: return "ENVELOPE 2";
+    case SubjectId::kEnv3: return "ENVELOPE 3";
+    case SubjectId::kLfo1: return "LFO 1";
+    case SubjectId::kLfo2: return "LFO 2";
+    case SubjectId::kLfo3: return "LFO 3";
+    case SubjectId::kMod: return "MODULATION";
+    case SubjectId::kOutScope: return "SCOPE";
+    case SubjectId::kOutCycle: return "CYCLE";
+    case SubjectId::kOutSpec: return "SPECTRUM";
+    case SubjectId::kFx: return "EFFECTS";
+    case SubjectId::kPatch: return "PATCH";
+    case SubjectId::kConf: return "CONFIGURATION";
+    default: return "";
+  }
+}
+
+// Mode prefix for the title, or "" in edit mode.
+const char *ModePrefix(ViewMode m) {
+  switch (m) {
+    case ViewMode::kModArm: return "MOD ARM ";
+    case ViewMode::kModView: return "MOD VIEW ";
+    case ViewMode::kPerform: return "PERFORM ";
+    default: return "";
+  }
+}
+
+void DrawEditChrome(FrameBuffer &fb) {
   const NavState &nav = InteractionNavState();
   const PageDesc &page = g_pages[static_cast<int>(nav.subject)];
 
-  FillRect(fb, geom::kTitleX, geom::kTitleY, geom::kTitleW, geom::kTitleH,
+  // Title bar: part swatches, the screen name in full (with mode prefix), a
+  // cut for the patch name, and the patch/group indicators (§7.1).
+  FillRect(fb, geom::kTitleX, geom::kTitleY, geom::kTitleW, geom::kTitleH - 4,
            kDim);
-  char title[32];
-  std::snprintf(title, sizeof(title), "%s  P%d", page.label, nav.part + 1);
-  TextLeft(fb, title, geom::kTitleX + 8, geom::kTitleY + 3, kPrimaryFont,
+  const bool global = IsGlobalSubject(nav.subject);
+  const int nx = DrawPartSwatches(fb, geom::kTitleX + 8, geom::kTitleY + 3,
+                                  global ? -1 : static_cast<int>(nav.part));
+  char pn[3] = {'P', static_cast<char>('1' + nav.part), 0};
+  if (global) { pn[0] = 'G'; pn[1] = 'L'; }
+  TextLeft(fb, pn, nx + 4, geom::kTitleY + 2, kPrimaryFont,
+           global ? kMid : kBright);
+
+  // The navigator boundary, cut out of the filled bar rather than drawn on it.
+  const int gx = geom::kPaneX + geom::kPaneW - 5;
+  DrawVLine(fb, gx, geom::kTitleY, geom::kTitleH - 4, kBg);
+  DrawVLine(fb, gx + 1, geom::kTitleY, geom::kTitleH - 4, kBg);
+
+  char name[24];
+  std::snprintf(name, sizeof(name), "%s%s", ModePrefix(nav.mode),
+                LongName(nav.subject));
+  TextLeft(fb, name, geom::kTitleNameX, geom::kTitleY + 2, kPrimaryFont,
            kBright);
+
+  // A cut separating the screen name from the patch name.
+  DrawVLine(fb, geom::kTitleSepX, geom::kTitleY, geom::kTitleH - 4, kBg);
+  DrawVLine(fb, geom::kTitleSepX + 1, geom::kTitleY, geom::kTitleH - 4, kBg);
+  TextLeft(fb, "GLASS BELLS MK2", geom::kTitlePatchX, geom::kTitleY + 2,
+           kPrimaryFont, kMid);
+
+  int rx = geom::kTitleX + geom::kTitleW - 8;
+  TextRight(fb, "A007", rx, geom::kTitleY + 2, kPrimaryFont, kMid);
+  const int gc = GroupCount<>(page);
+  if (gc > 1) {
+    char gs[24];
+    std::snprintf(gs, sizeof(gs), "GROUP %d/%d", nav.group + 1, gc);
+    rx -= 4 * kPrimaryFont.w + 16;
+    TextRight(fb, gs, rx, geom::kTitleY + 2, kPrimaryFont, kBright);
+  }
 
   DrawPane(fb, nav);
   DrawColumns(fb, nav, page);
@@ -962,7 +1033,7 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
       p->pending[i] = 0;
       p->dyn[i].dirty = false;
     }
-    DrawEditChrome(fb, *p);
+    DrawEditChrome(fb);
     p->chrome_drawn[b] = true;
     p->damage.Repaint();  // the full render subsumes the pending damage
     return;
@@ -991,7 +1062,7 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
       p->dyn[k].dirty = p->pending[k] > 0;
     }
   }
-  DrawEditChrome(fb, *p);
+  DrawEditChrome(fb);
 }
 
 // ---- pointer (touch/drag) ----

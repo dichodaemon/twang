@@ -21,4 +21,13 @@ constexpr spike::Color kDim = spike::Rgb565(27, 98, 56);     ///< Chrome, header
 constexpr spike::Color kMid = spike::Rgb565(63, 191, 120);   ///< Labels.
 constexpr spike::Color kBright = spike::Rgb565(124, 255, 176);  ///< Alerts, focus, active.
 
+/// Part-identity hues for the title-bar swatches (§13.2 tunable). Distinct
+/// from the phosphor ramp so a part reads as hardware, not as intensity.
+constexpr spike::Color kPartHue[4] = {
+    spike::Rgb565(120, 200, 255),  // part 1 — cyan
+    spike::Rgb565(255, 190, 90),   // part 2 — amber
+    spike::Rgb565(190, 140, 255),  // part 3 — violet
+    spike::Rgb565(120, 255, 170),  // part 4 — mint
+};
+
 }  // namespace nostromo

@@ -34,7 +34,7 @@ static std::uint32_t Hash(const std::uint16_t *px, int n) {
 
 // Golden-image hash of the initial (deterministic) full render of the new
 // edit-screen layout.
-static constexpr std::uint32_t kExpectedHash = 0xCCF10DB2;
+static constexpr std::uint32_t kExpectedHash = 0x9D7DF51C;
 
 int main() {
     engine::EngineInit();
