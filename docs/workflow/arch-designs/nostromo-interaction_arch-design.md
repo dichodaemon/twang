@@ -176,6 +176,26 @@ groups are $\lceil n/E \rceil$ slices of it. Order carries meaning — the head 
 the page's hot set and stays the first group at any $E$ — which expresses the study's
 "declared hot set" in the type rather than in a comment.
 
+**The pane renders hierarchically and navigates flat.** `OSC`, `ENV`, `LFO` and `OUT` appear
+as labels owning a horizontal strip of cells, so the pane is 11 rows rather than 20. But the
+labels are *presentation*: they are not selectable, and NAV1 walks every subject in reading
+order — rows and cells alike, one detent per subject. §4.1's Option 3 therefore still holds;
+what was rejected there was a second navigation *axis* requiring a second control, not a
+grouped rendering. Using NAV2 for instances was tried and rejected: it spends two encoders on
+what is a one-dimensional walk.
+
+What the grouped rendering buys is the growth case the flat list failed. A flat 18-row pane
+needed 513 px of 526 — zero headroom, and a second filter failed the build. Rows plus strips
+need 415, and an added instance costs a cell rather than a row.
+
+**`kOut` is three subjects, not one with a view setting.** §7.6 originally gave OUT a `VIEW`
+column toggling scope, cycle and spectrum. Rendering it showed that only `SOURCE` is shared
+across the three: `SCALE` means full-scale amplitude in scope and a dB floor in spectrum, and
+the remaining three columns have no counterpart at all. One page with a value-dependent column
+set is a shape `PageDesc` cannot express; three subjects sharing a class label is a shape it
+already has. A selector below the columns it governs also inverted the visual hierarchy —
+every other selector is in the pane, to the left of what it controls.
+
 **Feel is state, not constants.** Anything judged by hand is tunable at runtime and editable
 from the CONF page. Anything that changes the shape of the design is compile-time. That line
 is the line between §7.10 and §7.1.
@@ -232,9 +252,14 @@ inline constexpr int kHeaderGap = 6;
 inline constexpr int kValueH   = 20;  // one primary-atlas line
 inline constexpr int kValueGap = 4;
 inline constexpr int kWellH    = 8;   // split well
+inline constexpr int kSumGap   = 6;
+inline constexpr int kSumLines = 2;   // inbound-route summary, edit mode
+inline constexpr int kSumPitch = 18;  // secondary atlas + leading
 inline constexpr int kPlotGap  = 16;
-inline constexpr int kRowPitch = 20;  // list rows, route lines
-inline constexpr int kPanePitch = 28; // pane entries
+inline constexpr int kRowPitch = 26;  // list rows: 20px cell + leading
+inline constexpr int kPanePitch = 26; // pane entries
+inline constexpr int kStripH   = 22;  // instance strip
+inline constexpr int kGlyphW   = 10;  // primary atlas cell width
 inline constexpr int kPaneRule = 3;   // globals separator
 inline constexpr int kPrimaryH = 20;  // ter-u20n cell height
 inline constexpr int kPlotMinH = 120; // below this a plot is decoration
@@ -252,26 +277,44 @@ inline constexpr int kContentY = kTitleY + kTitleH + kBandGap;         //  58
 inline constexpr int kHeaderY  = kContentY;                            //  58
 inline constexpr int kValueY   = kHeaderY + kHeaderH + kHeaderGap;     //  90
 inline constexpr int kWellY    = kValueY + kValueH + kValueGap;        // 114
-inline constexpr int kPlotY    = kWellY + kWellH + kPlotGap;           // 138
+inline constexpr int kSumY     = kWellY + kWellH + kSumGap;            // 128
+inline constexpr int kSumH     = kSumLines * kSumPitch;                //  36
+inline constexpr int kPlotY    = kSumY + kSumH + kPlotGap;             // 180
 inline constexpr int kBottom   = kFbHeight - kMargin;                  // 584
 
-inline constexpr int kPlotH = kBottom - kPlotY;                        // 446
+inline constexpr int kPlotH = kBottom - kPlotY;                        // 404
 inline constexpr int kPlotW = kColumns * kColW;                        // 900
 inline constexpr int kPlotX = kMargin + kPaneW;                        // 108
 
 // List pages (MOD, PATCH) have no value row: rows start under the headers.
 inline constexpr int kListY = kValueY;                                 //  90
 inline constexpr int kListH = kBottom - kListY;                        // 494
-inline constexpr int kListRows = kListH / kRowPitch;                   //  24
+inline constexpr int kListRows = kListH / kRowPitch;                   //  19
 
 // Mod view keeps the header and one value line, and replaces the rest.
 inline constexpr int kRouteY = kWellY;                                 // 114
 inline constexpr int kRouteH = kBottom - kRouteY;                      // 470
-inline constexpr int kRouteLines = kRouteH / kRowPitch;                //  23
+inline constexpr int kRouteLines = kRouteH / kRowPitch;                //  18
 
 inline constexpr int kPaneY = kContentY;                               //  58
 inline constexpr int kPaneH = kBottom - kPaneY;                        // 526
-inline constexpr int kPaneRows = (kPaneH - kPaneRule) / kPanePitch;    //  18
+// The pane renders hierarchically: class labels own instance strips, so its
+// height requirement is rows plus strips, not a row count.
+inline constexpr int kPaneRowsN   = 11;  // labels and singletons
+inline constexpr int kPaneStripsN = 4;   // OSC ENV LFO OUT
+inline constexpr int kPaneNeedH   = kPaneRowsN * kPanePitch +
+                                    kPaneStripsN * (kStripH + 8) +
+                                    kPaneRule + 6;                     // 415
+
+// Strip cells have a fixed pitch so digits align between classes; padding
+// shrinks as the token grows.
+inline constexpr int kStripAvail = kPaneW - 8 - 6;                     //  78
+inline constexpr int StripCellW(int chars) {
+  return chars * kGlyphW + (chars == 1 ? 8 : 4);
+}
+inline constexpr int StripW(int cells, int chars) {
+  return cells * StripCellW(chars);
+}
 
 // A configuration that cannot be built must not compile.
 static_assert(kColumns * kColW + kPaneW + 2 * kMargin == kFbWidth,
@@ -286,8 +329,11 @@ static_assert(kValueH >= kPrimaryH && kHeaderH >= kPrimaryH,
               "a text band is shorter than the primary atlas cell");
 static_assert(kRouteLines >= 6,
               "mod view cannot show a useful number of routes per column");
-static_assert(kPaneRows >= static_cast<int>(SubjectId::kCount),
-              "the subject pane cannot show every subject without scrolling");
+static_assert(kPaneH >= kPaneNeedH,
+              "the subject pane cannot show every class and its instance "
+              "strips without scrolling");
+static_assert(StripW(4, 1) <= kStripAvail, "digit strip overflows the pane");
+static_assert(StripW(3, 2) <= kStripAvail, "view strip overflows the pane");
 }  // namespace nostromo::geom
 ```
 
@@ -296,18 +342,24 @@ a shape intended to be $h$ px tall and visually square is $\lceil h / \text{kAsp
 px wide.
 
 **Plot-dominant, and what it costs.** The bands above the plot are fixed at their minimum
-legible size and the plot takes the residue — 446 px against 900 px wide, roughly 2.1:1 after
-aspect correction, and nearly double the 232 px the current four-module layout gives it. The
+legible size and the plot takes the residue — 404 px against 900 px wide, roughly 1.9:1 after
+aspect correction, and about 1.7× the 232 px the current four-module layout gives it. The
 price is paid in edit mode: one value line and one well per column, with no room for a
 secondary readout under a column. Mod view is unaffected, because it replaces the plot rather
-than sharing with it — 23 route lines per column, which is past any plausible inbound count
+than sharing with it — 18 route lines per column, which is past any plausible inbound count
 and well past the point where §4.7's reflow takes over.
 
-**The pane is the tightest band.** 18 entries at 28 px against `SubjectId::kCount`, currently
-18, with the `static_assert` as the guard. A nineteenth subject requires either a smaller
-pitch — 26 px still clears the 20 px cell — or the globals moving off the pane. This is the
-one derived value with no headroom, and it is deliberate: the pane showing every subject
-without scrolling is what makes the navigator its own breadcrumb (§4.1).
+**The summary band is not dead space.** `kSumY`/`kSumH` hold two lines of inbound-route
+summary per column in *edit* mode (§4.8), so "what modulates this" needs no mode change.
+Pages whose columns are not modulatable — MOD, PATCH, CONF, the OUT views — have no summary,
+and the band would read as a gap; the OUT views fill it with their own content rather than
+letting the plot claim it, because band registration across pages is what makes switching
+cheap to read.
+
+**The pane has headroom now.** 415 px of 526, against the 513 px a flat 18-row list needed.
+The instance strips are what bought it: a fifth oscillator is a cell, not a row, so the pane
+scales with instance count for free. That headroom is why a second filter — the growth case
+that failed the flat layout — now costs 26 px rather than failing the build.
 
 ### 7.2. Controls and input
 
@@ -349,14 +401,14 @@ Press timing is not a constant here; it is `g_feel.long_press_ms` (§7.10), star
 ```cpp
 enum class SubjectId : std::uint8_t {
   kPart = 0,                       ///< part-level settings
+  kFilt, kAmp, kMod,
   kOsc1, kOsc2, kOsc3, kOsc4,
-  kFilt, kAmp,
   kEnv1, kEnv2, kEnv3,
   kLfo1, kLfo2, kLfo3,
-  kMod,
-  kOut, kFx,                       ///< globals, below the pane rule
+  kOutScope, kOutCycle, kOutSpec,  ///< globals, below the pane rule
+  kFx,
   kPatch, kConf,
-  kCount,
+  kCount,                          ///< 20
 };
 
 enum class ViewMode : std::uint8_t {
@@ -474,18 +526,23 @@ value)` — which is engine work this design depends on and does not perform.
 ### 7.6. The page table
 
 Ordered by pane position. `∗` marks a column whose `ParamId` exists today; everything else is
-`kPending`. Group boundaries are derived at $E = 5$ and shown only to make the packing visible.
+`kPending`. A label written `OSC`/`2` is a class label plus a strip cell: one pane row for the
+class, one cell per instance, and the cell is what NAV1 selects. Every subject also carries a
+long-form name for the title bar — `OSCILLATOR 2`, `MODULATION`, `CONFIGURATION` — spelled out
+except where the acronym is the established term (`LFO`). Group boundaries are derived at $E = 5$ and shown only to make the packing visible.
 
 | Subject | Label | Columns, in order (group 0 ‖ group 1) | Item axis | Plot |
 |---|---|---|---|---|
 | `kPart` | `PART` | chan, voices, transpose, glide, mono/poly ‖ bend range | — | — |
-| `kOsc1..4` | `OSC1`..`OSC4` | wave, coarse∗, fine, level, shape ‖ pan, sync | — | wave |
+| `kOsc1..4` | `OSC`/`1`..`4` | wave, coarse∗, fine, level, shape ‖ pan, sync | — | wave |
 | `kFilt` | `FILT` | cutoff∗, resonance∗, env amt, drive∗, keytrack∗ ‖ mode | — | response |
 | `kAmp` | `AMP` | level∗, pan, velo sens, send A, send B | — | — |
-| `kEnv1..3` | `ENV1`..`ENV3` | A∗, D∗, S∗, R∗, curve ‖ velo sens | — | envelope |
-| `kLfo1..3` | `LFO1`..`LFO3` | rate, shape, depth, sync, fade ‖ phase, retrig | — | shape |
+| `kEnv1..3` | `ENV`/`1`..`3` | A∗, D∗, S∗, R∗, curve ‖ velo sens | — | envelope |
+| `kLfo1..3` | `LFO`/`1`..`3` | rate, shape, depth, sync, fade ‖ phase, retrig | — | shape |
 | `kMod` | `MOD` | source, dest, amount, curve, enable | slots | — |
-| `kOut` | `OUT` | source∗, view∗, timebase, scale, trigger | — | scope / cycle / spectrum |
+| `kOutScope` | `OUT`/`SC` | source∗, timebase, scale, trigger, hold | — | scope |
+| `kOutCycle` | `OUT`/`CY` | source∗, cycles, scale, align, hold | — | single cycle |
+| `kOutSpec` | `OUT`/`SP` | source∗, range, scale, average, window | — | spectrum |
 | `kFx` | `FX` | *pending* | — | — |
 | `kPatch` | `PATCH` | category, sort, favourite, action | patches | — |
 | `kConf` | `CONF` | detents/rev, accel max, accel thresh, long press, fine div | — | — |
@@ -500,7 +557,8 @@ discrete, and `synth-routing_arch-design.md` scopes `ParamId` to modulatable par
 discrete parameters are outside it by definition, not merely absent from it. They render as
 `kPending` until `ParamId` covers non-modulatable parameters, which is part of the engine
 dependency in §13.6, not a matter of adding enumerators. The same applies to every discrete
-column in §7.6: wave select, LFO shape and sync, mono/poly, and the `kOut` view toggle.
+column in §7.6: wave select, LFO shape and sync, mono/poly, and the OUT views' window and
+trigger settings.
 
 **`kOut` is the visual keystone, and it is global.** The output section is where the user sees
 what the engine is actually doing, so it is the page the instrument is left sitting on and the
@@ -508,14 +566,20 @@ one glanced at mid-edit. It monitors the master bus (`output-stage_arch-design.m
 first column selects the source — master, or one part — so scoping a single part while
 dialling it needs no mode and no second page.
 
-Its plot is 900 × 446 like every other page's. The keystone quality comes from availability,
+Its plot is 900 × 404 like every other page's. The keystone quality comes from availability,
 not size: a larger plot would break the band registration that makes switching pages cheap to
 read.
 
+Being global has a visible consequence. A global subject is not owned by a part, so the title
+bar's part indicator says so rather than naming a part that has nothing to do with what is on
+screen: the four swatches go to outline and `P<n>` becomes `GL`. Without that, `SOURCE MASTER`
+and `P1` sit on one screen contradicting each other, and pressing a part button appears to do
+nothing.
+
 **`kMix` is gone, folded into `kAmp`.** Level, pan, velo sens, send A and send B is one clean
 group, and the two subjects were never distinct — both answer "how much of this part, and
-where." That keeps `SubjectId::kCount` at 18 against `geom::kPaneRows`, which `kOut` would
-otherwise have pushed to 19 and failed the build.
+where." The saving is no longer load-bearing — the strip pane has headroom the flat one did
+not — but the merge stands on its own terms.
 
 **Ordering rationale, where it is not obvious.** Filter puts drive ahead of keytrack because
 drive is dialled while listening and keytrack is set once per patch. Filter mode is in group 1
