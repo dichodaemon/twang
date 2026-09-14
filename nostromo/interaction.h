@@ -16,8 +16,6 @@
 #include "engine.h"
 #include "geom.h"
 
-namespace spike { struct DynSlot; }
-
 namespace nostromo {
 
 /// Logical controls, independent of the physical surface (see SurfaceProfile
@@ -121,12 +119,13 @@ struct NavState {
 };
 
 struct SurfaceProfile;  ///< defined in surface.h
+struct Panel;           ///< defined in panel.h
 
 /// @brief Initialise the layer (control thread, once).
-/// Binds the slot array and surface; loads g_feel defaults; zeroes NavState;
-/// marks every slot dirty. Reports once if surface.n_encoders < geom::kColumns.
-void InteractionInit(spike::DynSlot *slots, int n_slots,
-                     const SurfaceProfile &surface);
+/// Binds the panel (the MarkDirty target) and surface; loads g_feel defaults;
+/// zeroes NavState; marks every plot slot dirty. Reports once if
+/// surface.n_encoders < geom::kColumns.
+void InteractionInit(Panel *panel, const SurfaceProfile &surface);
 
 /// @brief Feed one logical input event.
 /// Precondition: ev.control < Control::kCount, ev.t_ms monotonic.
@@ -135,8 +134,10 @@ void InteractionOnInput(const InputEvent &ev);
 /// @brief Create or update a modulation route (control thread).
 /// Finds the matching (src, dst) route or the lowest free slot; returns false
 /// if the table is full and no slot matched. A zero amount keeps the slot.
+/// `dst` is a full ParamRef — the instance comes from ResolveBinding and is
+/// never re-derived here (Design Decisions).
 bool InteractionCreateRoute(std::uint8_t part, engine::ModSourceId src,
-                            engine::ParamId dst, float amount);
+                            engine::ParamRef dst, float amount);
 
 /// @brief Read-only view of the navigation state for the renderer (pane/header
 /// chrome and DYN hooks). Returns a const reference so the screen cannot write

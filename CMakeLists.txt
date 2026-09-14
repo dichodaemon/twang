@@ -204,3 +204,7 @@ add_test(NAME gestures COMMAND test_gestures)
 add_executable(test_surface tests/test_surface.cc)
 target_link_libraries(test_surface PRIVATE nostromo)
 add_test(NAME surface COMMAND test_surface)
+
+add_executable(test_interaction tests/test_interaction.cc)
+target_link_libraries(test_interaction PRIVATE nostromo)
+add_test(NAME interaction COMMAND test_interaction)
