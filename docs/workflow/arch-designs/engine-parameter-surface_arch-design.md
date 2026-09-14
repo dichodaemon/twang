@@ -151,7 +151,8 @@ void EngineSetParam(int part, ParamRef ref, float norm);
 - `comb` is meaningful only when `modulatable`.
 - Every `ParamId` has exactly one `ParamDesc` row; `g_params` has `ParamId::kCount` entries.
 - `ref.id < ParamId::kCount` and `ref.instance < 256` — the bounds that keep `ParamRef` at 16
-  bits.
+  bits. This size is a persisted-format commitment (`ParamRef` is `ModRoute.dst` in stored
+  patches) and is compile-time asserted, not left to inspection.
 
 ## 9. Acceptance Criteria
 
