@@ -101,16 +101,15 @@ inline constexpr int kLabelX    = 8;
 inline constexpr int kStripAvail = kPaneW - 8 - kStripX0;           //  78
 inline constexpr int kGlyphW    = 10;   // primary atlas cell width
 
-// Title bar fields. The screen name occupies a fixed-width slot so the patch
-// name never moves: at a variable width the eye has to find it again on every
-// page change. The slot is sized to the longest screen name (CONFIGURATION),
-// and a cut in the filled bar separates the two, the same gesture used for
-// the navigator boundary.
-inline constexpr int kTitleNameChars = 13;
+// Title bar fields. The screen name occupies a fixed-width slot sized for the
+// longest compound title ("MOD VIEW OSCILLATOR 2"), so the patch name never
+// moves and a mode prefix never forces the subject to be abbreviated. A cut in
+// the filled bar separates them, at the same x as the navigator boundary.
+inline constexpr int kTitleNameChars = 22;
 inline constexpr int kTitleNameX = kPlotX + 6;                      // 114
-inline constexpr int kTitleNameW = kTitleNameChars * kGlyphW;       // 130
-inline constexpr int kTitleSepX  = kTitleNameX + kTitleNameW + 8;   // 252
-inline constexpr int kTitlePatchX = kTitleSepX + 10;                // 262
+inline constexpr int kTitleNameW = kTitleNameChars * kGlyphW;       // 220
+inline constexpr int kTitleSepX  = kTitleNameX + kTitleNameW + 8;   // 342
+inline constexpr int kTitlePatchX = kTitleSepX + 10;                // 352
 
 inline constexpr int StripCellW(int chars) {
   return chars * kGlyphW + (chars == 1 ? 8 : 4);

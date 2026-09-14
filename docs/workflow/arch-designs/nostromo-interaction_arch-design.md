@@ -196,6 +196,36 @@ set is a shape `PageDesc` cannot express; three subjects sharing a class label i
 already has. A selector below the columns it governs also inverted the visual hierarchy —
 every other selector is in the pane, to the left of what it controls.
 
+**Focus and widening are separate mechanisms.** Study §4.8 describes a short press in
+`kModView` as focusing a column *and* widening it to the full content width. Rendering the two
+as one gesture showed they must not be: at 18 route lines per column, focusing a two-route
+column triggered a relayout that accomplished nothing, and the widening was invisible in every
+case that occurs. Focus is a row cursor — NAV2 walks the list, encoder $n$ sets the selected
+route's amount, no relayout. Widening is the *overflow* response of §4.7 and fires only when a
+list outgrows its column. Overflow still needs defined behaviour, so widening stays; it is
+triggered by the condition it was designed for rather than by the gesture.
+
+**Outbound routes get a band, not a column.** A modulator's page is both destination and
+source. Inbound routes belong to the parameter they land on and sit under its column; outbound
+routes belong to the *module*, and attaching them to any one column would be a lie. They
+occupy a full-width `SENDS` band below the per-column lists, sized to its content and reflowed
+at the parameter grid's column pitch so the entries stay aligned with the columns above. This
+is the only page-class-specific layout element in the design.
+
+**One arrow, in the columns only.** Column route lines carry `<-`; the `SENDS` band carries
+none. Direction is already given by the layout — inbound appears only under a column, outbound
+only in the band — so the glyph marks "this line is a route", not its direction. It stays in
+the columns because nothing else there separates a route line from the value above it; the
+band is labelled and needs no marker. A lowercase-instead-of-glyph variant was rendered and
+rejected: it lost the separation, and its rationale (lowercase means "a reference to something
+elsewhere") fails in mod view, where route lines are the thing being edited.
+
+**Selection is inverse video; a column header is a dim block.** Both were drawn as a `kDim`
+fill with `kBright` text, so the pane's selected subject read as a sixth column header. The
+selection is state and there is one per screen; a header is a label and there are five. The
+distinctive treatment goes to the rarer, load-bearing one: selected pane rows and selected
+strip cells invert — `kBright` fill, `kBg` text — and headers keep the dim block.
+
 **Feel is state, not constants.** Anything judged by hand is tunable at runtime and editable
 from the CONF page. Anything that changes the shape of the design is compile-time. That line
 is the line between §7.10 and §7.1.
@@ -271,6 +301,16 @@ inline constexpr float kAspect  = kPxMm / kPyMm;           // 1.0517 — pixels 
 inline constexpr int   kColW    = (kFbWidth - 2 * kMargin - kPaneW) / kColumns;
 inline constexpr int   kColX(int n) { return kMargin + kPaneW + n * kColW; }
 inline constexpr float kPitchMm = kColW * kPxMm;
+
+// Title-bar fields. The screen name occupies a fixed-width slot sized for the
+// longest compound title ("MOD VIEW OSCILLATOR 2"), so the patch name never
+// moves and a mode prefix never forces the subject to be abbreviated. A cut in
+// the filled bar separates them, at the same x as the navigator boundary.
+inline constexpr int kTitleNameChars = 22;
+inline constexpr int kTitleNameX  = kPlotX + 6;                        // 114
+inline constexpr int kTitleNameW  = kTitleNameChars * kGlyphW;         // 220
+inline constexpr int kTitleSepX   = kTitleNameX + kTitleNameW + 8;     // 342
+inline constexpr int kTitlePatchX = kTitleSepX + 10;                   // 352
 
 inline constexpr int kTitleY   = kMargin;                              //  16
 inline constexpr int kContentY = kTitleY + kTitleH + kBandGap;         //  58
@@ -555,8 +595,7 @@ scope/cycle/spectrum toggle — is the most complete in `panel.cc`.
 and four existing envelope columns are all *continuous*. Filter mode and envelope curve are
 discrete, and `engine-parameter-surface_arch-design.md` marks parameters modulatable — so
 discrete parameters are outside the modulatable subset by definition, not merely absent from it. They render as
-`kPending` until `ParamId` covers non-modulatable parameters, which is part of the engine
-dependency in §13.6, not a matter of adding enumerators. The same applies to every discrete
+`kPending` until `ParamId` covers non-modulatable parameters — the enum growth of §13.3. The same applies to every discrete
 column in §7.6: wave select, LFO shape and sync, mono/poly, and the OUT views' window and
 trigger settings.
 
@@ -735,7 +774,7 @@ Resolution by mode, for a column encoder $n$ in group $g$:
 |---|---|---|---|---|
 | `kEdit` | set `cols[n]` | descend, if the page marks the column descendable | revert to default | fine adjust ×⅒ |
 | `kModArm` | write route `armed_source → cols[n]`, amount from the turn | — | — | fine adjust of the amount |
-| `kModView` | set `cols[n]` | focus column $n$; NAV2 walks its routes | revert to default | fine adjust |
+| `kModView` | set `cols[n]` | focus column $n$ — a row cursor, no relayout; NAV2 walks its routes and encoder $n$ sets the selected amount | revert to default | fine adjust |
 | `kPerform` | reserved | reserved | reserved | reserved |
 
 ### Navigation contracts
@@ -789,20 +828,23 @@ bool InteractionCreateRoute(std::uint8_t part, ModSourceId src, ParamId dst, flo
 5. **At most one latched mode.** `kModView` and `kPerform` are mutually exclusive.
 6. **A part change alters values only.** `subject`, `group`, `item`, `focus_col` and `mode`
    are invariant across a part button press, so chrome is never re-interpreted.
-7. **No modifier.** No gesture in this design requires a general-purpose shift. A function
+7. **One inverse-video element per screen.** Inverse marks the selected subject — a pane row
+   or a strip cell — and nothing else. Column headers, cursors and route markers use the
+   emphasis ladder's fills and outlines.
+8. **No modifier.** No gesture in this design requires a general-purpose shift. A function
    unreachable without one indicates a layout defect, not a missing control.
-8. **No literal geometry.** Layout numbers appear only in `geom`, derived from its parameters.
-9. **No literal control counts.** No code outside `geom` and `SurfaceProfile` assumes a number
+9. **No literal geometry.** Layout numbers appear only in `geom`, derived from its parameters.
+10. **No literal control counts.** No code outside `geom` and `SurfaceProfile` assumes a number
    of encoders, columns or buttons. A loop over columns bounds on `geom::kColumns`; a loop
    over physical controls bounds on `Surface().n_map`.
-10. **Grouping is derived.** No `PageDesc` states a group count or a per-group column list;
+11. **Grouping is derived.** No `PageDesc` states a group count or a per-group column list;
     both come from `GroupCount` and `Column`. A page authored at one $E$ is valid at
     every $E$.
-11. **Feel never changes shape.** No field of `FeelProfile` can alter which parameter a control
+12. **Feel never changes shape.** No field of `FeelProfile` can alter which parameter a control
     drives, how many columns exist, or what is drawn where — only how far a turn moves and how
     long a press must be held. A tunable that changes a binding is a design parameter and
     belongs in `geom` or `PageDesc`.
-12. **Bounded work per event.** No allocation, no unbounded loop; resolution is a table lookup.
+13. **Bounded work per event.** No allocation, no unbounded loop; resolution is a table lookup.
 
 ## 10. Test Architecture
 
@@ -893,7 +935,7 @@ is a property of the layout rather than of the encoder, so it validates $E$ with
 | `nostromo/panel.{h,cc}` | Existing — owns `spike::Damage`, `pending[]`, and `MarkDirty`; the sole invalidation entry point |
 | `spike/descriptor.h` | Existing — `DynSlot`, `DescriptorCtx` |
 | `engine/params.h` | `ParamDesc` gains `accel_max`, `zero_notch` (§7.8) |
-| `engine/engine.h` | **Changes required** — `ParamId` semantics and the `EngineSetParam` signature (§7.5, §13.6). `EngineSetRoute` and `ModSourceId` unchanged |
+| `engine/engine.h` | Existing — `ParamRef` and the `ParamRef`-based `EngineSetParam`/`GetParam`/`SetRoute` (see `engine-parameter-surface_arch-design.md`) |
 | `tests/test_bindings.cc` | Exhaustive resolution and page-table validation |
 | `tests/test_gestures.cc` | Gesture recognition boundaries |
 
@@ -910,12 +952,12 @@ Draft-only. Each must close or move before `approved`.
    palette (`kBg/kFaint/kDim/kMid/kBright`), carrying one meaning only — part identity, on
    the title-bar indicator and the button LEDs. Verified on the panel.
 3. **The pending parameter surface.** Most pages are declared with `kPending` columns
-   because `ParamId` holds 11 entries against a target near 130. Closing this is engine work,
+   because `ParamId` holds 11 entries against a target near 60. Closing this is engine work,
    not interaction work. It does **not** gate starting: build the mechanism against the
    `ParamId`s that exist, let `kPending` carry the rest, and treat `approved` as the
    milestone at which the taxonomy is complete rather than a precondition for implementation.
    The project is at a learning stage and iteration speed matters more than a complete table.
-   See §13.4 for the sizing question and §13.6 for the structural one, which does block.
+   See §13.4 for the sizing question.
 4. **Whether $E = 5$ survives the full parameter surface.** The study's five-parameter module
    lists were drawn from the routing study's *modulation destination* list.
    [`engine-parameter-surface_arch-design.md`](engine-parameter-surface_arch-design.md) makes
@@ -942,38 +984,6 @@ Draft-only. Each must close or move before `approved`.
    survive its own parameter lists once discrete parameters are counted. This is not resolved
    here: `geom::kColumns` is a parameter precisely so the answer can come from a prototype
    rather than from arithmetic.
-5. **A slot's damage extent is described twice.** `MarkDirty` hardcodes the fact that plot
-   slot *n*'s hook also paints a readout at `kReadoutY`, outside the slot's own rect. The hook
-   and `MarkDirty` are two descriptions of what a region touches with nothing enforcing
-   agreement — the `DrawChrome`/`grat[]` hazard (`panel-ui-design-state.md` §7) in a second
-   place. It is tolerable for four plots and will not be for live columns, where every column
-   paints a header, a value, a well and possibly a route list. Resolve by giving the slot its
-   full extent — a second rect on `DynSlot`, or a DYN op reserving the union — before the
-   column slots are built. *Affects `nostromo/panel.cc`; not blocking, but cheapest now.*
-6. **The engine parameter API (structural, blocking the addressing model).** §7.5 requires two
-   changes to `ParamId` that are semantic, not additive, and neither is covered by §13.3:
-   - **An instance argument.** `EngineSetParam(id, value)` becomes
-     `EngineSetParam(part, ref, value)` — `ref` a `ParamRef {instance, id}`. Kind-not-instance
-     addressing is what keeps
-     `ParamId` near 39 entries instead of 130 and lets the four oscillator pages share one
-     column list; without it, `g_pages` and the enum both quadruple.
-   - **Scope beyond modulatable parameters.** `engine-parameter-surface_arch-design.md` defines
-     `ParamId` as the full parameter surface, of which the *modulatable* subset is routing's.
-     The interaction layer addresses every
-     parameter, including discrete ones — filter mode, wave select, LFO shape and sync,
-     mono/poly. Either `ParamId` widens and modulation takes a subset of it, or the two
-     addressing spaces diverge and every column carries a tag saying which it is. The first is
-     simpler; both are engine decisions.
-
-   This is engine-wide and structural, so it is a *dependency*, not interaction work: this
-   document cannot be planned against until it is settled, whereas §13.3's growth of the
-   parameter set can proceed alongside. *Owner: `engine-parameter-surface_arch-design.md` and
-   `engine/engine.h`. Blocks: §7.5's addressing model, §7.6's discrete columns, §7.7's
-   `kParam` resolution, and the plan.*
-7. **`MarkDirty`'s signature.** It is an internal helper taking a bare `int`; `MarkDirty(p, 3)`
-   at `panel.cc:894` means the output plot only by convention. For this layer to call it, it
-   needs to be a declared entry point in `panel.h` taking `SlotIdx`. Trivial, and it should
-   land with the first interaction code rather than after it.
 
 **Not a defect:** `Panel::pending[]` and `spike::Damage`'s two-frame rule look like duplicate
 mechanisms and are complementary — `pending` decides whether a *hook re-runs* into the second
