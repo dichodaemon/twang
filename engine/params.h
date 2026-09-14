@@ -28,8 +28,8 @@ struct ParamDesc {
     float disp_max;         ///< Display value at normalized 1.
     float def;              ///< Default normalized value.
     ParamCurve curve;       ///< Display mapping curve.
-    std::size_t base;       ///< Byte offset of instance 0 in the part.
-    std::size_t stride;     ///< Byte distance between instances; 0 = single-instance.
+    std::uint16_t base;     ///< Byte offset of instance 0 within the Part.
+    std::uint16_t stride;   ///< Byte distance between instances; 0 = single-instance.
     bool modulatable;       ///< Whether a route may target this parameter.
     CombinationClass comb;  ///< How routes combine; meaningful only when modulatable.
 };

@@ -102,6 +102,14 @@ int main() {
               0.5f,
           "key_follow def 0.5");
 
+    // Every storage offset must be float-aligned: ParamGet/ParamSet
+    // reinterpret_cast the byte offset to a float*. A misaligned offset compiles
+    // and misbehaves at runtime, so catch it here over the whole table.
+    for (int i = 0; i < ParamCount(); ++i) {
+        Check(g_params[i].base % alignof(float) == 0, "base float-aligned");
+        Check(g_params[i].stride % alignof(float) == 0, "stride float-aligned");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

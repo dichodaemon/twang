@@ -66,18 +66,21 @@ discrete, or config — has exactly one `ParamDesc` row. `modulatable` is a desc
 enum category, so a parameter that later becomes modulatable (oscillator shape) flips a flag
 rather than changing its identity.
 
-**Instance-major storage.** Part state is a flat float bank; the descriptor carries `base`
-(position of instance 0) and `stride` (per-instance distance), so an address resolves as
-`base[id] + instance × stride[id]`. `stride == 0` for single-instance parameters, which makes
-`instance` harmless there rather than a value callers must remember to pass as `0`. A dense
-`[maxInstance][nParams]` bank is rejected — it is mostly holes (four oscillators, one filter).
+**Byte-offset storage.** The descriptor carries `base` (byte offset of instance 0 within
+`Part`) and `stride` (byte distance between instances), so an address resolves as
+`bytes + base[id] + instance × stride[id]` into a float member. Byte offsets — not indices
+into a single flat bank — are what let `kKeyFollowDepth` (a named field outside `params[]`)
+use the same mechanism as the bank members. `stride == 0` for single-instance parameters,
+which makes `instance` harmless there rather than a value callers must remember to pass as
+`0`. A dense `[maxInstance][nParams]` bank is rejected — it is mostly holes (four
+oscillators, one filter).
 
 **Design decisions**
 
 | Decision | Choice | Rationale |
 |---|---|---|
 | Instance addressing | `ParamRef` carries `instance`; `ParamId` stays per-kind | One address type shared by the API, routes, and UI bindings; ≈39 vs ≈130 entries |
-| Storage layout | Descriptor `base`/`stride`, flat bank | No holes; single-instance params ignore `instance` |
+| Storage layout | Descriptor `base`/`stride`, byte offsets into `Part` | No holes; single-instance params ignore `instance` |
 | Modulatable vs discrete | Descriptor flag, one enum | A param's modulatability can change without changing its identity or stored patches |
 | Discrete rendering | Descriptor value labels | SAW/LIN/HANN are labels, not numbers |
 
@@ -108,8 +111,8 @@ struct ParamDesc {
     float disp_min, disp_max;     ///< display range
     float def;                    ///< default normalized value
     ParamCurve curve;             ///< display mapping (linear / exponential)
-    std::uint16_t base;           ///< position of instance 0 in the flat part-state bank
-    std::uint16_t stride;         ///< per-instance distance; 0 = single-instance
+    std::uint16_t base;           ///< byte offset of instance 0 within the Part
+    std::uint16_t stride;         ///< byte distance between instances; 0 = single-instance
     bool modulatable;             ///< whether a route may target this parameter
     const char *const *labels;    ///< discrete value labels; nullptr = continuous
     std::uint8_t n_labels;        ///< 0 = continuous
@@ -146,7 +149,7 @@ void EngineSetParam(int part, ParamRef ref, float norm);
 
 ## 8. System Invariants
 
-- `base[id] + instance × stride[id]` always lands inside the flat part-state bank.
+- `base[id] + instance × stride[id]` always lands inside the `Part` and is float-aligned.
 - `stride == 0` iff the parameter is single-instance; `instance` is then ignored.
 - `comb` is meaningful only when `modulatable`.
 - Every `ParamId` has exactly one `ParamDesc` row; `g_params` has `ParamId::kCount` entries.

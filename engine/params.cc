@@ -8,47 +8,47 @@ namespace engine {
 constexpr ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)] = {
     [static_cast<std::size_t>(ParamId::kCutoff)] =
         { "cutoff", "Hz", 20.0f, 20000.0f, 1.0f, ParamCurve::kExponential,
-          offsetof(Part, params) + 0 * sizeof(float), 0, true,
+          static_cast<std::uint16_t>(offsetof(Part, params) + 0 * sizeof(float)), 0, true,
           CombinationClass::kAdditive },
     [static_cast<std::size_t>(ParamId::kResonance)] =
         { "resonance", "%", 0.0f, 100.0f, 0.0f, ParamCurve::kLinear,
-          offsetof(Part, params) + 1 * sizeof(float), 0, false,
+          static_cast<std::uint16_t>(offsetof(Part, params) + 1 * sizeof(float)), 0, false,
           CombinationClass::kAdditive },
     [static_cast<std::size_t>(ParamId::kAttack)] =
         { "attack", "s", 0.0f, 10.0f, 0.25f, ParamCurve::kExponential,
-          offsetof(Part, params) + 2 * sizeof(float), 0, false,
+          static_cast<std::uint16_t>(offsetof(Part, params) + 2 * sizeof(float)), 0, false,
           CombinationClass::kExponential },
     [static_cast<std::size_t>(ParamId::kDecay)] =
         { "decay", "s", 0.0f, 10.0f, 0.6f, ParamCurve::kExponential,
-          offsetof(Part, params) + 3 * sizeof(float), 0, false,
+          static_cast<std::uint16_t>(offsetof(Part, params) + 3 * sizeof(float)), 0, false,
           CombinationClass::kExponential },
     [static_cast<std::size_t>(ParamId::kSustain)] =
         { "sustain", "%", 0.0f, 100.0f, 0.7f, ParamCurve::kLinear,
-          offsetof(Part, params) + 4 * sizeof(float), 0, false,
+          static_cast<std::uint16_t>(offsetof(Part, params) + 4 * sizeof(float)), 0, false,
           CombinationClass::kMultiplicative },
     [static_cast<std::size_t>(ParamId::kRelease)] =
         { "release", "s", 0.0f, 10.0f, 0.6f, ParamCurve::kExponential,
-          offsetof(Part, params) + 5 * sizeof(float), 0, false,
+          static_cast<std::uint16_t>(offsetof(Part, params) + 5 * sizeof(float)), 0, false,
           CombinationClass::kExponential },
     [static_cast<std::size_t>(ParamId::kAmp)] =
         { "amp", "%", 0.0f, 100.0f, 1.0f, ParamCurve::kLinear,
-          offsetof(Part, params) + 6 * sizeof(float), 0, true,
+          static_cast<std::uint16_t>(offsetof(Part, params) + 6 * sizeof(float)), 0, true,
           CombinationClass::kMultiplicative },
     [static_cast<std::size_t>(ParamId::kPitchCoarse)] =
         { "pitch_coarse", "semi", -24.0f, 24.0f, 0.5f, ParamCurve::kLinear,
-          offsetof(Part, params) + 7 * sizeof(float), 0, true,
+          static_cast<std::uint16_t>(offsetof(Part, params) + 7 * sizeof(float)), 0, true,
           CombinationClass::kExponential },
     [static_cast<std::size_t>(ParamId::kPitchBend)] =
         { "pitchbend", "%", 0.0f, 100.0f, 0.5f, ParamCurve::kLinear,
-          offsetof(Part, params) + 8 * sizeof(float), 0, false,
+          static_cast<std::uint16_t>(offsetof(Part, params) + 8 * sizeof(float)), 0, false,
           CombinationClass::kAdditive },
     [static_cast<std::size_t>(ParamId::kDrive)] =
         { "drive", "dB", 0.0f, 20.0f, 0.0f, ParamCurve::kExponential,
-          offsetof(Part, params) + 9 * sizeof(float), 0, true,
+          static_cast<std::uint16_t>(offsetof(Part, params) + 9 * sizeof(float)), 0, true,
           CombinationClass::kAdditive },
     [static_cast<std::size_t>(ParamId::kKeyFollowDepth)] =
         { "key_follow", "%", 0.0f, 100.0f, 0.5f, ParamCurve::kLinear,
-          offsetof(Part, key_follow_depth), 0, false,
+          static_cast<std::uint16_t>(offsetof(Part, key_follow_depth)), 0, false,
           CombinationClass::kAdditive },
 };
 
