@@ -3,8 +3,9 @@
 // A mis-decode is expensive to find by feel (a binary-offset encoder read as
 // signed-bit turns clockwise into -1 and anticlockwise into +63), so the
 // round-trip is a test, not a manual check (arch-design §7.9). The ControlMap
-// must be injective in both directions: a prototype whose table forgets a
-// control should fail a test, not a session.
+// must be injective on physical CCs: a prototype whose table maps one CC to
+// two controls should fail a test, not a session. A logical control may have
+// two physicals (an encoder's rotary CC and its push-button CC at +100).
 
 #include <cstdio>
 
@@ -23,15 +24,13 @@ static void Check(bool ok, const char *msg) {
 }
 
 int main() {
-    // 1. The active profile's ControlMap is injective in both directions.
+    // 1. The active profile's ControlMap is injective on physical CCs.
     {
         const SurfaceProfile &sp = Surface();
         for (int i = 0; i < sp.n_map; ++i) {
             for (int j = i + 1; j < sp.n_map; ++j) {
                 Check(sp.map[i].physical != sp.map[j].physical,
                       "physical CCs are unique");
-                Check(sp.map[i].logical != sp.map[j].logical,
-                      "logical controls are unique");
             }
         }
     }

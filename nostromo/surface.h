@@ -30,10 +30,14 @@ enum class EncEncoding : std::uint8_t {
 /// delta, so one event cannot jump a parameter end-to-end.
 int DecodeEnc(std::uint8_t raw, EncEncoding enc);
 
-/// One physical→logical mapping entry.
+/// One physical→logical mapping entry. `turn` distinguishes a relative
+/// encoder byte (decoded by DecodeEnc to detents) from a button (press/release
+/// edge). An encoder has two entries — the rotary CC (turn) and its push
+/// button CC (+100, a button) — so the same logical control appears twice.
 struct ControlMap {
   std::uint16_t physical;   ///< MIDI CC (host) or scan index (target)
   Control       logical;
+  bool          turn;       ///< true = relative encoder; false = button
 };
 
 /// A named physical surface: its control map and what it physically has.

@@ -35,20 +35,12 @@ int FindXtouch(rt::midi::RtMidi *midi, unsigned int count) {
 // The X-Touch Compact speaks on MIDI channel 1 (status low nibble 0).
 constexpr std::uint8_t kChannel = 0;
 
-// CC number → logical control, or nullptr if the surface does not map it.
-const nostromo::Control *FindControl(const nostromo::SurfaceProfile &surface,
-                                     std::uint8_t cc) {
+// CC number → mapping entry, or nullptr if the surface does not map it.
+const nostromo::ControlMap *FindControl(const nostromo::SurfaceProfile &surface,
+                                        std::uint8_t cc) {
     for (std::uint8_t i = 0; i < surface.n_map; ++i)
-        if (surface.map[i].physical == cc) return &surface.map[i].logical;
+        if (surface.map[i].physical == cc) return &surface.map[i];
     return nullptr;
-}
-
-// Turn controls (the two nav rotaries + the parameter encoders) send relative
-// detents, decoded by DecodeEnc; everything else mapped on the surface is a
-// button (press/release edge).
-bool IsTurn(nostromo::Control c) {
-    return c == nostromo::Control::kNav1 || c == nostromo::Control::kNav2 ||
-           (c >= nostromo::Control::kEnc0 && c <= nostromo::Control::kEncLast);
 }
 
 // Monotonic milliseconds for InputEvent::t_ms (the gesture recognizer's clock).
@@ -117,12 +109,12 @@ void MidiIo::Poll(nostromo::Panel *panel) {
         if ((status & 0x0F) != kChannel) continue;  // wrong channel
         switch (status & 0xF0) {
         case 0xB0: {  // Control Change → logical control via the surface map
-            const nostromo::Control *c = FindControl(surface, msg[1]);
-            if (!c) break;  // unmapped CC (faders and other surplus controls)
+            const nostromo::ControlMap *m = FindControl(surface, msg[1]);
+            if (!m) break;  // unmapped CC (faders and other surplus controls)
             nostromo::InputEvent ev{};
-            ev.control = *c;
+            ev.control = m->logical;
             ev.t_ms = NowMs();
-            if (IsTurn(*c)) {
+            if (m->turn) {
                 ev.detents = static_cast<std::int8_t>(
                     nostromo::DecodeEnc(msg[2], surface.enc));
                 ev.edge = nostromo::Edge::kNone;
