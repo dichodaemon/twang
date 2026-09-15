@@ -13,6 +13,7 @@
 #include "engine_control.h"
 #include "fb.h"
 #include "interaction.h"
+#include "pages.h"
 #include "panel.h"
 #include "params.h"
 #include "surface.h"
@@ -257,6 +258,37 @@ int main() {
         Turn(it, Enc(0), 1);  // write kNote -> cutoff: table full
         Check(it.Nav().route_full,
               "a route write on a full table raises the alert");
+    }
+
+    // 9. Invariant 12: feel never changes shape. Editing the CONF feel fields
+    //    changes the values, never which parameter a control drives
+    //    (ResolveBinding is pure over NavState; feel is not one of its inputs).
+    {
+        g_t += 10;
+        it.OnInput(InputEvent{Control::kMod, 0, Edge::kUp, g_t});  // release MOD
+        Check(it.Nav().mode == ViewMode::kEdit, "MOD release returns to edit");
+
+        // Record the FILT-page binding for every encoder before feel edits.
+        Binding before[geom::kColumns] = {};
+        for (int c = 0; c < geom::kColumns; ++c)
+            before[c] = ResolveBinding(it.Nav(), Enc(c));
+
+        // Edit every CONF feel field through the dispatcher, then return.
+        for (int i = 0; i < 14; ++i) Turn(it, Control::kNav1, 1);  // kFilt -> kConf
+        Check(it.Nav().subject == SubjectId::kConf,
+              "NAV1 reaches the CONF page");
+        for (int c = 0; c < geom::kColumns; ++c) Turn(it, Enc(c), 1);
+        for (int i = 0; i < 6; ++i) Turn(it, Control::kNav1, 1);  // kConf -> kFilt
+
+        bool same = true;
+        for (int c = 0; c < geom::kColumns; ++c) {
+            const Binding after = ResolveBinding(it.Nav(), Enc(c));
+            same = same && (before[c].kind == after.kind);
+            if (before[c].kind == BindKind::kParam)
+                same = same && before[c].param.id == after.param.id &&
+                       before[c].param.instance == after.param.instance;
+        }
+        Check(same, "feel editing leaves bindings unchanged (invariant 12)");
     }
 
     if (g_failures) {
