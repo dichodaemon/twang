@@ -971,8 +971,68 @@ static void DrawModBand(FrameBuffer &fb, int x, int y, float lo, float hi,
   if (b > a) FillRect(fb, a, y, b - a + 1, geom::kWellH, kMid);
 }
 
+// The modulation source a modulator subject IS: ENV1-3 -> kEnv0-2, LFO1-3 ->
+// kLfo0-2 (SubjectId is 1-indexed, ModSourceId 0-indexed). kNone for any
+// non-modulator subject.
+engine::ModSourceId SourceOf(SubjectId s) {
+  switch (s) {
+    case SubjectId::kEnv1: return engine::ModSourceId::kEnv0;
+    case SubjectId::kEnv2: return engine::ModSourceId::kEnv1;
+    case SubjectId::kEnv3: return engine::ModSourceId::kEnv2;
+    case SubjectId::kLfo1: return engine::ModSourceId::kLfo0;
+    case SubjectId::kLfo2: return engine::ModSourceId::kLfo1;
+    case SubjectId::kLfo3: return engine::ModSourceId::kLfo2;
+    default: return engine::ModSourceId::kNone;
+  }
+}
+
+// The SENDS band (arch-design §5): a modulator page's outbound routes, drawn
+// in the summary region — which is empty there, since ENV/LFO parameters are
+// not modulatable. A dim "SENDS" caption block on the left, then the routes
+// this module sends, reflowed at column pitch to the right of the caption.
+// Entries carry no arrow: the band itself names the direction.
+static void DrawSendsBand(FrameBuffer &fb, const NavState &nav,
+                          engine::EngineControl &control) {
+  const engine::ModSourceId src = SourceOf(nav.subject);
+  if (src == engine::ModSourceId::kNone) return;
+
+  // The summary row is already cleared by DrawColumns; draw the band's caption
+  // and entries on the clean region.
+  // "SENDS" caption: a tall dim block (the band's row label).
+  const int cap_w =
+      static_cast<int>(std::strlen("SENDS")) * kPrimaryFont.w + 12;
+  FillRect(fb, geom::kPlotX, geom::kSumY, cap_w, geom::kSumH, kDim);
+  TextLeft(fb, "SENDS", geom::kPlotX + 6,
+           geom::kSumY + (geom::kSumH - kPrimaryFont.h) / 2, kPrimaryFont,
+           kBright);
+
+  // Outbound routes (this module as source, non-zero amount), reflowed at
+  // column pitch to the right of the caption (columns 1..kColumns-1),
+  // wrapping to the second line.
+  int col = 1, line = 0;
+  engine::ModRoute r;
+  for (int s = 0; s < engine::kModSlots; ++s) {
+    if (!control.GetRoute(nav.part, s, &r)) continue;
+    if (r.source != src) continue;
+    if (r.amount == 0.0f) continue;  // "present but silent": not a send
+    char tag[32];
+    std::snprintf(tag, sizeof(tag), "%s %+04d",
+                  engine::k_params[static_cast<std::size_t>(r.dst.id)].short_name,
+                  static_cast<int>(std::lround(r.amount * 100.0f)));
+    TextLeft(fb, tag, geom::kColX(col) + 6, geom::kSumY + line * geom::kSumPitch,
+             kSecondaryFont, kMid);
+    if (++col >= geom::kColumns) { col = 1; ++line; }
+    if (line >= geom::kSumLines) break;
+  }
+}
+
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
                  engine::EngineControl &control) {
+  // The summary row is shared by the per-column inbound tags AND the full-width
+  // SENDS band (modulator pages), whose caption starts at the plot left edge —
+  // 6 px left of the per-column text origin. Clear the whole band once, so a
+  // page switch (modulator -> non-modulator) leaves no stale caption behind.
+  FillRect(fb, geom::kPlotX, geom::kSumY, geom::kPlotW, geom::kSumH, kBg);
   for (int c = 0; c < geom::kColumns; ++c) {
     const ColumnSpec cs = Column<>(page, nav.group, c);
     const int x = geom::kColX(c);
@@ -985,8 +1045,6 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
     // (kWellH + 6 tall), so a column that switches to unipolar — or whose
     // value moves off zero — would otherwise leave the tick behind.
     FillRect(fb, x, geom::kWellY - 3, geom::kColW, geom::kWellH + 6, kBg);
-    // Clear the summary row too: inbound route tags redraw as routes change.
-    FillRect(fb, x + 6, geom::kSumY, geom::kColW - 6, geom::kSumH, kBg);
     if (cs.kind == ColumnKind::kNone) continue;  // past a partial final group
     const char *label = ColumnLabel(cs);
     const int bw = static_cast<int>(std::strlen(label)) * kPrimaryFont.w + 12;
@@ -1136,6 +1194,8 @@ void DrawEditChrome(FrameBuffer &fb, Panel &p) {
 
   DrawPane(fb, nav);
   DrawColumns(fb, nav, page, *p.control);
+  if (nav.mode == ViewMode::kEdit)
+    DrawSendsBand(fb, nav, *p.control);
 }
 
 void DrawChrome(FrameBuffer &fb, Panel &p) {

@@ -44,12 +44,12 @@ static constexpr std::uint32_t kGolden[static_cast<int>(SubjectId::kCount)] = {
     0xBD4E72B6u,  // 4 OSC4
     0x348E89E3u,  // 5 FILT
     0xFB73FAC0u,  // 6 AMP
-    0x94F26E3Au,  // 7 ENV1
-    0xC385D754u,  // 8 ENV2
-    0xD3179270u,  // 9 ENV3
-    0x3A5F1668u,  // 10 LFO1
-    0x48B68B14u,  // 11 LFO2
-    0xC85EA1B4u,  // 12 LFO3
+    0xABDCCFA9u,  // 7 ENV1
+    0xB6FC3C8Eu,  // 8 ENV2
+    0x83CB754Au,  // 9 ENV3
+    0xE24AC19Eu,  // 10 LFO1
+    0x92A59D6Eu,  // 11 LFO2
+    0x1637844Eu,  // 12 LFO3
     0x0C580F4Au,  // 13 MOD
     0x263EB13Eu,  // 14 OUT SCOPE
     0xF39EE727u,  // 15 OUT CYCLE
