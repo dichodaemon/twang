@@ -41,6 +41,7 @@ NavState g_nav;
 PressState g_press[static_cast<int>(Control::kCount)];
 std::uint32_t g_last_turn_ms[static_cast<int>(Control::kCount)];
 bool g_arm_used = false;
+bool g_mod_from_view = false;  // MOD was in kModView at kDown (toggle target)
 
 const PageDesc &PageOf(SubjectId s) {
   return g_pages[static_cast<int>(s)];
@@ -206,6 +207,7 @@ void Dispatcher(const InputEvent &ev, Gesture g, const Binding &b) {
     case BindKind::kModeToggle: {
       if (ev.edge == Edge::kDown) {
         g_arm_used = false;
+        g_mod_from_view = (g_nav.mode == ViewMode::kModView);
         g_nav.mode = ViewMode::kModArm;  // momentary
         MarkAll();
       } else if (ev.edge == Edge::kUp) {
@@ -213,8 +215,7 @@ void Dispatcher(const InputEvent &ev, Gesture g, const Binding &b) {
           g_nav.mode = ViewMode::kEdit;  // a route was armed: plain return
           g_arm_used = false;
         } else if (g == Gesture::kPressShort) {
-          g_nav.mode = (g_nav.mode == ViewMode::kModView) ? ViewMode::kEdit
-                                                          : ViewMode::kModView;
+          g_nav.mode = g_mod_from_view ? ViewMode::kEdit : ViewMode::kModView;
         } else {
           g_nav.mode = ViewMode::kEdit;  // held past the threshold
         }

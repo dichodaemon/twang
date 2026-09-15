@@ -127,6 +127,20 @@ int main() {
               "a mode change marks the plots dirty");
     }
 
+    // 5. A MOD tap is a toggle, not a one-way door: tap -> kModView, tap again
+    //    -> kEdit. Regression for the kDown-clobbers-mode bug (the toggle must
+    //    snapshot the pre-press mode, not re-read it after kDown sets kModArm).
+    {
+        Check(InteractionNavState().mode == ViewMode::kModView,
+              "section 4 left the layer in kModView");
+        Tap(Control::kMod);
+        Check(InteractionNavState().mode == ViewMode::kEdit,
+              "second MOD tap exits kModView to kEdit");
+        Tap(Control::kMod);
+        Check(InteractionNavState().mode == ViewMode::kModView,
+              "third MOD tap re-enters kModView");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;
