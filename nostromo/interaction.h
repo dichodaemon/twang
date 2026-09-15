@@ -127,6 +127,24 @@ struct NavState {
 
 struct SurfaceProfile;  ///< defined in surface.h
 struct Panel;           ///< defined in panel.h
+struct Binding;         ///< defined in pages.h (Dispatcher's argument)
+enum SlotIdx : int;     ///< defined in screens.h (plot slot index)
+
+/// Base normalized increment per detent (a §13 tunable, measured during
+/// implementation). One detent moves an ordinary parameter by this fraction of
+/// its [0,1] range before acceleration.
+inline constexpr float kDetentStep = 0.004f;
+
+/// Route-amount step and acceleration cap. Amounts are route fields, not
+/// parameters, so the cap is a Dispatcher constant (arch-design §7.8's
+/// "3 = capped 3x"), not a ParamDesc field.
+inline constexpr float kRouteAmountStep = 0.008f;
+inline constexpr float kRouteAmountAccel = 3.0f;
+
+/// The modulation-source list kModArm's NAV2 walks: kNone (0) is the empty
+/// sentinel and is skipped.
+inline constexpr int kModSourceCount =
+    static_cast<int>(engine::ModSourceId::kConstant) + 1;
 
 /// The interaction layer's complete runtime state — a singleton owned by the
 /// caller (host/target main) and passed by pointer to whatever drives input or
@@ -153,18 +171,26 @@ struct Interaction {
   /// Precondition: ev.control < Control::kCount, ev.t_ms monotonic.
   void OnInput(const InputEvent &ev);
 
-  /// @brief Create or update a modulation route (control thread).
-  /// Finds the matching (src, dst) route or the lowest free slot; returns false
-  /// if the table is full and no slot matched. A zero amount keeps the slot.
-  /// `dst` is a full ParamRef — the instance comes from ResolveBinding and is
-  /// never re-derived here (Design Decisions).
-  bool CreateRoute(std::uint8_t part, engine::ModSourceId src,
-                   engine::ParamRef dst, float amount);
-
   /// @brief Read-only view of the navigation state for the renderer (pane/header
   /// chrome and DYN hooks). Returns a const reference so the screen cannot write
   /// back — the layer is the sole writer of NavState.
   const NavState &Nav() const { return nav; }
+
+ private:
+  // Invalidation: the panel's MarkDirty is the sole invalidation entry point.
+  void MarkPlot(SlotIdx idx);
+  void MarkPage();   ///< marks the current subject's plot slot
+  void MarkAll();    ///< marks all four plot slots
+
+  // Turn rate in detents/second, tracked across events per control.
+  float TurnRate(Control c, std::int8_t detents, std::uint32_t t_ms);
+
+  // Applies one gesture/binding — the only side-effecting component.
+  void Dispatcher(const InputEvent &ev, Gesture g, const Binding &b);
+
+  // Create or update a modulation route; returns false if full and no match.
+  bool CreateRoute(std::uint8_t part, engine::ModSourceId src,
+                   engine::ParamRef dst, float amount);
 };
 
 }  // namespace nostromo

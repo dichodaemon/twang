@@ -20,52 +20,9 @@ namespace nostromo {
 
 namespace {
 
-// Base normalized increment per detent (a §13 tunable, measured during
-// implementation). One detent moves an ordinary parameter by this fraction of
-// its [0,1] range before acceleration.
-constexpr float kDetentStep = 0.004f;
-
-// Route-amount step and acceleration cap. Amounts are route fields, not
-// parameters, so the cap is a Dispatcher constant (arch-design §7.8's
-// "3 = capped 3x"), not a ParamDesc field (Design Decisions).
-constexpr float kRouteAmountStep = 0.008f;
-constexpr float kRouteAmountAccel = 3.0f;
-
-// The modulation-source list kModArm's NAV2 walks: kNone (0) is the empty
-// sentinel and is skipped.
-constexpr int kModSourceCount =
-    static_cast<int>(engine::ModSourceId::kConstant) + 1;
-
 const PageDesc &PageOf(SubjectId s) { return k_pages[static_cast<int>(s)]; }
 
 float Clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
-
-void MarkPlot(Interaction &it, SlotIdx idx) {
-  if (it.panel) MarkDirty(it.panel, idx);
-}
-
-void MarkPage(Interaction &it) {
-  const std::int8_t slot = PageOf(it.nav.subject).dyn_slot;
-  if (slot >= 0) MarkPlot(it, static_cast<SlotIdx>(slot));
-}
-
-void MarkAll(Interaction &it) {
-  MarkPlot(it, kSlotOsc);
-  MarkPlot(it, kSlotFilter);
-  MarkPlot(it, kSlotEnv);
-  MarkPlot(it, kSlotOut);
-}
-
-// Turn rate in detents/second, tracked across events per control.
-float TurnRate(Interaction &it, Control c, std::int8_t detents,
-               std::uint32_t t_ms) {
-  const int ci = static_cast<int>(c);
-  const std::uint32_t dt = t_ms - it.last_turn_ms[ci];
-  it.last_turn_ms[ci] = t_ms;
-  if (dt == 0) return 1000.0f;  // first turn or same-ms burst: treat as fast
-  const int mag = detents < 0 ? -static_cast<int>(detents) : detents;
-  return static_cast<float>(mag) * 1000.0f / static_cast<float>(dt);
-}
 
 // Signed normalized delta for a parameter turn.
 float ParamDelta(const engine::ParamDesc &desc, std::int8_t detents,
@@ -104,144 +61,174 @@ int ItemCount(ItemAxis axis) {
   }
 }
 
+}  // namespace
+
+// ---- private methods ----
+
+void Interaction::MarkPlot(SlotIdx idx) {
+  if (panel) MarkDirty(panel, idx);
+}
+
+void Interaction::MarkPage() {
+  const std::int8_t slot = PageOf(nav.subject).dyn_slot;
+  if (slot >= 0) MarkPlot(static_cast<SlotIdx>(slot));
+}
+
+void Interaction::MarkAll() {
+  MarkPlot(kSlotOsc);
+  MarkPlot(kSlotFilter);
+  MarkPlot(kSlotEnv);
+  MarkPlot(kSlotOut);
+}
+
+float Interaction::TurnRate(Control c, std::int8_t detents,
+                            std::uint32_t t_ms) {
+  const int ci = static_cast<int>(c);
+  const std::uint32_t dt = t_ms - last_turn_ms[ci];
+  last_turn_ms[ci] = t_ms;
+  if (dt == 0) return 1000.0f;  // first turn or same-ms burst: treat as fast
+  const int mag = detents < 0 ? -static_cast<int>(detents) : detents;
+  return static_cast<float>(mag) * 1000.0f / static_cast<float>(dt);
+}
+
 // Applies one gesture/binding — the only side-effecting component.
-void Dispatcher(Interaction &it, const InputEvent &ev, Gesture g,
-                const Binding &b) {
+void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
+                             const Binding &b) {
   switch (b.kind) {
     case BindKind::kParam: {
       if (g == Gesture::kTurn || g == Gesture::kHoldTurn) {
         const engine::ParamDesc &desc =
             engine::k_params[static_cast<std::size_t>(b.param.id)];
-        const float rate = TurnRate(it, ev.control, ev.detents, ev.t_ms);
+        const float rate = TurnRate(ev.control, ev.detents, ev.t_ms);
         const float delta =
             ParamDelta(desc, ev.detents, rate, g == Gesture::kHoldTurn,
-                       it.feel);
-        const float cur = it.control->GetParam(it.nav.part, b.param);
+                       feel);
+        const float cur = control->GetParam(nav.part, b.param);
         float next = Clamp01(cur + delta);
         // zero_notch: a bipolar parameter needs an extra detent to leave the
         // center (0.5), so a single detent across it lands exactly on it.
         if (desc.zero_notch &&
             ((cur < 0.5f && next >= 0.5f) || (cur > 0.5f && next <= 0.5f)))
           next = 0.5f;
-        it.control->SetParam(it.nav.part, b.param, next);
-        MarkPage(it);
+        control->SetParam(nav.part, b.param, next);
+        MarkPage();
       } else if (g == Gesture::kPressLong) {
         // Revert to the default exactly once, no intermediate write.
         const engine::ParamDesc &desc =
             engine::k_params[static_cast<std::size_t>(b.param.id)];
-        it.control->SetParam(it.nav.part, b.param, desc.def);
-        MarkPage(it);
+        control->SetParam(nav.part, b.param, desc.def);
+        MarkPage();
       }
       // kPressShort on a continuous parameter: nothing to descend into.
       break;
     }
     case BindKind::kRouteAmount: {
       if (g == Gesture::kTurn || g == Gesture::kHoldTurn) {
-        const float rate = TurnRate(it, ev.control, ev.detents, ev.t_ms);
+        const float rate = TurnRate(ev.control, ev.detents, ev.t_ms);
         float step = kRouteAmountStep;
-        if (rate > static_cast<float>(it.feel.accel_threshold_dps))
+        if (rate > static_cast<float>(feel.accel_threshold_dps))
           step *= kRouteAmountAccel;
         if (g == Gesture::kHoldTurn)
-          step /= static_cast<float>(it.feel.fine_divisor);
+          step /= static_cast<float>(feel.fine_divisor);
         const float old =
-            RouteAmount(*it.control, it.nav.part, it.nav.armed_source, b.param);
+            RouteAmount(*control, nav.part, nav.armed_source, b.param);
         float amt = old + static_cast<float>(ev.detents) * step;
         if (amt < -1.0f) amt = -1.0f;
         if (amt > 1.0f) amt = 1.0f;
-        it.CreateRoute(it.nav.part, it.nav.armed_source, b.param, amt);
-        it.arm_used = true;
-        MarkPage(it);
+        CreateRoute(nav.part, nav.armed_source, b.param, amt);
+        arm_used = true;
+        MarkPage();
       }
       break;
     }
     case BindKind::kNavSubject: {
       if (g == Gesture::kTurn || g == Gesture::kHoldTurn) {
-        int s = static_cast<int>(it.nav.subject) + (ev.detents > 0 ? 1 : -1);
+        int s = static_cast<int>(nav.subject) + (ev.detents > 0 ? 1 : -1);
         if (s < 0) s = static_cast<int>(SubjectId::kCount) - 1;
         if (s >= static_cast<int>(SubjectId::kCount)) s = 0;
-        it.nav.subject = static_cast<SubjectId>(s);
-        it.nav.group = 0;  // each subject starts at its hot set
-        MarkPage(it);
+        nav.subject = static_cast<SubjectId>(s);
+        nav.group = 0;  // each subject starts at its hot set
+        MarkPage();
       }
       break;
     }
     case BindKind::kNavItem: {
       if (g == Gesture::kTurn || g == Gesture::kHoldTurn) {
         const int dir = ev.detents > 0 ? 1 : -1;
-        if (it.nav.mode == ViewMode::kModArm) {
+        if (nav.mode == ViewMode::kModArm) {
           // MOD held: NAV2 walks the source list (kNone skipped).
-          int src = static_cast<int>(it.nav.armed_source) + dir;
+          int src = static_cast<int>(nav.armed_source) + dir;
           if (src <= static_cast<int>(engine::ModSourceId::kNone))
             src = kModSourceCount - 1;
           if (src >= kModSourceCount)
             src = static_cast<int>(engine::ModSourceId::kVelocity);
-          it.nav.armed_source = static_cast<engine::ModSourceId>(src);
+          nav.armed_source = static_cast<engine::ModSourceId>(src);
         } else {
-          const int max = ItemCount(PageOf(it.nav.subject).item_axis);
+          const int max = ItemCount(PageOf(nav.subject).item_axis);
           if (max > 0) {
             int cur = static_cast<int>(
-                          it.nav.item[static_cast<int>(it.nav.subject)]) +
+                          nav.item[static_cast<int>(nav.subject)]) +
                       dir;
             if (cur < 0) cur = max - 1;
             if (cur >= max) cur = 0;
-            it.nav.item[static_cast<int>(it.nav.subject)] =
+            nav.item[static_cast<int>(nav.subject)] =
                 static_cast<std::uint8_t>(cur);
           }
         }
-        MarkPage(it);
+        MarkPage();
       }
       break;
     }
     case BindKind::kPartSelect: {
       if (g == Gesture::kPressShort) {
-        it.nav.part = static_cast<std::uint8_t>(
+        nav.part = static_cast<std::uint8_t>(
             static_cast<int>(ev.control) - static_cast<int>(Control::kPart0));
-        MarkPage(it);  // values only; subject/group/item/mode invariant
+        MarkPage();  // values only; subject/group/item/mode invariant
       }
       break;
     }
     case BindKind::kModeToggle: {
       if (ev.edge == Edge::kDown) {
-        it.arm_used = false;
-        it.mod_from_view = (it.nav.mode == ViewMode::kModView);
-        it.nav.mode = ViewMode::kModArm;  // momentary
-        MarkAll(it);
+        arm_used = false;
+        mod_from_view = (nav.mode == ViewMode::kModView);
+        nav.mode = ViewMode::kModArm;  // momentary
+        MarkAll();
       } else if (ev.edge == Edge::kUp) {
-        if (it.arm_used) {
-          it.nav.mode = ViewMode::kEdit;  // a route was armed: plain return
-          it.arm_used = false;
+        if (arm_used) {
+          nav.mode = ViewMode::kEdit;  // a route was armed: plain return
+          arm_used = false;
         } else if (g == Gesture::kPressShort) {
-          it.nav.mode =
-              it.mod_from_view ? ViewMode::kEdit : ViewMode::kModView;
+          nav.mode =
+              mod_from_view ? ViewMode::kEdit : ViewMode::kModView;
         } else {
-          it.nav.mode = ViewMode::kEdit;  // held past the threshold
+          nav.mode = ViewMode::kEdit;  // held past the threshold
         }
-        MarkAll(it);
+        MarkAll();
       }
       break;
     }
     case BindKind::kGroupCycle: {
       if (g == Gesture::kPressShort) {
-        const int gc = GroupCount<>(PageOf(it.nav.subject));
-        if (gc > 0) it.nav.group = (it.nav.group + 1) % gc;
-        MarkPage(it);
+        const int gc = GroupCount<>(PageOf(nav.subject));
+        if (gc > 0) nav.group = (nav.group + 1) % gc;
+        MarkPage();
       }
       break;
     }
     case BindKind::kOutToggle: {
       if (g == Gesture::kPressShort) {
-        if (IsOut(it.nav.subject)) {
-          it.nav.subject = it.nav.prev.subject;
-          it.nav.group = it.nav.prev.group;
-          it.nav.focus_col = it.nav.prev.focus_col;
+        if (IsOut(nav.subject)) {
+          nav.subject = nav.prev.subject;
+          nav.group = nav.prev.group;
+          nav.focus_col = nav.prev.focus_col;
         } else {
-          it.nav.prev =
-              NavPos{it.nav.subject, it.nav.group, it.nav.focus_col};
-          it.nav.subject = SubjectId::kOutScope;
-          it.nav.group = 0;
-          it.nav.focus_col = -1;
+          nav.prev =
+              NavPos{nav.subject, nav.group, nav.focus_col};
+          nav.subject = SubjectId::kOutScope;
+          nav.group = 0;
+          nav.focus_col = -1;
         }
-        MarkPage(it);
+        MarkPage();
       }
       break;
     }
@@ -253,8 +240,6 @@ void Dispatcher(Interaction &it, const InputEvent &ev, Gesture g,
       break;  // pending is inert; route-field/view-control dispatch is later
   }
 }
-
-}  // namespace
 
 Gesture Recognize(const InputEvent &ev, PressState &st,
                   const FeelProfile &feel) {
@@ -302,7 +287,7 @@ void Interaction::Init(Panel *panel, const SurfaceProfile &surface,
   for (auto &st : press) st = PressState{};
   for (auto &t : last_turn_ms) t = 0;
   arm_used = false;
-  MarkAll(*this);
+  MarkAll();
   // A shortfall below kColumns is reported once here; the surplus (an encoder
   // bank wider than the column count) is simply unmapped in the profile.
   (void)surface.n_encoders;
@@ -317,7 +302,7 @@ void Interaction::OnInput(const InputEvent &ev) {
   if (g == Gesture::kNone &&
       !(ev.edge == Edge::kDown && b.kind == BindKind::kModeToggle))
     return;
-  Dispatcher(*this, ev, g, b);
+  Dispatcher(ev, g, b);
 }
 
 bool Interaction::CreateRoute(std::uint8_t part, engine::ModSourceId src,
