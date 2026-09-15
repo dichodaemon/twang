@@ -72,17 +72,20 @@ Organize the gaps into three epics by owner, ordered by value. The P1 items are 
 | Mode LEDs (kModView/kPerform latched → lit) | Med · P2 |
 | §11 surplus-encoder "no events" test | Low · P3 |
 
-The clustering is the finding: eight of ten gaps collapse to `nostromo/panel.cc`, so this is one cohesive "chrome completion" body of work, not ten independent loose ends.
+The clustering is real — eight of ten gaps touch `nostromo/panel.cc` — but it does not make the work one undifferentiated body. `DrawChrome` calls `spike::Interpret(SignalScreen(), …)`, so the descriptor/hook split is intact: static chrome is descriptor data in `screens.cc`, dynamic chrome is per-frame in `panel.cc`. The eleven items are not uniformly one side or the other; the static/dynamic boundary falls *inside* several of them (the SENDS label and its rule are static, the route lines dynamic; the modulation band is dynamic, the well's caps already static). Per item, the question is where that boundary falls — which decides whether it lands as a descriptor extension, a hook, or both.
+
+Verification is the missing piece: the panel has one golden hash on one screen (`test_panel`, power-on scope) while `mockup_pages` has ten. A hash per live page — the same FNV mechanism, pointed at `panel.cc` — would have caught the strip overlap at port time and keeps the eleven chrome items from regressing each other. It belongs above the P3 invariant tests.
 
 ## 5. Constraints
 
 - The plan's §6 decision ("a plot-geometry migration, not chrome porting") is the reason these are unscheduled; the deferral was never handed to an owner, which is why they read as a miss rather than a tracked backlog.
-- The modulation band and summary lines need the folded modulation extent: they read `EngineGetRoute` and fold per `CombinationClass` (already specified in synth-routing), so no new engine entry point beyond `EngineGetRoute` is required.
+- The modulation band and summary lines need the folded modulation extent. That fold already exists once — `engine_audio.cc` switches on `CombinationClass` per destination — and must not be re-implemented in `panel.cc`. Required deliverable: a pure `FoldDestination(part, dst, excursion)` in `engine/`, linked into both cores, no IPC, one algorithm with two callers (the audio path and the panel).
+- Sequencing: `FoldDestination` lands before the per-page hashes and before any UI consumes it. It rewires the audio path (`engine_audio.cc`), where a regression is silent — wrong sound, not absent sound — so it must land on its own with the route tests extended to cover each `CombinationClass` at extremes.
 - The patch browser is blocked on patch storage; the rest of the chrome should be scheduled without it.
 - `Feedback()` is stale, not just missing: it still drives the old `kXtouchCompact` CC 1–4/10–11 map, contradicting the confirmed surface map.
 
 ## 6. Open Questions
 
 - Does Epic 1 warrant a spec, or is a follow-up plan enough once the P1 items land? (Answer: decide after the P1 items.)
-- Where should the modulation-extent fold live — a small `nostromo` accessor, or inline in `panel.cc`? (Answer: depends on whether the summary lines consume the same data.)
+- Can the mockup and the panel render the same page from the same state, so the per-page assertion is that their hashes *match* rather than that each is independently stable? (Answer: determines whether the per-page verification is cross-renderer convergence or two independent hash sets — decide before building them.)
 - Which P2/P3 items are worth doing before the next hardware iteration? (Answer: the user.)
