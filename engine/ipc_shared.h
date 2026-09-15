@@ -42,17 +42,6 @@ static_assert(std::atomic<float>::is_always_lock_free);
 /// the shared block sits at +4 MB, clear of it and any .sdram static data.
 inline constexpr std::uintptr_t kSharedIpcAddr = 0x68400000UL;
 
-inline SharedIpc &Shared() {
-    return *reinterpret_cast<SharedIpc *>(kSharedIpcAddr);
-}
-
-#else  // desktop / single process
-
-inline SharedIpc &Shared() {
-    static SharedIpc s{};
-    return s;
-}
-
-#endif
+#endif  // TWANG_SHARED_IPC
 
 }  // namespace engine

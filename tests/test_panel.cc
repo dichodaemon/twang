@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include "engine.h"
+#include "engine_control.h"
 #include "fb.h"
 #include "interaction.h"
 #include "panel.h"
@@ -38,10 +39,12 @@ static std::uint32_t Hash(const std::uint16_t *px, int n) {
 static constexpr std::uint32_t kExpectedHash = 0x263EB13E;
 
 int main() {
-    engine::EngineInit();
+    engine::SharedIpc ipc;
+    engine::EngineControl control;
+    control.Init(ipc);
     Panel *p = PanelCreate();
     Interaction it;
-    it.Init(p, Surface());  // power-on page: kOutScope → scope plot
+    it.Init(p, Surface(), &control);  // power-on page: kOutScope → scope plot
 
     static std::uint16_t buf0[kW * kH];
     static std::uint16_t buf1[kW * kH];

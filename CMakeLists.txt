@@ -23,6 +23,8 @@ endif()
 add_library(engine STATIC
     engine/allocator.cc
     engine/engine.cc
+    engine/engine_audio.cc
+    engine/engine_control.cc
     engine/ipc.cc
     engine/midi.cc
     engine/params.cc

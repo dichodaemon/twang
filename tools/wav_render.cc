@@ -3,7 +3,8 @@
 #include <cstdlib>
 #include <vector>
 
-#include "engine.h"
+#include "engine_audio.h"
+#include "engine_control.h"
 #include "params.h"
 
 using namespace engine;
@@ -18,21 +19,26 @@ int main(int argc, char **argv) {
     int frames = seconds * kSampleRate;
     std::vector<float> buf(frames);
 
+    SharedIpc ipc;
+    EngineControl control;
+    control.Init(ipc);
+    EngineAudio audio{};
+    audio.ipc = &ipc;
+
     /* plucky patch: saw -> envelope-swept SVF -> ADSR */
-    EngineInit();
-    EngineSetParam(0, ParamRef{0, ParamId::kCutoff}, 0.4f);
-    EngineSetParam(0, ParamRef{0, ParamId::kResonance}, 0.25f);
-    EngineSetRoute(0, 2, ModSourceId::kEnv1, ParamRef{0, ParamId::kCutoff}, 0.5f);
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kAttack}, 0.01f);
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kDecay}, 0.3f);
-    EngineSetParam(0, ParamRef{0, ParamId::kSustain}, 0.6f);
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kRelease}, 0.4f);
+    control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.4f);
+    control.SetParam(0, ParamRef{0, ParamId::kResonance}, 0.25f);
+    control.SetRoute(0, 2, ModSourceId::kEnv1, ParamRef{0, ParamId::kCutoff}, 0.5f);
+    control.SetParamDisp(0, ParamRef{0, ParamId::kAttack}, 0.01f);
+    control.SetParamDisp(0, ParamRef{0, ParamId::kDecay}, 0.3f);
+    control.SetParam(0, ParamRef{0, ParamId::kSustain}, 0.6f);
+    control.SetParamDisp(0, ParamRef{0, ParamId::kRelease}, 0.4f);
 
     int note_frames = frames * 8 / 10;  /* held 80%, release the rest */
-    EngineNoteOn(0, 440.0f, 127);
-    Render(buf.data(), note_frames);
-    EngineNoteOff(0, 440.0f);
-    Render(buf.data() + note_frames, frames - note_frames);
+    control.NoteOn(0, 440.0f, 127);
+    Render(audio, buf.data(), note_frames);
+    control.NoteOff(0, 440.0f);
+    Render(audio, buf.data() + note_frames, frames - note_frames);
 
     FILE *f = std::fopen(path, "wb");
     if (!f) return 1;

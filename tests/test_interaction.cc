@@ -10,6 +10,7 @@
 #include <cstdio>
 
 #include "engine.h"
+#include "engine_control.h"
 #include "fb.h"
 #include "interaction.h"
 #include "panel.h"
@@ -45,7 +46,9 @@ static void Tap(Interaction &it, Control c) {
 }
 
 int main() {
-    engine::EngineInit();
+    engine::SharedIpc ipc;
+    engine::EngineControl control;
+    control.Init(ipc);
     Panel *p = PanelCreate();
     static std::uint16_t buf0[kW * kH];
     static std::uint16_t buf1[kW * kH];
@@ -53,7 +56,7 @@ int main() {
     FrameBuffer fb1 = {buf1, kW, kH, kW, Rect{0, 0, kW, kH}};
 
     Interaction it;
-    it.Init(p, Surface());
+    it.Init(p, Surface(), &control);
 
     PanelDraw(p, fb0, 0);
     PanelDraw(p, fb1, 1);
@@ -65,15 +68,15 @@ int main() {
 
     // 1. A turn on the cutoff column writes cutoff and no other parameter.
     {
-        const float reso = engine::EngineGetParam(0, {0, engine::ParamId::kResonance});
-        const float atk = engine::EngineGetParam(0, {0, engine::ParamId::kAttack});
-        const float cutoff = engine::EngineGetParam(0, {0, engine::ParamId::kCutoff});
+        const float reso = control.GetParam(0, {0, engine::ParamId::kResonance});
+        const float atk = control.GetParam(0, {0, engine::ParamId::kAttack});
+        const float cutoff = control.GetParam(0, {0, engine::ParamId::kCutoff});
         Turn(it, Enc(0), -1);  // cutoff (default 1.0) lowers on a backward turn
-        Check(engine::EngineGetParam(0, {0, engine::ParamId::kCutoff}) < cutoff,
+        Check(control.GetParam(0, {0, engine::ParamId::kCutoff}) < cutoff,
               "cutoff turn lowers cutoff");
-        Check(engine::EngineGetParam(0, {0, engine::ParamId::kResonance}) == reso,
+        Check(control.GetParam(0, {0, engine::ParamId::kResonance}) == reso,
               "resonance unchanged");
-        Check(engine::EngineGetParam(0, {0, engine::ParamId::kAttack}) == atk,
+        Check(control.GetParam(0, {0, engine::ParamId::kAttack}) == atk,
               "attack unchanged");
     }
 
@@ -94,7 +97,7 @@ int main() {
               "MOD up returns to edit after a route");
 
         engine::ModRoute r;
-        Check(engine::EngineGetRoute(0, 5, &r) &&
+        Check(control.GetRoute(0, 5, &r) &&
                   r.source == engine::ModSourceId::kVelocity &&
                   r.dst.id == engine::ParamId::kCutoff,
               "route velocity -> cutoff created");

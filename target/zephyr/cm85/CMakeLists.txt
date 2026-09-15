@@ -14,10 +14,9 @@ set(ENGINE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../engine)
 
 target_sources(app PRIVATE
     src/main.cc
-    ${ENGINE_DIR}/allocator.cc
     ${ENGINE_DIR}/engine.cc
+    ${ENGINE_DIR}/engine_audio.cc
     ${ENGINE_DIR}/ipc.cc
-    ${ENGINE_DIR}/midi.cc
     ${ENGINE_DIR}/params.cc
 )
 

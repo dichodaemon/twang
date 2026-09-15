@@ -15,6 +15,8 @@
 
 namespace engine {
 
+class EngineControl;  ///< defined in engine_control.h; handlers drive it
+
 /// How a MIDI CC value maps to a parameter.
 enum class MidiMode : std::uint8_t {
     kAbsolute,  ///< 7-bit absolute: value 0..127 → normalized 0..1.
@@ -60,19 +62,20 @@ const MidiBinding *MidiFind(const MidiLayout &layout, std::uint8_t cc);
 /// @param part Part index in [0, kNumParts).
 /// @param cc CC number.
 /// @param value 7-bit CC value.
-void MidiCc(const MidiLayout &layout, int part, std::uint8_t cc,
-            std::uint8_t value);
+void MidiCc(EngineControl &control, const MidiLayout &layout, int part,
+            std::uint8_t cc, std::uint8_t value);
 
 /// @brief Apply a MIDI note-on (control thread).
 /// @param part Part index in [0, kNumParts).
 /// @param note MIDI note number (0..127).
 /// @param velocity MIDI velocity in [1, 127].
-void MidiNoteOn(int part, std::uint8_t note, std::uint8_t velocity);
+void MidiNoteOn(EngineControl &control, int part, std::uint8_t note,
+                std::uint8_t velocity);
 
 /// @brief Apply a MIDI note-off (control thread).
 /// @param part Part index in [0, kNumParts).
 /// @param note MIDI note number (0..127).
-void MidiNoteOff(int part, std::uint8_t note);
+void MidiNoteOff(EngineControl &control, int part, std::uint8_t note);
 
 /// @brief Dispatch one raw MIDI message (status + two data bytes) to `part`.
 ///
@@ -83,7 +86,7 @@ void MidiNoteOff(int part, std::uint8_t note);
 /// @param status MIDI status byte.
 /// @param d1 First data byte (CC/note number).
 /// @param d2 Second data byte (value/velocity).
-void MidiMessage(const MidiLayout &layout, int part, std::uint8_t status,
-                 std::uint8_t d1, std::uint8_t d2);
+void MidiMessage(EngineControl &control, const MidiLayout &layout, int part,
+                 std::uint8_t status, std::uint8_t d1, std::uint8_t d2);
 
 }  // namespace engine

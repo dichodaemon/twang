@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "engine.h"
+#include "engine_control.h"
 #include "interaction.h"
 #include "panel.h"
 #include "png.h"
@@ -39,10 +40,12 @@ int main(int argc, char **argv) {
   const char *path = (argc > 1) ? argv[1] : "panel.png";
   const int scale = (argc > 2) ? std::atoi(argv[2]) : 1;
 
-  engine::EngineInit();
+  engine::SharedIpc ipc;
+  engine::EngineControl control;
+  control.Init(ipc);
   nostromo::Panel *p = nostromo::PanelCreate();
   nostromo::Interaction it;
-  it.Init(p, nostromo::Surface());  // power-on page
+  it.Init(p, nostromo::Surface(), &control);  // power-on page
 
   std::vector<std::uint16_t> buf0(kW * kH), buf1(kW * kH);
   spike::FrameBuffer fb0{buf0.data(), kW, kH, kW, spike::Rect{0, 0, kW, kH}};

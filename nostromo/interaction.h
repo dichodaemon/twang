@@ -17,6 +17,10 @@
 #include "feel.h"
 #include "geom.h"
 
+namespace engine {
+class EngineControl;  ///< defined in engine_control.h; the control-core engine
+}
+
 namespace nostromo {
 
 /// Logical controls, independent of the physical surface (see SurfaceProfile
@@ -136,12 +140,14 @@ struct Interaction {
   bool mod_from_view = false;  ///< MOD was in kModView at kDown
   FeelProfile feel = DefaultFeel();  ///< runtime-tunable feel (CONF page)
   const SurfaceProfile *surface = nullptr;  ///< active physical map
+  engine::EngineControl *control = nullptr;  ///< control-core engine (set in Init)
 
   /// @brief Initialise the layer (control thread, once).
-  /// Binds the panel (the MarkDirty target) and surface; loads feel defaults;
-  /// zeroes NavState; marks every plot slot dirty. Reports once if
-  /// surface.n_encoders < geom::kColumns.
-  void Init(Panel *panel, const SurfaceProfile &surface);
+  /// Binds the panel (the MarkDirty target), surface, and control engine;
+  /// loads feel defaults; zeroes NavState; marks every plot slot dirty.
+  /// Reports once if surface.n_encoders < geom::kColumns.
+  void Init(Panel *panel, const SurfaceProfile &surface,
+            engine::EngineControl *control);
 
   /// @brief Feed one logical input event.
   /// Precondition: ev.control < Control::kCount, ev.t_ms monotonic.

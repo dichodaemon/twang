@@ -29,6 +29,7 @@
 
 #include "damage.h"
 #include "engine.h"
+#include "engine_control.h"
 #include "fft.h"
 #include "font.h"
 #include "interaction.h"
@@ -77,6 +78,10 @@ struct Panel {
   // Back-pointer to the interaction layer's navigation state (set once in
   // Interaction::Init via PanelSetInteraction); read-only from the panel.
   const Interaction *interaction = nullptr;
+
+  // Back-pointer to the control-core engine (set once via PanelSetEngine); the
+  // keyboard, filter/env drag, and per-frame sync drive notes/params through it.
+  engine::EngineControl *control = nullptr;
 
   // Audio tap + draw scratch (owned here, never heap-allocated in the draw).
   ScopeRing scope_ring;
@@ -885,7 +890,8 @@ void DrawWell(FrameBuffer &fb, int x, int y, float norm, bool bipolar) {
   DrawVLine(fb, x + kBarW - 1, y, geom::kWellH, kMid);
 }
 
-void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
+void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
+                 engine::EngineControl &control) {
   for (int c = 0; c < geom::kColumns; ++c) {
     const ColumnSpec cs = Column<>(page, nav.group, c);
     const int x = geom::kColX(c);
@@ -909,8 +915,7 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
       const engine::ParamDesc &desc =
           engine::k_params[static_cast<std::size_t>(cs.param)];
       char val[16];
-      const float norm = engine::EngineGetParam(
-          nav.part, engine::ParamRef{0, cs.param});
+      const float norm = control.GetParam(nav.part, engine::ParamRef{0, cs.param});
       engine::ParamFormatValue(&desc, norm, val, sizeof(val));
       TextLeft(fb, val, x + 6, geom::kValueY + 1, kPrimaryFont, kMid);
       DrawWell(fb, x, geom::kWellY, norm, desc.zero_notch);
@@ -1025,7 +1030,7 @@ void DrawEditChrome(FrameBuffer &fb, Panel &p) {
   }
 
   DrawPane(fb, nav);
-  DrawColumns(fb, nav, page);
+  DrawColumns(fb, nav, page, *p.control);
 }
 
 void DrawChrome(FrameBuffer &fb, Panel &p) {
@@ -1071,6 +1076,10 @@ Panel *PanelCreate() {
 
 void PanelSetInteraction(Panel *p, const Interaction *it) {
   p->interaction = it;
+}
+
+void PanelSetEngine(Panel *p, engine::EngineControl *control) {
+  p->control = control;
 }
 
 void SyncFromEngine(Panel *p);  // defined below (after PanelDraw)
@@ -1169,13 +1178,14 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
 
 // ---- pointer (touch/drag) ----
 
-void ApplyFilterDrag(int x, int y, int w, int h) {
+void ApplyFilterDrag(engine::EngineControl &control, int x, int y, int w,
+                     int h) {
   const int L = 14, R = w - 14, T = 12, B = h - 18;
   const float cutoff = Clamp01(static_cast<float>(x - L) / static_cast<float>(R - L));
   const float db = kDbTop - static_cast<float>(y - T) / static_cast<float>(B - T) * (kDbTop - kDbBot);
   const float resonance = Clamp01(DbToRes(db));
-  engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kCutoff}, cutoff);
-  engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kResonance}, resonance);
+  control.SetParam(0, engine::ParamRef{0, engine::ParamId::kCutoff}, cutoff);
+  control.SetParam(0, engine::ParamRef{0, engine::ParamId::kResonance}, resonance);
 }
 
 int HitTestEnv(int x, int y, int w, int h, const Panel &p) {
@@ -1199,19 +1209,19 @@ void ApplyEnvDrag(Panel *p, int handle, int x, int y, int w, int h) {
   const int L = 14, R = w - 14, T = 12, B = h - 20;
   const int W = R - L, H = B - T;
   if (handle == 0) {
-    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kAttack},
+    p->control->SetParam(0, engine::ParamRef{0, engine::ParamId::kAttack},
         Clamp01(static_cast<float>(x - L) / (0.25f * W)));
   } else if (handle == 1) {
     const int xA = L + static_cast<int>(p->attack * 0.25f * W);
-    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kDecay},
+    p->control->SetParam(0, engine::ParamRef{0, engine::ParamId::kDecay},
         Clamp01(static_cast<float>(x - xA) / (0.25f * W)));
-    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kSustain},
+    p->control->SetParam(0, engine::ParamRef{0, engine::ParamId::kSustain},
         Clamp01(1.0f - static_cast<float>(y - T) / H));
   } else {
     const int xH = L + static_cast<int>(p->attack * 0.25f * W) +
                    static_cast<int>(p->decay * 0.25f * W) +
                    static_cast<int>(0.20f * W);
-    engine::EngineSetParam(0, engine::ParamRef{0, engine::ParamId::kRelease},
+    p->control->SetParam(0, engine::ParamRef{0, engine::ParamId::kRelease},
         Clamp01(static_cast<float>(x - xH) / (0.30f * W)));
   }
 }
@@ -1221,12 +1231,12 @@ void ApplyEnvDrag(Panel *p, int handle, int x, int y, int w, int h) {
 // any future input source write the engine directly, so the panel watches for
 // changes rather than being pushed (the drag paths are covered too).
 void SyncFromEngine(Panel *p) {
-  const float cutoff = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kCutoff});
-  const float resonance = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kResonance});
-  const float attack = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kAttack});
-  const float decay = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kDecay});
-  const float sustain = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kSustain});
-  const float release = engine::EngineGetParam(0, engine::ParamRef{0, engine::ParamId::kRelease});
+  const float cutoff = p->control->GetParam(0, engine::ParamRef{0, engine::ParamId::kCutoff});
+  const float resonance = p->control->GetParam(0, engine::ParamRef{0, engine::ParamId::kResonance});
+  const float attack = p->control->GetParam(0, engine::ParamRef{0, engine::ParamId::kAttack});
+  const float decay = p->control->GetParam(0, engine::ParamRef{0, engine::ParamId::kDecay});
+  const float sustain = p->control->GetParam(0, engine::ParamRef{0, engine::ParamId::kSustain});
+  const float release = p->control->GetParam(0, engine::ParamRef{0, engine::ParamId::kRelease});
 
   if (cutoff != p->cutoff || resonance != p->resonance) {
     p->cutoff = cutoff;
@@ -1254,7 +1264,7 @@ void PanelPointer(Panel *p, PointerEvent e) {
     if (m == 1) {  // filter XY pad
       if (e.kind == PointerKind::kPress) p->filter_drag = true;
       if (p->filter_drag && e.kind != PointerKind::kRelease)
-        ApplyFilterDrag(x, y, pr.w, pr.h);
+        ApplyFilterDrag(*p->control, x, y, pr.w, pr.h);
       if (e.kind == PointerKind::kRelease) p->filter_drag = false;
       return;
     }
@@ -1270,7 +1280,7 @@ void PanelPointer(Panel *p, PointerEvent e) {
 }
 
 void PanelNoteOn(Panel *p, float freq_hz, std::uint8_t velocity) {
-  engine::EngineNoteOn(0, freq_hz, velocity);
+  p->control->NoteOn(0, freq_hz, velocity);
   p->note_on = true;
   p->note_at = NowMs();
   p->freq = freq_hz;
@@ -1283,7 +1293,7 @@ void PanelNoteOff(Panel *p, float freq_hz) {
   p->release_from = EnvLevel(NowMs(), *p);
   p->note_on = false;
   p->release_at = NowMs();
-  engine::EngineNoteOff(0, freq_hz);
+  p->control->NoteOff(0, freq_hz);
   MarkDirty(p, kSlotEnv);
   MarkDirty(p, kSlotOut);
 }

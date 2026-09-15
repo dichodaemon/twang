@@ -9,7 +9,8 @@
 
 #include <cstdio>
 
-#include "engine.h"
+#include "engine_audio.h"
+#include "engine_control.h"
 #include "params.h"
 
 using namespace engine;
@@ -20,44 +21,58 @@ constexpr ma_uint64 kNoteHeldSamples =
 constexpr ma_uint64 kNotePeriodSamples =
     static_cast<ma_uint64>(kSampleRate) * 3 / 2;
 
-static ma_uint64 g_frame = 0;  // audio-thread-only sample counter
+// Audio-thread context, handed through ma_device::pUserData.
+struct LiveCtx {
+    EngineControl *control;
+    EngineAudio *audio;
+    ma_uint64 frame = 0;  // audio-thread-only sample counter
+};
 
-static void AudioCallback(ma_device *, void *output, const void *,
+static void AudioCallback(ma_device *device, void *output, const void *,
                           ma_uint32 frame_count) {
+    LiveCtx *ctx = static_cast<LiveCtx *>(device->pUserData);
     float *dst = static_cast<float *>(output);
     while (frame_count > 0) {
-        ma_uint64 pos = g_frame % kNotePeriodSamples;
+        ma_uint64 pos = ctx->frame % kNotePeriodSamples;
         ma_uint64 boundary = (pos < kNoteHeldSamples) ? kNoteHeldSamples
                                                       : kNotePeriodSamples;
         ma_uint32 n = static_cast<ma_uint32>(
             (boundary - pos) < frame_count ? (boundary - pos) : frame_count);
 
-        if (pos == 0) EngineNoteOn(0, 440.0f, 127);
-        Render(dst, static_cast<int>(n));
-        g_frame += n;
+        if (pos == 0) ctx->control->NoteOn(0, 440.0f, 127);
+        Render(*ctx->audio, dst, static_cast<int>(n));
+        ctx->frame += n;
         dst += n;
         frame_count -= n;
 
-        if (g_frame % kNotePeriodSamples == kNoteHeldSamples)
-            EngineNoteOff(0, 440.0f);
+        if (ctx->frame % kNotePeriodSamples == kNoteHeldSamples)
+            ctx->control->NoteOff(0, 440.0f);
     }
 }
 
 int main() {
-    EngineInit();
-    EngineSetParam(0, ParamRef{0, ParamId::kCutoff}, 0.4f);
-    EngineSetParam(0, ParamRef{0, ParamId::kResonance}, 0.25f);
-    EngineSetRoute(0, 2, ModSourceId::kEnv1, ParamRef{0, ParamId::kCutoff}, 0.5f);
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kAttack}, 0.01f);
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kDecay}, 0.3f);
-    EngineSetParam(0, ParamRef{0, ParamId::kSustain}, 0.6f);
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kRelease}, 0.4f);
+    SharedIpc ipc;
+    EngineControl control;
+    control.Init(ipc);
+    EngineAudio audio{};
+    audio.ipc = &ipc;
+
+    control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.4f);
+    control.SetParam(0, ParamRef{0, ParamId::kResonance}, 0.25f);
+    control.SetRoute(0, 2, ModSourceId::kEnv1, ParamRef{0, ParamId::kCutoff}, 0.5f);
+    control.SetParamDisp(0, ParamRef{0, ParamId::kAttack}, 0.01f);
+    control.SetParamDisp(0, ParamRef{0, ParamId::kDecay}, 0.3f);
+    control.SetParam(0, ParamRef{0, ParamId::kSustain}, 0.6f);
+    control.SetParamDisp(0, ParamRef{0, ParamId::kRelease}, 0.4f);
+
+    LiveCtx ctx{&control, &audio, 0};
 
     ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
     cfg.playback.format = ma_format_f32;   // matches Render()'s float out
     cfg.playback.channels = 1;
     cfg.sampleRate = kSampleRate;
     cfg.dataCallback = AudioCallback;
+    cfg.pUserData = &ctx;
 
     ma_device device;
     if (ma_device_init(nullptr, &cfg, &device) != MA_SUCCESS) {

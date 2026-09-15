@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "engine.h"
+#include "engine_control.h"
 #include "interaction.h"
 #include "midi.h"
 #include "panel.h"
@@ -144,7 +145,7 @@ void MidiIo::Feedback() {
     const engine::MidiLayout &layout = engine::kXtouchCompact;
     for (int i = 0; i < layout.count; ++i) {
         const engine::MidiBinding &b = layout.bindings[i];
-        const float v = engine::EngineGetParam(0, engine::ParamRef{0, b.param});
+        const float v = control->GetParam(0, engine::ParamRef{0, b.param});
         int out_cc, out_val;
         if (b.mode == static_cast<std::uint8_t>(engine::MidiMode::kAbsolute)) {
             out_cc = b.cc;

@@ -16,6 +16,10 @@
 #include "geom.h"
 #include "screens.h"
 
+namespace engine {
+class EngineControl;  ///< defined in engine_control.h; the control-core engine
+}
+
 namespace nostromo {
 
 using spike::FrameBuffer;
@@ -72,6 +76,17 @@ Panel *PanelCreate();
 /// @param p Panel context.
 /// @param it Interaction context (owned by the caller).
 void PanelSetInteraction(Panel *p, const Interaction *it);
+
+/// @brief Bind the control-core engine to the panel (control thread, once).
+///
+/// The panel drives notes and parameters through this back-pointer (keyboard,
+/// filter/env drag, and the per-frame engine sync). The interaction layer sets
+/// it in Interaction::Init; a host without an interaction (the cm33 smoke) sets
+/// it directly.
+///
+/// @param p Panel context.
+/// @param control Control-core engine (owned by the caller).
+void PanelSetEngine(Panel *p, engine::EngineControl *control);
 
 /// @brief Marks a slot dirty, repainting it into both buffers.
 ///

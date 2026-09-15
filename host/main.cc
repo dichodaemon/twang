@@ -5,12 +5,14 @@
 // mockup (ui/mockup) — through the SDL backend. Mouse drives PanelPointer.
 //
 // Audio runs through the audio-output abstraction: the UI (control thread)
-// queues note events and parameter changes into the engine, and the audio
-// thread renders them out the device, the same split live_render exercises.
+// queues note events and parameter changes into the control engine, and the
+// audio thread renders the audio engine out the device, the same split
+// live_render exercises.
 #include <cstdio>
 
 #include "audio_out.h"
-#include "engine.h"
+#include "engine_audio.h"
+#include "engine_control.h"
 #include "interaction.h"
 #include "midi_io.h"
 #include "panel.h"
@@ -22,12 +24,19 @@ constexpr int kVerRes = 600;
 
 namespace {
 
+// Audio-thread context: the audio engine to render, and the panel to tap.
+struct AudioCtx {
+    engine::EngineAudio *audio;
+    nostromo::Panel *panel;
+};
+
 // Audio thread: render the engine into the device's output buffer, then tap
 // the samples into the panel's lock-free scope ring (display only, no
-// latency). `user` is the Panel context (see main).
+// latency). `user` is an AudioCtx (see main).
 void AudioCallback(void *user, float *out, int frames) {
-    engine::Render(out, frames);
-    nostromo::PanelAudioTap(static_cast<nostromo::Panel *>(user), out, frames);
+    auto *ctx = static_cast<AudioCtx *>(user);
+    engine::Render(*ctx->audio, out, frames);
+    nostromo::PanelAudioTap(ctx->panel, out, frames);
 }
 
 }  // namespace
@@ -39,21 +48,30 @@ int main() {
         return 1;
     }
 
-    engine::EngineInit();
+    // Shared transport + the two engine halves. The control side is driven by
+    // the UI/main thread; the audio side is rendered by the audio thread.
+    engine::SharedIpc ipc;
+    engine::EngineControl control;
+    control.Init(ipc);
+    engine::EngineAudio audio{};
+    audio.ipc = &ipc;
 
     // Build the panel first: it owns the scope ring the audio thread taps.
     nostromo::Panel *panel = nostromo::PanelCreate();
 
-    // Bind the interaction layer to the panel and the X-Touch surface map.
+    // Bind the interaction layer to the panel, the X-Touch surface map, and
+    // the control engine.
     nostromo::Interaction interaction;
-    interaction.Init(panel, nostromo::Surface());
+    interaction.Init(panel, nostromo::Surface(), &control);
 
+    AudioCtx ctx{&audio, panel};
     audio::Output audio_out;
-    if (!audio_out.Start(engine::kSampleRate, AudioCallback, panel))
+    if (!audio_out.Start(engine::kSampleRate, AudioCallback, &ctx))
         std::fprintf(stderr, "host: no playback device, running silent\n");
 
     MidiIo midi;
     midi.Init();
+    midi.control = &control;
 
     while (!backend.quit) {
         backend.PollEvents(panel, &interaction);

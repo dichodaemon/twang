@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include "engine_control.h"
 #include "params.h"
 
 namespace engine {
@@ -32,53 +33,54 @@ const MidiBinding *MidiFind(const MidiLayout &layout, std::uint8_t cc) {
     return nullptr;
 }
 
-void MidiCc(const MidiLayout &layout, int part, std::uint8_t cc,
-            std::uint8_t value) {
+void MidiCc(EngineControl &control, const MidiLayout &layout, int part,
+            std::uint8_t cc, std::uint8_t value) {
     if (part < 0 || part >= kNumParts) return;
     const MidiBinding *b = MidiFind(layout, cc);
     if (!b) return;
 
     if (b->mode == static_cast<std::uint8_t>(MidiMode::kAbsolute)) {
-        EngineSetParam(part, ParamRef{0, b->param}, static_cast<float>(value) / 127.0f);
+        control.SetParam(part, ParamRef{0, b->param}, static_cast<float>(value) / 127.0f);
     } else {
         // Two's-complement delta: 0..63 positive, 64..127 negative.
         const float delta = (value < 64)
                                 ? static_cast<float>(value)
                                 : static_cast<float>(value) - 128.0f;
-        float cur = EngineGetParam(part, ParamRef{0, b->param}) + delta * layout.rel_step;
+        float cur = control.GetParam(part, ParamRef{0, b->param}) + delta * layout.rel_step;
         if (cur < 0.0f) cur = 0.0f;
         if (cur > 1.0f) cur = 1.0f;
-        EngineSetParam(part, ParamRef{0, b->param}, cur);
+        control.SetParam(part, ParamRef{0, b->param}, cur);
     }
 }
 
-void MidiNoteOn(int part, std::uint8_t note, std::uint8_t velocity) {
+void MidiNoteOn(EngineControl &control, int part, std::uint8_t note,
+                std::uint8_t velocity) {
     if (part < 0 || part >= kNumParts) return;
-    EngineNoteOn(part, MidiNoteToFreq(note), velocity);
+    control.NoteOn(part, MidiNoteToFreq(note), velocity);
 }
 
-void MidiNoteOff(int part, std::uint8_t note) {
+void MidiNoteOff(EngineControl &control, int part, std::uint8_t note) {
     if (part < 0 || part >= kNumParts) return;
-    EngineNoteOff(part, MidiNoteToFreq(note));
+    control.NoteOff(part, MidiNoteToFreq(note));
 }
 
-void MidiMessage(const MidiLayout &layout, int part, std::uint8_t status,
-                 std::uint8_t d1, std::uint8_t d2) {
+void MidiMessage(EngineControl &control, const MidiLayout &layout, int part,
+                 std::uint8_t status, std::uint8_t d1, std::uint8_t d2) {
     if ((status & 0x0F) != layout.channel) return;  // wrong channel
     switch (status & 0xF0) {
     case 0xB0:  // Control Change
-        MidiCc(layout, part, d1, d2);
+        MidiCc(control, layout, part, d1, d2);
         break;
     case 0x90:  // Note On (velocity 0 = note off)
-        if (d2 == 0) MidiNoteOff(part, d1);
-        else MidiNoteOn(part, d1, d2);
+        if (d2 == 0) MidiNoteOff(control, part, d1);
+        else MidiNoteOn(control, part, d1, d2);
         break;
     case 0x80:  // Note Off
-        MidiNoteOff(part, d1);
+        MidiNoteOff(control, part, d1);
         break;
     case 0xE0:  // Pitch Bend: 14-bit bend (d1 | d2<<7), center 0x2000.
-        EngineSetParam(part, ParamRef{0, ParamId::kPitchBend},
-                       static_cast<float>(d1 | (d2 << 7)) / 16383.0f);
+        control.SetParam(part, ParamRef{0, ParamId::kPitchBend},
+                         static_cast<float>(d1 | (d2 << 7)) / 16383.0f);
         break;
     default:
         break;  // ignore other message types

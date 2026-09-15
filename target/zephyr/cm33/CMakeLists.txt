@@ -27,7 +27,7 @@ target_sources(app PRIVATE
     ${CONTROLLER_DIR}/fft.cc
     ${CONTROLLER_DIR}/scope_ring.cc
     ${ENGINE_DIR}/allocator.cc
-    ${ENGINE_DIR}/engine.cc
+    ${ENGINE_DIR}/engine_control.cc
     ${ENGINE_DIR}/ipc.cc
     ${ENGINE_DIR}/midi.cc
     ${ENGINE_DIR}/params.cc

@@ -4,7 +4,8 @@
 #include <thread>
 #include <vector>
 
-#include "engine.h"
+#include "engine_audio.h"
+#include "engine_control.h"
 #include "params.h"
 
 using namespace engine;
@@ -13,17 +14,21 @@ using namespace engine;
 // to detect data races in the event ring and parameter block; run normally to
 // verify the split produces audio.
 int main() {
-    EngineInit();
+    SharedIpc ipc;
+    EngineControl control;
+    control.Init(ipc);
+    EngineAudio audio{};
+    audio.ipc = &ipc;
 
     std::atomic<bool> done{false};
-    std::thread control([&done] {
+    std::thread control_thread([&control, &done] {
         for (int i = 0; i < 50; ++i) {
-            EngineSetParamDisp(0, ParamRef{0, ParamId::kCutoff}, 100.0f + (i % 10) * 500.0f);
-            EngineSetParamDisp(0, ParamRef{0, ParamId::kResonance}, (i % 10) * 10.0f);
+            control.SetParamDisp(0, ParamRef{0, ParamId::kCutoff}, 100.0f + (i % 10) * 500.0f);
+            control.SetParamDisp(0, ParamRef{0, ParamId::kResonance}, (i % 10) * 10.0f);
             const float freq = 220.0f + (i % 12) * 55.0f;
-            EngineNoteOn(0, freq, 127);
+            control.NoteOn(0, freq, 127);
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
-            EngineNoteOff(0, freq);
+            control.NoteOff(0, freq);
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         done.store(true, std::memory_order_release);
@@ -33,13 +38,13 @@ int main() {
     std::vector<float> buf(kBlockSize);
     float peak = 0.0f;
     while (!done.load(std::memory_order_acquire)) {
-        Render(buf.data(), kBlockSize);
+        Render(audio, buf.data(), kBlockSize);
         for (float s : buf)
             if (s > peak) peak = s;
     }
-    Render(buf.data(), kBlockSize);  // drain the final block
+    Render(audio, buf.data(), kBlockSize);  // drain the final block
 
-    control.join();
+    control_thread.join();
 
     if (peak < 0.001f) {
         std::printf("FAIL: peak %.4f too low (no audio produced)\n", peak);

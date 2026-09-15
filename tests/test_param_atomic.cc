@@ -3,6 +3,7 @@
 #include <thread>
 
 #include "engine.h"
+#include "engine_control.h"
 #include "ipc.h"
 #include "ipc_shared.h"
 
@@ -60,24 +61,26 @@ int main() {
 
     // Section 2: engine batch API — single-field auto-flush vs batched defer.
     {
-        EngineInit();
+        SharedIpc ipc;
+        EngineControl control;
+        control.Init(ipc);
 
-        EngineSetParam(0, ParamRef{0, ParamId::kCutoff}, 0.4f);  // auto-flush
+        control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.4f);  // auto-flush
         Part p[kNumParts] = {};
-        Shared().params.Commit(p);
+        ipc.params.Commit(p);
         Check(ParamGet(&p[0], ParamRef{0, ParamId::kCutoff}) == 0.4f,
               "EngineSetParam auto-flushes");
 
-        EngineBeginBatch();
-        EngineSetParam(0, ParamRef{0, ParamId::kCutoff}, 0.8f);
-        EngineSetParam(0, ParamRef{0, ParamId::kResonance}, 0.8f);
+        control.BeginBatch();
+        control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.8f);
+        control.SetParam(0, ParamRef{0, ParamId::kResonance}, 0.8f);
         // Before Flush, the committed snapshot is still the pre-batch state.
-        Shared().params.Commit(p);
+        ipc.params.Commit(p);
         Check(ParamGet(&p[0], ParamRef{0, ParamId::kCutoff}) == 0.4f,
               "EngineBeginBatch defers publish");
 
-        EngineFlush();
-        Shared().params.Commit(p);
+        control.Flush();
+        ipc.params.Commit(p);
         Check(ParamGet(&p[0], ParamRef{0, ParamId::kCutoff}) == 0.8f &&
                   ParamGet(&p[0], ParamRef{0, ParamId::kResonance}) == 0.8f,
               "EngineFlush publishes the batch atomically");

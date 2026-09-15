@@ -3,7 +3,8 @@
 // Renders the engine to the EK-RA8D2's on-board codec through SSIE1 (i2s1).
 // A GPT PWM (pwm2) synthesizes the codec MCLK (3.072 MHz = 48 kHz x 64),
 // matching engine::kSampleRate. Mono engine output is duplicated to both I2S
-// channels and converted float -> int16.
+// channels and converted float -> int16. This core owns the audio engine only;
+// the control core (cm33) queues notes/params into the shared SDRAM ring.
 
 #include <errno.h>
 #include <zephyr/device.h>
@@ -11,7 +12,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 
-#include "engine.h"
+#include "engine_audio.h"
 
 namespace {
 
@@ -24,10 +25,15 @@ constexpr int kNumBlocks = 4;
 
 K_MEM_SLAB_DEFINE(tx_slab, WB_UP(kBlockBytes), kNumBlocks, 4);
 
+/// The audio engine's complete DSP state. Static storage: zero-initialized and
+/// out of the (small) main-thread stack. Moved to DTCM by a .dtcm_bss section
+/// attribute (see the dtcm bead).
+engine::EngineAudio audio;
+
 /// Render one engine block into an interleaved 16-bit stereo I2S block.
 void RenderBlock(int16_t *out) {
     float buf[engine::kBlockSize];
-    engine::Render(buf, engine::kBlockSize);
+    engine::Render(audio, buf, engine::kBlockSize);
     for (int i = 0; i < engine::kBlockSize; ++i) {
         float s = buf[i];
         if (s > 1.0f) s = 1.0f;
@@ -62,8 +68,10 @@ int main(void) {
         return -EIO;
     }
 
-    engine::EngineInit();
-    engine::EngineNoteOn(0, 440.0f, 127);  // A4 on part 0: audible test tone
+    // Point the audio engine at the shared IPC block (fixed SDRAM address).
+    // The control core (cm33) owns EngineControl: it has seeded the default
+    // routes and queued the A4 test note; this core only renders.
+    audio.ipc = reinterpret_cast<engine::SharedIpc *>(engine::kSharedIpcAddr);
 
     // Prime the first block, then start the stream.
     void *blk;

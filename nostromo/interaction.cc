@@ -9,6 +9,7 @@
 #include "interaction.h"
 
 #include "engine.h"
+#include "engine_control.h"
 #include "feel.h"
 #include "pages.h"
 #include "panel.h"
@@ -77,10 +78,11 @@ float ParamDelta(const engine::ParamDesc &desc, std::int8_t detents,
 }
 
 // Current amount of the (src, dst) route, or 0 if none.
-float RouteAmount(int part, engine::ModSourceId src, engine::ParamRef dst) {
+float RouteAmount(engine::EngineControl &control, int part,
+                  engine::ModSourceId src, engine::ParamRef dst) {
   engine::ModRoute r;
   for (int s = 0; s < engine::kModSlots; ++s)
-    if (engine::EngineGetRoute(part, s, &r) && r.source == src &&
+    if (control.GetRoute(part, s, &r) && r.source == src &&
         r.dst.id == dst.id && r.dst.instance == dst.instance)
       return r.amount;
   return 0.0f;
@@ -114,20 +116,20 @@ void Dispatcher(Interaction &it, const InputEvent &ev, Gesture g,
         const float delta =
             ParamDelta(desc, ev.detents, rate, g == Gesture::kHoldTurn,
                        it.feel);
-        const float cur = engine::EngineGetParam(it.nav.part, b.param);
+        const float cur = it.control->GetParam(it.nav.part, b.param);
         float next = Clamp01(cur + delta);
         // zero_notch: a bipolar parameter needs an extra detent to leave the
         // center (0.5), so a single detent across it lands exactly on it.
         if (desc.zero_notch &&
             ((cur < 0.5f && next >= 0.5f) || (cur > 0.5f && next <= 0.5f)))
           next = 0.5f;
-        engine::EngineSetParam(it.nav.part, b.param, next);
+        it.control->SetParam(it.nav.part, b.param, next);
         MarkPage(it);
       } else if (g == Gesture::kPressLong) {
         // Revert to the default exactly once, no intermediate write.
         const engine::ParamDesc &desc =
             engine::k_params[static_cast<std::size_t>(b.param.id)];
-        engine::EngineSetParam(it.nav.part, b.param, desc.def);
+        it.control->SetParam(it.nav.part, b.param, desc.def);
         MarkPage(it);
       }
       // kPressShort on a continuous parameter: nothing to descend into.
@@ -142,7 +144,7 @@ void Dispatcher(Interaction &it, const InputEvent &ev, Gesture g,
         if (g == Gesture::kHoldTurn)
           step /= static_cast<float>(it.feel.fine_divisor);
         const float old =
-            RouteAmount(it.nav.part, it.nav.armed_source, b.param);
+            RouteAmount(*it.control, it.nav.part, it.nav.armed_source, b.param);
         float amt = old + static_cast<float>(ev.detents) * step;
         if (amt < -1.0f) amt = -1.0f;
         if (amt > 1.0f) amt = 1.0f;
@@ -282,10 +284,13 @@ Gesture Recognize(const InputEvent &ev, PressState &st,
   return Gesture::kNone;
 }
 
-void Interaction::Init(Panel *panel, const SurfaceProfile &surface) {
+void Interaction::Init(Panel *panel, const SurfaceProfile &surface,
+                       engine::EngineControl *control) {
   this->panel = panel;
   this->surface = &surface;
+  this->control = control;
   PanelSetInteraction(panel, this);  // the panel reads navigation through us
+  PanelSetEngine(panel, control);    // the panel drives notes/params through us
   // feel keeps its DefaultFeel() defaults (persisted-settings load deferred).
   nav = NavState{};
   nav.part = 0;
@@ -320,16 +325,16 @@ bool Interaction::CreateRoute(std::uint8_t part, engine::ModSourceId src,
   int free = -1;
   engine::ModRoute r;
   for (int s = 0; s < engine::kModSlots; ++s) {
-    if (engine::EngineGetRoute(part, s, &r)) {
+    if (control->GetRoute(part, s, &r)) {
       if (r.source == src && r.dst.id == dst.id &&
           r.dst.instance == dst.instance)
-        return engine::EngineSetRoute(part, s, src, dst, amount);
+        return control->SetRoute(part, s, src, dst, amount);
     } else if (free < 0) {
       free = s;
     }
   }
   if (free < 0) return false;
-  return engine::EngineSetRoute(part, free, src, dst, amount);
+  return control->SetRoute(part, free, src, dst, amount);
 }
 
 }  // namespace nostromo

@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "engine.h"
+#include "engine_audio.h"
+#include "engine_control.h"
 #include "dsp.h"
 #include "params.h"
 
@@ -18,14 +20,14 @@ static double NowNs() {
     return (double)ts.tv_sec * 1e9 + (double)ts.tv_nsec;
 }
 
-static void PatchPluck() {
-    EngineSetParam(0, ParamRef{0, ParamId::kCutoff}, 0.4f);
-    EngineSetParam(0, ParamRef{0, ParamId::kResonance}, 0.25f);
-    EngineSetRoute(0, 2, ModSourceId::kEnv1, ParamRef{0, ParamId::kCutoff}, 0.5f);
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kAttack}, 0.01f);
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kDecay}, 0.3f);
-    EngineSetParam(0, ParamRef{0, ParamId::kSustain}, 0.6f);
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kRelease}, 0.4f);
+static void PatchPluck(EngineControl &control) {
+    control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.4f);
+    control.SetParam(0, ParamRef{0, ParamId::kResonance}, 0.25f);
+    control.SetRoute(0, 2, ModSourceId::kEnv1, ParamRef{0, ParamId::kCutoff}, 0.5f);
+    control.SetParamDisp(0, ParamRef{0, ParamId::kAttack}, 0.01f);
+    control.SetParamDisp(0, ParamRef{0, ParamId::kDecay}, 0.3f);
+    control.SetParam(0, ParamRef{0, ParamId::kSustain}, 0.6f);
+    control.SetParamDisp(0, ParamRef{0, ParamId::kRelease}, 0.4f);
 }
 
 // Transposed Direct Form II biquad. Coefficients are a representative 2-pole
@@ -116,18 +118,18 @@ static void RunAaVariants(int seconds) {
 }
 
 
-static void RunFull(int seconds, int voices) {
+static void RunFull(EngineControl &control, EngineAudio &audio, int seconds,
+                    int voices) {
     int frames = seconds * kSampleRate;
     std::vector<float> buf(frames);
 
-    EngineInit();
-    PatchPluck();
-    EngineNoteOn(0, 440.0f, 127);
+    PatchPluck(control);
+    control.NoteOn(0, 440.0f, 127);
 
-    Render(buf.data(), kBlockSize);  // warm caches
+    Render(audio, buf.data(), kBlockSize);  // warm caches
 
     double t0 = NowNs();
-    for (int v = 0; v < voices; ++v) Render(buf.data(), frames);
+    for (int v = 0; v < voices; ++v) Render(audio, buf.data(), frames);
     double t1 = NowNs();
 
     double ns_per = (t1 - t0) / (double)frames / (double)voices;
@@ -136,7 +138,8 @@ static void RunFull(int seconds, int voices) {
     std::printf("ns/sample/voice: %.1f\n", ns_per);
 }
 
-static void RunBreakdown(int seconds) {
+static void RunBreakdown(EngineControl &control, EngineAudio &audio,
+                         int seconds) {
     int frames = seconds * kSampleRate;
     std::vector<float> buf(frames);
 
@@ -183,12 +186,11 @@ static void RunBreakdown(int seconds) {
     double osfs_ns = (t1 - t0) / frames;
 
     /* full voice (osc + filter + envelope + coeffs), via Render() */
-    EngineInit();
-    PatchPluck();
-    EngineNoteOn(0, 440.0f, 127);
-    Render(buf.data(), kBlockSize);
+    PatchPluck(control);
+    control.NoteOn(0, 440.0f, 127);
+    Render(audio, buf.data(), kBlockSize);
     t0 = NowNs();
-    Render(buf.data(), frames);
+    Render(audio, buf.data(), frames);
     t1 = NowNs();
     double full_ns = (t1 - t0) / frames;
 
@@ -208,16 +210,22 @@ static void RunBreakdown(int seconds) {
 }
 
 int main(int argc, char **argv) {
+    SharedIpc ipc;
+    EngineControl control;
+    control.Init(ipc);
+    EngineAudio audio{};
+    audio.ipc = &ipc;
+
     if (argc > 1 && std::strcmp(argv[1], "--breakdown") == 0) {
         int seconds = (argc > 2) ? std::atoi(argv[2]) : 5;
         if (seconds < 1) seconds = 1;
-        RunBreakdown(seconds);
+        RunBreakdown(control, audio, seconds);
         return 0;
     }
     int seconds = (argc > 1) ? std::atoi(argv[1]) : 5;
     int voices = (argc > 2) ? std::atoi(argv[2]) : 1;
     if (seconds < 1) seconds = 1;
     if (voices < 1) voices = 1;
-    RunFull(seconds, voices);
+    RunFull(control, audio, seconds, voices);
     return 0;
 }

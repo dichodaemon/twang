@@ -229,8 +229,8 @@ Binding ResolveBinding(const NavState &nav, Control c) {
 
     // MOD held: a parameter column becomes a route destination — encoder n
     // writes armed_source → cols[n]. The modulatable filter is applied at
-    // dispatch (EngineSetRoute rejects non-modulatable destinations), keeping
-    // this function free of engine reads.
+    // dispatch (EngineControl::SetRoute rejects non-modulatable destinations),
+    // keeping this function free of engine reads.
     if (nav.mode == ViewMode::kModArm && col.kind == ColumnKind::kParam) {
       b.kind = BindKind::kRouteAmount;
       b.param = engine::ParamRef{InstanceOf(nav.subject), col.param};

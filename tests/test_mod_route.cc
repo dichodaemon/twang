@@ -2,7 +2,8 @@
 #include <cstdio>
 #include <vector>
 
-#include "engine.h"
+#include "engine_audio.h"
+#include "engine_control.h"
 #include "params.h"
 
 using namespace engine;
@@ -16,23 +17,34 @@ static void Check(bool ok, const char *msg) {
     }
 }
 
+// A ready-to-render engine rig (fresh audio state per case).
+struct Rig {
+    SharedIpc ipc;
+    EngineControl control;
+    EngineAudio audio{};
+    Rig() {
+        control.Init(ipc);
+        audio.ipc = &ipc;
+    }
+};
+
 // A flat envelope (instant attack, full sustain, instant release) so the
 // render reaches a steady sawtooth with no transient, for deterministic
 // frequency / amplitude measurements.
-static void FlatEnvelope() {
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kAttack}, 0.0f);
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kDecay}, 0.0f);
-    EngineSetParam(0, ParamRef{0, ParamId::kSustain}, 1.0f);
-    EngineSetParamDisp(0, ParamRef{0, ParamId::kRelease}, 0.0f);
+static void FlatEnvelope(EngineControl &control) {
+    control.SetParamDisp(0, ParamRef{0, ParamId::kAttack}, 0.0f);
+    control.SetParamDisp(0, ParamRef{0, ParamId::kDecay}, 0.0f);
+    control.SetParam(0, ParamRef{0, ParamId::kSustain}, 1.0f);
+    control.SetParamDisp(0, ParamRef{0, ParamId::kRelease}, 0.0f);
 }
 
-// Queue one note and render `samples` frames. The engine must already be
-// initialized and the patch set up.
-static std::vector<float> RenderNote(int samples, float freq,
+// Queue one note and render `samples` frames.
+static std::vector<float> RenderNote(EngineControl &control, EngineAudio &audio,
+                                     int samples, float freq,
                                      std::uint8_t velocity) {
     std::vector<float> buf(samples);
-    EngineNoteOn(0, freq, velocity);
-    Render(buf.data(), samples);
+    control.NoteOn(0, freq, velocity);
+    Render(audio, buf.data(), samples);
     return buf;
 }
 
@@ -51,9 +63,7 @@ static float Rms(const std::vector<float> &buf) {
     return static_cast<float>(std::sqrt(sum / buf.size()));
 }
 
-// Fundamental frequency via zero crossings. A polyBLEP sawtooth crosses zero
-// twice per cycle (the smooth -/+ crossing and the wrap +/ - jump), so
-// frequency = crossings * sample_rate / (2 * samples).
+// Fundamental frequency via zero crossings.
 static float ZeroCrossFreq(const std::vector<float> &buf) {
     int crossings = 0;
     for (std::size_t i = 1; i < buf.size(); ++i)
@@ -68,156 +78,139 @@ int main() {
     // 1. Velocity -> amp (default route): a soft note is quieter than a full
     //    velocity note.
     {
-        EngineInit();
-        FlatEnvelope();
-        std::vector<float> full = RenderNote(kDur, 440.0f, 127);
-        EngineInit();
-        FlatEnvelope();
-        std::vector<float> soft = RenderNote(kDur, 440.0f, 32);
+        Rig r1;
+        FlatEnvelope(r1.control);
+        std::vector<float> full = RenderNote(r1.control, r1.audio, kDur, 440.0f, 127);
+        Rig r2;
+        FlatEnvelope(r2.control);
+        std::vector<float> soft = RenderNote(r2.control, r2.audio, kDur, 440.0f, 32);
         Check(Peak(full) > Peak(soft),
               "velocity->amp: full-velocity louder than soft");
     }
 
-    // 2. Empty slot (kNone) and a zero-amount route both contribute nothing
-    //    (additive cutoff: amount 0 adds exactly 0, so the render is
-    //    bit-identical to the default-route baseline).
+    // 2. Empty slot (kNone) and a zero-amount route both contribute nothing.
     {
-        EngineInit();
-        FlatEnvelope();
-        std::vector<float> base = RenderNote(kDur, 440.0f, 127);
+        Rig r1;
+        FlatEnvelope(r1.control);
+        std::vector<float> base = RenderNote(r1.control, r1.audio, kDur, 440.0f, 127);
 
-        EngineInit();
-        FlatEnvelope();
-        EngineSetRoute(0, 5, ModSourceId::kEnv0, ParamRef{0, ParamId::kCutoff}, 0.0f);
-        std::vector<float> zero = RenderNote(kDur, 440.0f, 127);
+        Rig r2;
+        FlatEnvelope(r2.control);
+        r2.control.SetRoute(0, 5, ModSourceId::kEnv0, ParamRef{0, ParamId::kCutoff}, 0.0f);
+        std::vector<float> zero = RenderNote(r2.control, r2.audio, kDur, 440.0f, 127);
 
-        EngineInit();
-        FlatEnvelope();
-        EngineSetRoute(0, 5, ModSourceId::kNone, ParamRef{0, ParamId::kCutoff}, 0.0f);
-        std::vector<float> empty = RenderNote(kDur, 440.0f, 127);
+        Rig r3;
+        FlatEnvelope(r3.control);
+        r3.control.SetRoute(0, 5, ModSourceId::kNone, ParamRef{0, ParamId::kCutoff}, 0.0f);
+        std::vector<float> empty = RenderNote(r3.control, r3.audio, kDur, 440.0f, 127);
 
         Check(base == zero, "zero-amount route contributes nothing");
         Check(base == empty, "empty (kNone) route contributes nothing");
     }
 
-    // 3. Key follow: depth 1.0 doubles the cutoff one octave up. A C5 sawtooth
-    //    (523 Hz) through a low cutoff (~112 Hz at norm 0.25) is heavily
-    //    attenuated; doubling the cutoff to ~224 Hz roughly quadruples the
-    //    passed energy, so the RMS rises markedly.
+    // 3. Key follow: depth 1.0 doubles the cutoff one octave up.
     {
         float rms0, rms1;
-        EngineInit();
-        FlatEnvelope();
-        EngineSetParam(0, ParamRef{0, ParamId::kCutoff}, 0.25f);
-        EngineSetParam(0, ParamRef{0, ParamId::kKeyFollowDepth}, 0.0f);
-        rms0 = Rms(RenderNote(kDur, 523.2511f, 127));
+        Rig r1;
+        FlatEnvelope(r1.control);
+        r1.control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.25f);
+        r1.control.SetParam(0, ParamRef{0, ParamId::kKeyFollowDepth}, 0.0f);
+        rms0 = Rms(RenderNote(r1.control, r1.audio, kDur, 523.2511f, 127));
 
-        EngineInit();
-        FlatEnvelope();
-        EngineSetParam(0, ParamRef{0, ParamId::kCutoff}, 0.25f);
-        EngineSetParam(0, ParamRef{0, ParamId::kKeyFollowDepth}, 1.0f);
-        rms1 = Rms(RenderNote(kDur, 523.2511f, 127));
+        Rig r2;
+        FlatEnvelope(r2.control);
+        r2.control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.25f);
+        r2.control.SetParam(0, ParamRef{0, ParamId::kKeyFollowDepth}, 1.0f);
+        rms1 = Rms(RenderNote(r2.control, r2.audio, kDur, 523.2511f, 127));
 
         Check(rms1 > rms0 * 1.5f,
               "key follow: depth 1 raises the cutoff (higher RMS)");
     }
 
-    // 4. Pitchbend -> pitch coarse (exponential): amount 2 gives +/-2
-    //    semitones; the default amount 0 means a full bend changes nothing.
+    // 4. Pitchbend -> pitch coarse (exponential): amount 2 gives +/-2 semitones.
     {
         float f;
 
-        EngineInit();
-        FlatEnvelope();
-        EngineSetParam(0, ParamRef{0, ParamId::kPitchBend}, 1.0f);  // full bend up
-        f = ZeroCrossFreq(RenderNote(kDur, 440.0f, 127));
+        Rig r1;
+        FlatEnvelope(r1.control);
+        r1.control.SetParam(0, ParamRef{0, ParamId::kPitchBend}, 1.0f);
+        f = ZeroCrossFreq(RenderNote(r1.control, r1.audio, kDur, 440.0f, 127));
         Check(std::fabs(f - 440.0f) < 2.0f,
               "pitchbend amount 0: full bend changes nothing");
 
-        EngineInit();
-        FlatEnvelope();
-        EngineSetRoute(0, 4, ModSourceId::kPitchBend, ParamRef{0, ParamId::kPitchCoarse},
-                       2.0f);
-        EngineSetParam(0, ParamRef{0, ParamId::kPitchBend}, 1.0f);
-        f = ZeroCrossFreq(RenderNote(kDur, 440.0f, 127));
+        Rig r2;
+        FlatEnvelope(r2.control);
+        r2.control.SetRoute(0, 4, ModSourceId::kPitchBend, ParamRef{0, ParamId::kPitchCoarse}, 2.0f);
+        r2.control.SetParam(0, ParamRef{0, ParamId::kPitchBend}, 1.0f);
+        f = ZeroCrossFreq(RenderNote(r2.control, r2.audio, kDur, 440.0f, 127));
         Check(std::fabs(f - 493.88f) < 3.0f,
               "pitchbend amount 2: full bend +2 semitones");
 
-        EngineInit();
-        FlatEnvelope();
-        EngineSetRoute(0, 4, ModSourceId::kPitchBend, ParamRef{0, ParamId::kPitchCoarse},
-                       2.0f);
-        EngineSetParam(0, ParamRef{0, ParamId::kPitchBend}, 0.0f);
-        f = ZeroCrossFreq(RenderNote(kDur, 440.0f, 127));
+        Rig r3;
+        FlatEnvelope(r3.control);
+        r3.control.SetRoute(0, 4, ModSourceId::kPitchBend, ParamRef{0, ParamId::kPitchCoarse}, 2.0f);
+        r3.control.SetParam(0, ParamRef{0, ParamId::kPitchBend}, 0.0f);
+        f = ZeroCrossFreq(RenderNote(r3.control, r3.audio, kDur, 440.0f, 127));
         Check(std::fabs(f - 392.0f) < 3.0f,
               "pitchbend amount 2: full bend -2 semitones");
     }
 
-    // 5. Source gating: inert in phase 1 (the only stateful sources, LFOs and
-    //    env2, do not exist yet; there is nothing to advance). Lands as an
-    //    observable check when LFOs arrive in phase 2.
+    // 5. Source gating: inert in phase 1 (nothing to advance yet).
 
-    // 6. A zero-amount route to a MULTIPLICATIVE destination (amp) is neutral,
-    //    not silence: the uniform-depth fold gives factor 1 exactly at
-    //    amount 0, so the render is bit-identical to the baseline.
+    // 6. A zero-amount route to a MULTIPLICATIVE destination (amp) is neutral.
     {
-        EngineInit();
-        FlatEnvelope();
-        std::vector<float> base = RenderNote(kDur, 440.0f, 127);
+        Rig r1;
+        FlatEnvelope(r1.control);
+        std::vector<float> base = RenderNote(r1.control, r1.audio, kDur, 440.0f, 127);
 
-        EngineInit();
-        FlatEnvelope();
-        EngineSetRoute(0, 5, ModSourceId::kEnv0, ParamRef{0, ParamId::kAmp}, 0.0f);
-        std::vector<float> zero = RenderNote(kDur, 440.0f, 127);
+        Rig r2;
+        FlatEnvelope(r2.control);
+        r2.control.SetRoute(0, 5, ModSourceId::kEnv0, ParamRef{0, ParamId::kAmp}, 0.0f);
+        std::vector<float> zero = RenderNote(r2.control, r2.audio, kDur, 440.0f, 127);
 
         Check(base == zero, "zero-amount amp route is neutral (bit-exact)");
     }
 
     // 7. A bipolar source into a multiplicative destination tremolos around
-    //    the base (x(1 + amount*src)) rather than attenuating toward zero:
-    //    at center (src = 0) it is neutral, at full bend (src = +1) it doubles
-    //    the amp.
+    //    the base.
     {
-        EngineInit();
-        FlatEnvelope();
-        EngineSetRoute(0, 5, ModSourceId::kPitchBend, ParamRef{0, ParamId::kAmp}, 1.0f);
-        EngineSetParam(0, ParamRef{0, ParamId::kPitchBend}, 0.5f);  // center: src = 0
-        std::vector<float> center = RenderNote(kDur, 440.0f, 127);
+        Rig r1;
+        FlatEnvelope(r1.control);
+        r1.control.SetRoute(0, 5, ModSourceId::kPitchBend, ParamRef{0, ParamId::kAmp}, 1.0f);
+        r1.control.SetParam(0, ParamRef{0, ParamId::kPitchBend}, 0.5f);
+        std::vector<float> center = RenderNote(r1.control, r1.audio, kDur, 440.0f, 127);
 
-        EngineInit();
-        FlatEnvelope();
-        EngineSetRoute(0, 5, ModSourceId::kPitchBend, ParamRef{0, ParamId::kAmp}, 1.0f);
-        EngineSetParam(0, ParamRef{0, ParamId::kPitchBend}, 1.0f);  // full up: src = +1
-        std::vector<float> up = RenderNote(kDur, 440.0f, 127);
+        Rig r2;
+        FlatEnvelope(r2.control);
+        r2.control.SetRoute(0, 5, ModSourceId::kPitchBend, ParamRef{0, ParamId::kAmp}, 1.0f);
+        r2.control.SetParam(0, ParamRef{0, ParamId::kPitchBend}, 1.0f);
+        std::vector<float> up = RenderNote(r2.control, r2.audio, kDur, 440.0f, 127);
 
-        EngineInit();
-        FlatEnvelope();
-        std::vector<float> base = RenderNote(kDur, 440.0f, 127);
+        Rig r3;
+        FlatEnvelope(r3.control);
+        std::vector<float> base = RenderNote(r3.control, r3.audio, kDur, 440.0f, 127);
 
         Check(base == center, "bipolar center is neutral");
         Check(Peak(up) > Peak(center), "bipolar full-up tremolos above center");
     }
 
-    // 8. Route-read round-trip: EngineSetRoute then EngineGetRoute returns the
-    //    same route; an empty slot (source kNone) and out-of-range indices
-    //    report false. EngineInit fills slots 0-4 with the default routes, so
-    //    slot 5 starts empty.
+    // 8. Route-read round-trip.
     {
-        EngineInit();
-        ModRoute r{};
+        Rig r;
+        ModRoute rt{};
 
-        Check(!EngineGetRoute(0, 5, &r), "empty slot reports false");
-        Check(!EngineGetRoute(0, kModSlots, &r), "slot == kModSlots reports false");
-        Check(!EngineGetRoute(kNumParts, 0, &r), "part == kNumParts reports false");
+        Check(!r.control.GetRoute(0, 5, &rt), "empty slot reports false");
+        Check(!r.control.GetRoute(0, kModSlots, &rt), "slot == kModSlots reports false");
+        Check(!r.control.GetRoute(kNumParts, 0, &rt), "part == kNumParts reports false");
 
-        EngineSetRoute(0, 6, ModSourceId::kLfo2, ParamRef{0, ParamId::kCutoff}, -0.25f);
-        Check(EngineGetRoute(0, 6, &r), "set route reads back true");
-        Check(r.source == ModSourceId::kLfo2 && r.dst.id == ParamId::kCutoff &&
-                  r.dst.instance == 0 && r.amount == -0.25f,
+        r.control.SetRoute(0, 6, ModSourceId::kLfo2, ParamRef{0, ParamId::kCutoff}, -0.25f);
+        Check(r.control.GetRoute(0, 6, &rt), "set route reads back true");
+        Check(rt.source == ModSourceId::kLfo2 && rt.dst.id == ParamId::kCutoff &&
+                  rt.dst.instance == 0 && rt.amount == -0.25f,
               "route round-trips (source, dst, amount)");
 
-        EngineSetRoute(0, 6, ModSourceId::kNone, ParamRef{0, ParamId::kCutoff}, 0.0f);
-        Check(!EngineGetRoute(0, 6, &r), "cleared slot reports false");
+        r.control.SetRoute(0, 6, ModSourceId::kNone, ParamRef{0, ParamId::kCutoff}, 0.0f);
+        Check(!r.control.GetRoute(0, 6, &rt), "cleared slot reports false");
     }
 
     if (g_failures) {
