@@ -50,7 +50,7 @@ static constexpr std::uint32_t kGolden[static_cast<int>(SubjectId::kCount)] = {
     0xE24AC19Eu,  // 10 LFO1
     0x92A59D6Eu,  // 11 LFO2
     0x1637844Eu,  // 12 LFO3
-    0x0C580F4Au,  // 13 MOD
+    0xC2266A3Du,  // 13 MOD
     0x263EB13Eu,  // 14 OUT SCOPE
     0xF39EE727u,  // 15 OUT CYCLE
     0x32D99117u,  // 16 OUT SPECTRUM

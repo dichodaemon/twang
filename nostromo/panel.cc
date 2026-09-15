@@ -1026,6 +1026,54 @@ static void DrawSendsBand(FrameBuffer &fb, const NavState &nav,
   }
 }
 
+// The item-axis list (arch-design §5, emphasis ladder level 2): a page whose
+// NAV2 walks a list shows it in the column area, one field per column, the
+// selected row dim-banded with bright text. Only kSlots is live today (the MOD
+// page); kRoutes arrives with the MOD-view overlay.
+static void DrawItemList(FrameBuffer &fb, const NavState &nav,
+                         const PageDesc &page, engine::EngineControl &control) {
+  if (page.item_axis != ItemAxis::kSlots) return;
+
+  // One wipe owns the whole list region (value/well/summary/plot bands are
+  // cleared piecemeal elsewhere; the list spans them all).
+  FillRect(fb, geom::kPlotX, geom::kListY, geom::kPlotW, geom::kListH, kBg);
+
+  const int sel = nav.item[static_cast<int>(nav.subject)];
+  const int ty = (geom::kRowPitch - kPrimaryFont.h) / 2;
+  engine::ModRoute r;
+  for (int s = 0; s < engine::kModSlots; ++s) {
+    const int y = geom::kListY + s * geom::kRowPitch;
+    const bool selected = (s == sel);
+    const bool has = control.GetRoute(nav.part, s, &r);
+    if (selected)
+      FillRect(fb, geom::kPlotX, y, geom::kPlotW, geom::kRowPitch, kDim);
+    const Color c = selected ? kBright : (has ? kMid : kFaint);
+
+    char src[32];
+    std::snprintf(src, sizeof(src), has ? "%02d %s" : "%02d --", s + 1,
+                  has ? engine::k_sources[static_cast<std::size_t>(r.source)].short_name
+                      : "");
+    TextLeft(fb, src, geom::kColX(0) + 6, y + ty, kPrimaryFont, c);
+
+    char dst[16];
+    std::snprintf(dst, sizeof(dst), "%s",
+                  has ? engine::k_params[static_cast<std::size_t>(r.dst.id)].short_name
+                      : "--");
+    TextLeft(fb, dst, geom::kColX(1) + 6, y + ty, kPrimaryFont, c);
+
+    char amt[16];
+    std::snprintf(amt, sizeof(amt), has ? "%+04d" : "--",
+                  has ? static_cast<int>(std::lround(r.amount * 100.0f)) : 0);
+    TextLeft(fb, amt, geom::kColX(2) + 6, y + ty, kPrimaryFont, c);
+
+    // CURVE / ENABLE are declared but ModRoute does not define them yet.
+    TextLeft(fb, "--", geom::kColX(3) + 6, y + ty, kPrimaryFont,
+             selected ? kBright : kFaint);
+    TextLeft(fb, "--", geom::kColX(4) + 6, y + ty, kPrimaryFont,
+             selected ? kBright : kFaint);
+  }
+}
+
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
                  engine::EngineControl &control) {
   // The summary row is shared by the per-column inbound tags AND the full-width
@@ -1194,8 +1242,10 @@ void DrawEditChrome(FrameBuffer &fb, Panel &p) {
 
   DrawPane(fb, nav);
   DrawColumns(fb, nav, page, *p.control);
-  if (nav.mode == ViewMode::kEdit)
+  if (nav.mode == ViewMode::kEdit) {
     DrawSendsBand(fb, nav, *p.control);
+    DrawItemList(fb, nav, page, *p.control);
+  }
 }
 
 void DrawChrome(FrameBuffer &fb, Panel &p) {
