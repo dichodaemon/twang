@@ -46,6 +46,29 @@ using nostromo::kMid;
 
 namespace g = nostromo::geom;
 
+// Which page the mockup draws, and where the pane cursor sits for it.
+enum Page { kPageFilt = 0, kPageOsc, kPageMod, kPageOut, kPageCount };
+
+struct ColumnContent;  // defined below; Mockup holds a pointer to the active set
+
+// The mockup's runtime state -- one instance owned by main(), passed by pointer
+// through the draw functions. Replaces the ~14 file-scope mutable globals.
+struct Mockup {
+  int view_sel = 0;
+  const char *screen = "FILTER";
+  Page page = kPageFilt;
+  int sel_row = 1;
+  int sel_cell = -1;
+  bool arm = false;
+  bool view = false;       // MOD tapped: latched route view
+  bool outbound = false;   // page is a modulator: show its sends
+  int focus = -1;          // focused column, or -1
+  const ColumnContent *cols = nullptr;            // active column set
+  int groups = 1, group = 0;
+  const char *(*summary)[g::kSumLines] = nullptr;  // inbound summary lines
+  const char **more = nullptr;                     // overflow counts
+};
+
 // ---- text --------------------------------------------------------------
 
 void TextLeft(FrameBuffer &fb, const char *s, int x, int y, const spike::Font &f,
@@ -60,8 +83,6 @@ void TextRight(FrameBuffer &fb, const char *s, int xr, int y,
 }
 
 const char *kViews[3] = {"SCOPE", "CYCLE", "SPECTRUM"};
-int kViewSel = 0;
-const char *g_screen = "FILTER";
 
 // Every screen name must fit the fixed title cell, or it will run into the
 // patch name. Checked here because geom.h does not know the names.
@@ -193,15 +214,9 @@ constexpr int kPaneN = static_cast<int>(sizeof(kPane) / sizeof(kPane[0]));
 
 // NAV1 walks all 20 subjects in reading order — rows and strip cells alike.
 // One detent, one subject. The pixel step varies; the semantic step does not.
-// Which page the mockup draws, and where the pane cursor sits for it.
-enum Page { kPageFilt = 0, kPageOsc, kPageMod, kPageOut, kPageCount };
-int g_page = kPageFilt;
-
 // pane row index per page, and strip cell (-1 when the row is a subject)
 const int kRowFor[kPageCount]  = {1, 4, 3, 7};   // FILT, OSC, MOD, OUT
 const int kCellFor[kPageCount] = {-1, 1, -1, -1};
-int kSelRow = 1;
-int kSelCell = -1;
 constexpr int kActivePart = 0;
 
 
@@ -283,10 +298,6 @@ constexpr int kSrcN = static_cast<int>(sizeof(kSources) / sizeof(kSources[0]));
 constexpr int kArmedRow = 4;    // LFO
 constexpr int kArmedCell = 1;   // LFO2
 
-bool g_arm = false;
-bool g_view = false;      ///< MOD tapped: latched route view
-bool g_outbound = false;  ///< page is a modulator: show its sends
-int  g_focus = -1;        ///< focused column, or -1
 
 // Inbound routes per column on the FILT page. Cutoff is deliberately deep so
 // the focused/reflowed state has something to reflow.
@@ -343,8 +354,8 @@ void DrawSourcePane(FrameBuffer &fb) {
   }
 }
 
-void DrawPane(FrameBuffer &fb) {
-  if (g_arm) { DrawSourcePane(fb); return; }
+void DrawPane(FrameBuffer &fb, Mockup *m) {
+  if (m->arm) { DrawSourcePane(fb); return; }
   const int tx = g::kPaneX + g::kLabelX;
   int y = g::kPaneY;
   bool rule_drawn = false;
@@ -364,14 +375,14 @@ void DrawPane(FrameBuffer &fb) {
       const int hdr_h = g::kPanePitch - 6;
       TextLeft(fb, kPane[i].label, tx, y, kPrimaryFont, kMid);
       DrawStrip(fb, y + hdr_h, kPane[i].instances,
-                i == kSelRow ? kSelCell : -1, kPane[i].cells);
+                i == m->sel_row ? m->sel_cell : -1, kPane[i].cells);
       DrawVLine(fb, g::kPaneX + 1, y, hdr_h + g::kStripH, kMid);
       y += hdr_h + g::kStripH + 8;
       continue;
     }
 
     const int ty = y + (g::kPanePitch - kPrimaryFont.h) / 2;
-    const bool sel = (i == kSelRow);
+    const bool sel = (i == m->sel_row);
     if (sel) {
       // Inverse video, not the header's dim block: a column header is a label
       // and there are five of them; the selection is state and there is one.
@@ -411,7 +422,7 @@ void FilterCurve(FrameBuffer &fb, int y, int h, double fc, Color col) {
   spike::DrawPolyline(fb, pts.data(), static_cast<int>(pts.size()), col);
 }
 
-void DrawFilterPlot(FrameBuffer &fb) {
+void DrawFilterPlot(FrameBuffer &fb, Mockup *m) {
   const int x = g::kPlotX, y = g::kPlotY, w = g::kPlotW, h = g::kPlotH;
   const int rows = 6, cell_h = h / rows;
   const int cell_w = static_cast<int>(cell_h / g::kAspect + 0.5f);
@@ -425,7 +436,7 @@ void DrawFilterPlot(FrameBuffer &fb) {
   // makes it do: the response at the base value, and ghosts at the extremes
   // the armed amount reaches. Depth reads as movement of the thing itself
   // rather than as a number somewhere else on the screen.
-  if (g_arm) {
+  if (m->arm) {
     // Every route from the armed source, at its extreme, at once. The
     // question the gesture asks is "what is this source doing", not "what is
     // this route doing" — so cutoff -12 and env amount +64 move together, and
@@ -547,8 +558,8 @@ void DrawSpectrum(FrameBuffer &fb) {
 // edited, so their width is free. The list then reflows across sub-columns in
 // reading order — one encoder still walks it, so this is newspaper reflow, not
 // a grid.
-void DrawFocusedColumn(FrameBuffer &fb) {
-  const int c = g_focus;
+void DrawFocusedColumn(FrameBuffer &fb, Mockup *m) {
+  const int c = m->focus;
   const RouteList &rl = kColRoutes[c];
   const int x = g::kPlotX;
   const int span = g::kColX(g::kColumns - 1) + g::kColW - 8 - x;
@@ -576,11 +587,11 @@ void DrawFocusedColumn(FrameBuffer &fb) {
   }
 }
 
-void DrawPlot(FrameBuffer &fb) {
-  if (g_page == kPageOsc) DrawOscPlot(fb);
-  else if (g_page == kPageOut)
-    (kViewSel == 2) ? DrawSpectrum(fb) : DrawScope(fb);
-  else DrawFilterPlot(fb);
+void DrawPlot(FrameBuffer &fb, Mockup *m) {
+  if (m->page == kPageOsc) DrawOscPlot(fb);
+  else if (m->page == kPageOut)
+    (m->view_sel == 2) ? DrawSpectrum(fb) : DrawScope(fb);
+  else DrawFilterPlot(fb, m);
 }
 
 // MOD page: an edge list of active slots. Five columns, one row per route,
@@ -682,7 +693,7 @@ const ColumnContent *kColsOut = kColsOutV[0];
 
 // The view strip: three cells across the content width, in the band the
 // wells and route summary occupy on other pages.
-void DrawViewStrip(FrameBuffer &fb) {
+void DrawViewStrip(FrameBuffer &fb, Mockup *m) {
   const int x0 = g::kPlotX;
   const int w = g::kColX(g::kColumns - 1) + g::kColW - 8 - x0;
   const int n = 3, cw = w / n;
@@ -690,9 +701,9 @@ void DrawViewStrip(FrameBuffer &fb) {
   for (int k = 0; k < n; ++k) {
     const int cx = x0 + k * cw;
     const int tw = static_cast<int>(std::strlen(kViews[k])) * kPrimaryFont.w;
-    if (k == kViewSel) FillRect(fb, cx, y, tw + 12, h, kDim);
+    if (k == m->view_sel) FillRect(fb, cx, y, tw + 12, h, kDim);
     TextLeft(fb, kViews[k], cx + 6, y + (h - kPrimaryFont.h) / 2,
-             kPrimaryFont, k == kViewSel ? kBright : kMid);
+             kPrimaryFont, k == m->view_sel ? kBright : kMid);
   }
   DrawHLine(fb, x0, y + h + 4, w, kFaint);
 }
@@ -700,8 +711,6 @@ const ColumnContent kColsMod[g::kColumns] = {
     {"SOURCE", "", 0}, {"DEST", "", 0}, {"AMOUNT", "", 0},
     {"CURVE", "", 0},  {"ENABLE", "", 0},
 };
-const ColumnContent *kCols = kColsFilt;
-int g_groups = 1, g_group = 0;
 
 // Inbound routes, shown in edit mode so "what modulates this" needs no mode.
 // Two lines; overflow is a count, and the full list is one push deeper.
@@ -717,22 +726,20 @@ const char *kSumNone[g::kColumns][g::kSumLines] = {
     {nullptr, nullptr}, {nullptr, nullptr}, {nullptr, nullptr},
     {nullptr, nullptr}, {nullptr, nullptr},
 };
-const char *(*kSummary)[g::kSumLines] = kSumFilt;
 
 // Routes beyond the two-line budget collapse to a count; the full list is one
 // push deeper. Column 0 stands in for the overflow case.
 const char *kMoreFilt[g::kColumns] = {"(+3)", nullptr, nullptr, nullptr, nullptr};
 const char *kMoreNone[g::kColumns] = {nullptr, nullptr, nullptr, nullptr, nullptr};
-const char **kMore = kMoreFilt;
 
-void DrawPage(FrameBuffer &fb) {
+void DrawPage(FrameBuffer &fb, Mockup *m) {
   FillRect(fb, 0, 0, g::kFbWidth, g::kFbHeight, kBg);
 
   // Title bar.
   FillRect(fb, g::kTitleX, g::kTitleY, g::kTitleW, g::kTitleH - 4, kDim);
   // A global subject is not owned by a part, so the part indicator says so
   // rather than showing a part that has nothing to do with what is on screen.
-  const bool global = kPane[kSelRow].global;
+  const bool global = kPane[m->sel_row].global;
   const int nx = DrawPartSwatches(fb, g::kTitleX + 8, g::kTitleY + 3,
                                   global ? -1 : kActivePart);
   char pn[3] = {'P', static_cast<char>('1' + kActivePart), 0};
@@ -750,7 +757,7 @@ void DrawPage(FrameBuffer &fb) {
   // The screen's name in full. With it here, the pane's abbreviated cells
   // (SC CY SP) are a position indicator rather than a code to memorise: the
   // expansion is always on screen.
-  TextLeft(fb, g_arm ? kArmTitle : g_screen, g::kTitleNameX, g::kTitleY + 2,
+  TextLeft(fb, m->arm ? kArmTitle : m->screen, g::kTitleNameX, g::kTitleY + 2,
            kPrimaryFont, kBright);
   // A cut in the filled bar, matching the navigator boundary: the same
   // gesture, inverted, separating the screen's name from the patch's.
@@ -760,26 +767,26 @@ void DrawPage(FrameBuffer &fb) {
            kPrimaryFont, kMid);
   int rx = g::kTitleX + g::kTitleW - 8;
   TextRight(fb, "A007", rx, g::kTitleY + 2, kPrimaryFont, kMid);
-  if (g_groups > 1) {
+  if (m->groups > 1) {
     // Column groups only announce themselves when there is more than one.
     char gs[24];  // sized past what the compiler can prove about %d
-    std::snprintf(gs, sizeof(gs), "GROUP %d/%d", g_group + 1, g_groups);
+    std::snprintf(gs, sizeof(gs), "GROUP %d/%d", m->group + 1, m->groups);
     rx -= 4 * kPrimaryFont.w + 16;
     TextRight(fb, gs, rx, g::kTitleY + 2, kPrimaryFont, kBright);
   }
 
-  DrawPane(fb);
+  DrawPane(fb, m);
   // The navigator and the page are different kinds of thing; the gutter says
   // so. A rule plus clear space reads as a boundary, a rule alone as chrome.
   DrawVLine(fb, g::kPaneX + g::kPaneW - 5, g::kPaneY, g::kPaneH, kDim);
   DrawVLine(fb, g::kPaneX + g::kPaneW - 4, g::kPaneY, g::kPaneH, kDim);
 
   for (int c = 0; c < g::kColumns; ++c) {
-    ColumnHeader(fb, c, kCols[c].header);
-    if (g_page == kPageMod) continue;
+    ColumnHeader(fb, c, m->cols[c].header);
+    if (m->page == kPageMod) continue;
     const int x = g::kColX(c);
 
-    if (g_arm) {
+    if (m->arm) {
       // Arm mode: the columns stop showing values and show the route from the
       // armed source to each destination. A column with no such route shows a
       // dash — turning that encoder is what creates it, so the dash is an
@@ -806,14 +813,14 @@ void DrawPage(FrameBuffer &fb) {
       continue;
     }
 
-    if (g_view) {
+    if (m->view) {
       // Headers and one value line persist: they are the registration between
       // the two states, so glancing between "what is this set to" and "what
       // moves it" costs no re-reading. Everything below is the route list.
-      TextLeft(fb, kCols[c].value, x + kColPad, g::kValueY, kPrimaryFont,
-               c == g_focus ? kBright : kMid);
-      if (c == g_focus) continue;   // drawn widened, after the loop
-      const RouteList &rl = g_outbound ? kLfoRoutes[c] : kColRoutes[c];
+      TextLeft(fb, m->cols[c].value, x + kColPad, g::kValueY, kPrimaryFont,
+               c == m->focus ? kBright : kMid);
+      if (c == m->focus) continue;   // drawn widened, after the loop
+      const RouteList &rl = m->outbound ? kLfoRoutes[c] : kColRoutes[c];
       const int cap = (g::kBottom - g::kRouteY) / g::kRowPitch;
       const int shown = rl.n < cap ? rl.n : cap;
       for (int i = 0; i < shown; ++i)
@@ -826,33 +833,33 @@ void DrawPage(FrameBuffer &fb) {
 
     // No column cursor: in edit mode every encoder is live at once, so there
     // is nothing to focus. focus_col exists only in mod view.
-    TextLeft(fb, kCols[c].value, x + kColPad, g::kValueY, kPrimaryFont, kMid);
-    if (g_page != kPageOut) {
-      if (g_page == kPageFilt && kBandLo[c] != kBandHi[c])
+    TextLeft(fb, m->cols[c].value, x + kColPad, g::kValueY, kPrimaryFont, kMid);
+    if (m->page != kPageOut) {
+      if (m->page == kPageFilt && kBandLo[c] != kBandHi[c])
         ModBand(fb, x, g::kWellY, kBandLo[c], kBandHi[c]);
-      SplitWell(fb, x, g::kWellY, kCols[c].well);
+      SplitWell(fb, x, g::kWellY, m->cols[c].well);
     }
     for (int l = 0; l < g::kSumLines; ++l) {
-      if (!kSummary[c][l]) continue;
-      TextLeft(fb, kSummary[c][l], x + kColPad, g::kSumY + l * g::kSumPitch,
+      if (!m->summary[c][l]) continue;
+      TextLeft(fb, m->summary[c][l], x + kColPad, g::kSumY + l * g::kSumPitch,
                kSecondaryFont, kDim);
     }
-    if (kMore[c]) {
+    if (m->more[c]) {
       int last = -1;
       for (int l = 0; l < g::kSumLines; ++l)
-        if (kSummary[c][l]) last = l;
+        if (m->summary[c][l]) last = l;
       const int lx = x + kColPad +
-                     (last >= 0 ? static_cast<int>(std::strlen(kSummary[c][last]))
+                     (last >= 0 ? static_cast<int>(std::strlen(m->summary[c][last]))
                                 : 0) * kSecondaryFont.w + kSecondaryFont.w;
-      TextLeft(fb, kMore[c], lx,
+      TextLeft(fb, m->more[c], lx,
                g::kSumY + (last < 0 ? 0 : last) * g::kSumPitch,
                kSecondaryFont, kDim);
     }
   }
 
-  if (g_view) {
-    if (g_focus >= 0) DrawFocusedColumn(fb);
-    if (g_outbound) {
+  if (m->view) {
+    if (m->focus >= 0) DrawFocusedColumn(fb, m);
+    if (m->outbound) {
       // Outbound routes belong to the module, not to a column, so they get a
       // band of their own below the per-column lists rather than being
       // attached to whichever column happens to be first.
@@ -890,11 +897,11 @@ void DrawPage(FrameBuffer &fb) {
     }
     return;
   }
-  if (g_page == kPageMod) {
+  if (m->page == kPageMod) {
     DrawModRows(fb);
     return;
   }
-  DrawPlot(fb);
+  DrawPlot(fb, m);
 }
 
 
@@ -931,62 +938,63 @@ std::uint32_t Fnv1a(const std::vector<std::uint16_t> &b) {
   return h;
 }
 
-void Select(const PageShot &s) {
+void Select(const PageShot &s, Mockup *m) {
   const std::string n(s.name);
-  g_arm = n.find("_arm") != std::string::npos;
-  g_view = n.find("_view") != std::string::npos ||
+  m->arm = n.find("_arm") != std::string::npos;
+  m->view = n.find("_view") != std::string::npos ||
            n.find("_focus") != std::string::npos;
-  g_focus = (n.find("_focus") != std::string::npos) ? 0 : -1;
-  g_outbound = n.find("lfo_view") != std::string::npos;
-  g_page = s.page;
-  kSelRow = kRowFor[s.page];
-  kSelCell = kCellFor[s.page];
-  kViewSel = s.view;
+  m->focus = (n.find("_focus") != std::string::npos) ? 0 : -1;
+  m->outbound = n.find("lfo_view") != std::string::npos;
+  m->page = static_cast<Page>(s.page);
+  m->sel_row = kRowFor[s.page];
+  m->sel_cell = kCellFor[s.page];
+  m->view_sel = s.view;
   if (s.page == kPageFilt) {
-    kCols = kColsFilt; kSummary = kSumFilt; kMore = kMoreFilt;
-    g_groups = 2; g_group = 0;
+    m->cols = kColsFilt; m->summary = kSumFilt; m->more = kMoreFilt;
+    m->groups = 2; m->group = 0;
     // The title carries the mode and the subject together, as arm mode does.
     // The name field is sized for the longest compound form, so the subject
     // stays spelled out even under a mode prefix.
-    g_screen = g_view ? (g_outbound ? "MOD VIEW LFO 2" : "MOD VIEW FILTER")
+    m->screen = m->view ? (m->outbound ? "MOD VIEW LFO 2" : "MOD VIEW FILTER")
                       : "FILTER";
-    if (g_outbound) {
-      kCols = kColsLfo;
-      g_groups = 2;
-      kSelRow = 6;      // LFO class row
-      kSelCell = 1;     // LFO2
+    if (m->outbound) {
+      m->cols = kColsLfo;
+      m->groups = 2;
+      m->sel_row = 6;      // LFO class row
+      m->sel_cell = 1;     // LFO2
     }
   } else if (s.page == kPageOsc) {
-    kCols = kColsOsc; kSummary = kSumOsc; kMore = kMoreNone;
-    g_groups = 2; g_group = 0; g_screen = "OSCILLATOR 2";
+    m->cols = kColsOsc; m->summary = kSumOsc; m->more = kMoreNone;
+    m->groups = 2; m->group = 0; m->screen = "OSCILLATOR 2";
   } else if (s.page == kPageMod) {
-    kCols = kColsMod; kSummary = kSumNone; kMore = kMoreNone;
-    g_groups = 1; g_group = 0; g_screen = "MODULATION";
+    m->cols = kColsMod; m->summary = kSumNone; m->more = kMoreNone;
+    m->groups = 1; m->group = 0; m->screen = "MODULATION";
   } else {
-    kSelCell = s.view;
-    kCols = kColsOutV[s.view]; kSummary = kSumNone; kMore = kMoreNone;
-    g_groups = 1; g_group = 0; g_screen = kViews[s.view];
+    m->sel_cell = s.view;
+    m->cols = kColsOutV[s.view]; m->summary = kSumNone; m->more = kMoreNone;
+    m->groups = 1; m->group = 0; m->screen = kViews[s.view];
   }
 }
 
-void Render(const PageShot &s, std::vector<std::uint16_t> &buf) {
-  Select(s);
+void Render(const PageShot &s, std::vector<std::uint16_t> &buf, Mockup *m) {
+  Select(s, m);
   buf.assign(static_cast<std::size_t>(g::kFbWidth) * g::kFbHeight, kBg);
   FrameBuffer fb{buf.data(), g::kFbWidth, g::kFbHeight, g::kFbWidth,
                  {0, 0, g::kFbWidth, g::kFbHeight}};
-  DrawPage(fb);
+  DrawPage(fb, m);
 }
 
 }  // namespace
 
 int main(int argc, char **argv) {
   const std::string arg1 = (argc > 1) ? argv[1] : ".";
+  Mockup m;
 
   if (arg1 == "--check") {
     int bad = 0;
     for (int i = 0; i < kNShots; ++i) {
       std::vector<std::uint16_t> buf;
-      Render(kShots[i], buf);
+      Render(kShots[i], buf, &m);
       const std::uint32_t h = Fnv1a(buf);
       const bool ok = (h == kShots[i].hash);
       std::printf("%-24s 0x%08X %s\n", kShots[i].name, h,
@@ -1000,7 +1008,7 @@ int main(int argc, char **argv) {
   const int scale = (argc > 2) ? std::atoi(argv[2]) : 1;
   for (int i = 0; i < kNShots; ++i) {
     std::vector<std::uint16_t> buf;
-    Render(kShots[i], buf);
+    Render(kShots[i], buf, &m);
     FrameBuffer fb{buf.data(), g::kFbWidth, g::kFbHeight, g::kFbWidth,
                    {0, 0, g::kFbWidth, g::kFbHeight}};
     const std::string path = arg1 + "/" + kShots[i].name;
