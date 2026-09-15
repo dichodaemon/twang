@@ -213,6 +213,55 @@ int main() {
         Check(!r.control.GetRoute(0, 6, &rt), "cleared slot reports false");
     }
 
+    // 9. Additive destination at extremes: kConstant -> cutoff moves the
+    //    filter up (positive amount) and down (negative amount).
+    {
+        Rig base;
+        FlatEnvelope(base.control);
+        base.control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.5f);
+        const float rms_base =
+            Rms(RenderNote(base.control, base.audio, kDur, 440.0f, 127));
+
+        Rig up;
+        FlatEnvelope(up.control);
+        up.control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.5f);
+        up.control.SetRoute(0, 5, ModSourceId::kConstant,
+                            ParamRef{0, ParamId::kCutoff}, 0.5f);
+        const float rms_up =
+            Rms(RenderNote(up.control, up.audio, kDur, 440.0f, 127));
+
+        Rig down;
+        FlatEnvelope(down.control);
+        down.control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.5f);
+        down.control.SetRoute(0, 5, ModSourceId::kConstant,
+                              ParamRef{0, ParamId::kCutoff}, -0.5f);
+        const float rms_down =
+            Rms(RenderNote(down.control, down.audio, kDur, 440.0f, 127));
+
+        Check(rms_up > rms_base, "additive: positive amount raises cutoff");
+        Check(rms_base > rms_down, "additive: negative amount lowers cutoff");
+    }
+
+    // 10. Unipolar multiplicative sub-form: a unipolar source at full
+    //     (src = 1.0) contributes nothing to a multiplicative destination
+    //     (1 + amount*(src-1) = 1), distinguishing it from the bipolar form
+    //     (1 + amount*src = 1 + amount).
+    {
+        Rig base;
+        FlatEnvelope(base.control);
+        std::vector<float> b =
+            RenderNote(base.control, base.audio, kDur, 440.0f, 127);
+
+        Rig r;
+        FlatEnvelope(r.control);
+        r.control.SetRoute(0, 5, ModSourceId::kConstant,
+                           ParamRef{0, ParamId::kAmp}, 1.0f);
+        std::vector<float> u =
+            RenderNote(r.control, r.audio, kDur, 440.0f, 127);
+
+        Check(b == u, "unipolar multiplicative: full source is neutral");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

@@ -70,6 +70,34 @@ enum class CombinationClass : std::uint8_t {
     kExponential,     ///< base * 2^(sum(amount*source)).
 };
 
+/// The single modulation-fold operator, shared by the audio path
+/// (engine_audio.cc) and the panel (modulation band / summary lines). Folds
+/// one route's contribution into a destination's accumulated value.
+///
+/// kAdditive and kExponential accumulate identically: `acc + amount*src`. The
+/// classes diverge only at consumption — an additive destination feeds the
+/// value straight to DSP, while an exponential destination linearizes it once
+/// (`base * 2^sum`) at the DSP boundary. That linearization is NOT done here:
+/// it is an `exp2f` that must run once per destination per voice, not once per
+/// route, so it stays at the caller (pitch: `SemitonesToFactor` in
+/// engine_audio.cc).
+///
+/// kMultiplicative selects its sub-form by source polarity: a unipolar source
+/// attenuates (`× (1 + amount·(src−1))`); a bipolar source tremolos around the
+/// base (`× (1 + amount·src)`).
+inline float Fold(CombinationClass comb, float acc, float amount, float src,
+                  bool src_bipolar) {
+    switch (comb) {
+        case CombinationClass::kMultiplicative:
+            return acc * (src_bipolar ? (1.0f + amount * src)
+                                      : (1.0f + amount * (src - 1.0f)));
+        case CombinationClass::kAdditive:
+        case CombinationClass::kExponential:
+            return acc + amount * src;
+    }
+    return acc;  // unreachable; exhaustive over the 3-value enum
+}
+
 /// Identifies a modulation source.
 enum class ModSourceId : std::uint8_t {
     kNone = 0,       ///< empty-slot sentinel; zero-init marks a slot empty.

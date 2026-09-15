@@ -24,6 +24,15 @@ float QFromResonance(float resonance) {
     return 0.5f + resonance * resonance * 20.0f;  // Q 0.5 .. 20.5
 }
 
+// The exponential destination's linearization: semitones -> frequency
+// multiplier, 2^(semitones/12). This is the one place kExponential's `base *
+// 2^sum` is realized — Fold accumulates the sum additively (see engine.h), and
+// this runs once per voice per control step, after the route loop, not once
+// per route.
+float SemitonesToFactor(float semitones) {
+    return std::exp2f(semitones / 12.0f);
+}
+
 // Read a modulation source's value for the current control step.
 //
 // Phase 1 computes seven sources — velocity, note (key follow), gate, env0,
@@ -315,7 +324,6 @@ void RenderBlock(EngineAudio &e, float *out, int frames) {
                 // field (source-level exception, arch-design §5.3).
                 if (r.source == ModSourceId::kNote) continue;
                 const float src = ReadSource(r.source, part, voice);
-                const float contrib = r.amount * src;
 
                 float *acc;
                 switch (r.dst.id) {
@@ -326,20 +334,9 @@ void RenderBlock(EngineAudio &e, float *out, int frames) {
                 default:                    continue;  // deferred destination
                 }
 
-                switch (k_params[static_cast<std::size_t>(r.dst.id)].comb) {
-                case CombinationClass::kMultiplicative: {
-                    const float factor =
-                        kSourceBipolar[static_cast<std::size_t>(r.source)]
-                            ? 1.0f + contrib
-                            : 1.0f + r.amount * (src - 1.0f);
-                    *acc *= factor;
-                    break;
-                }
-                case CombinationClass::kAdditive:
-                case CombinationClass::kExponential:
-                    *acc += contrib;
-                    break;
-                }
+                *acc = Fold(k_params[static_cast<std::size_t>(r.dst.id)].comb,
+                            *acc, r.amount, src,
+                            kSourceBipolar[static_cast<std::size_t>(r.source)]);
             }
             if (cutoff_eff > 1.0f) cutoff_eff = 1.0f;
             if (cutoff_eff < 0.0f) cutoff_eff = 0.0f;
@@ -348,7 +345,7 @@ void RenderBlock(EngineAudio &e, float *out, int frames) {
             const float depth = drive_eff;            // blend [0,1], 0 = dry
             const float gain = DriveCurve(drive_eff); // input gain, unity at 0
             const float pitch_factor =
-                std::exp2f((pitch_semitones + pitch_route) / 12.0f);
+                SemitonesToFactor(pitch_semitones + pitch_route);
             const float key_follow_factor =
                 part->key_follow_depth * voice->key_follow;
 
