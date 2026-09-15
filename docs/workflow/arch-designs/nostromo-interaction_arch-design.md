@@ -108,7 +108,8 @@ the target firmware. It has no transport dependency.
 
 - **Driver to interaction**: `void InteractionOnInput(const InputEvent &ev)`.
 - **Interaction to engine**: the existing `EngineSetParam` / `EngineSetParamDisp` /
-  `EngineSetRoute` surface. No new engine entry points, with one exception in §7.8.
+  `EngineSetRoute` surface, plus two additions this design imposes — a route reader
+  `EngineGetRoute` and the `ParamDesc` fields `accel_max`/`zero_notch` — both in §7.8.
 - **Interaction to panel**: `MarkDirty(Panel *, SlotIdx)`. Never draws, never writes
   invalidation state directly.
 - **Panel to interaction**: DYN hooks read `NavState` and the resolved bindings as their
@@ -240,11 +241,16 @@ ownership; this layer reports.
 
 The layer is a singleton initialised once and never destroyed.
 
-1. **Init** — `InteractionInit(DynSlot *slots, int n_slots, const SurfaceProfile &surface)`.
-   Binds the slot array and the surface, loads `g_feel` from persisted settings or its
-   defaults, zeroes `NavState` to part 0, subject `kOutScope`, `prev` `{kFilt, 0, -1}`, group 0,
-   mode `kEdit`, and marks all slots dirty. `kOutScope` is the power-on page for the same reason
-   the OUT button targets it: it is what the instrument shows when nobody is editing. Reports once if `surface.n_encoders < geom::kColumns`.
+1. **Init** — `InteractionInit(Panel *panel, const SurfaceProfile &surface)`.
+   Binds the panel (the `MarkDirty` target) and the surface, loads `g_feel` from persisted
+   settings or its defaults, zeroes `NavState` to part 0, subject `kOutScope`,
+   `prev` `{kFilt, 0, -1}`, group 0, mode `kEdit`, and marks all slots dirty. `kOutScope` is
+   the power-on page for the same reason the OUT button targets it: it is what the instrument
+   shows when nobody is editing. Reports once if `surface.n_encoders < geom::kColumns`.
+
+   *Deviation from the plan (§4):* the signature takes `Panel *`, not a slot array — the layer
+   needs the panel for `MarkDirty`, and the slot array is redundant with
+   `InteractionNavState()`, which the DYN hooks already read (§4).
 2. **Steady state** — events arrive, gestures are recognised, bindings resolve, the engine is
    written, slots are marked. No allocation, no blocking.
 3. **Mode transitions** — entering `kModArm` (MOD pressed) or `kModView` (MOD tapped) calls
@@ -441,10 +447,11 @@ Press timing is not a constant here; it is `g_feel.long_press_ms` (§7.10), star
 ```cpp
 enum class SubjectId : std::uint8_t {
   kPart = 0,                       ///< part-level settings
-  kFilt, kAmp, kMod,
   kOsc1, kOsc2, kOsc3, kOsc4,
+  kFilt, kAmp,
   kEnv1, kEnv2, kEnv3,
   kLfo1, kLfo2, kLfo3,
+  kMod,
   kOutScope, kOutCycle, kOutSpec,  ///< globals, below the pane rule
   kFx,
   kPatch, kConf,
@@ -477,6 +484,10 @@ struct NavState {
 };
 ```
 
+Enum order is **pane order** — NAV1 walks index order — and matches §7.6, not the earlier
+draft here that hoisted the singletons (`kFilt`, `kAmp`, `kMod`) ahead of the oscillator
+strip. §7.6 wins because `g_pages` is indexed by `SubjectId`.
+
 `subject` and `group` are deliberately *not* per-part: a part change alters values only
 (study §4.11). `item` is per-subject because a page's item cursor is a property of that page,
 not of the navigation as a whole.
@@ -496,14 +507,19 @@ enum class ColumnKind : std::uint8_t {
   kViewCtl,      ///< a browser or settings control
 };
 
-enum class RouteField : std::uint8_t { kSource, kDest, kAmount, kCurve, kEnable };
+enum class RouteField : std::uint8_t { kSource, kDest, kAmount };
 enum class ViewCtl    : std::uint8_t {
   kCategory, kSort, kFavourite, kAction,        // PATCH
   kDetents, kAccelMax, kAccelThresh, kLongPress, kFineDiv,  // CONF
 };
 
+/// A column *declares a kind*. `param` is a `ParamId`, not a `ParamRef` — the
+/// instance is resolved from `SubjectId` later. `label` is the column header's
+/// uppercase display text, carried here rather than derived because a pending
+/// column has no `ParamId` to derive a name from.
 struct ColumnSpec {
-  ColumnKind kind;
+  ColumnKind    kind;
+  const char   *label;
   union {
     ParamId    param;
     RouteField field;
@@ -528,18 +544,25 @@ struct PageDesc {
 };
 
 /// Groups are ceil(n/E) slices of `cols`. Changing geom::kColumns re-groups
-/// every page; no page is re-authored.
+/// every page; no page is re-authored. Templated on E so test_bindings can
+/// sweep E ∈ {4,5,6,7} without editing geom::kColumns.
+template <int E = geom::kColumns>
 constexpr int GroupCount(const PageDesc &p) {
-  return (p.n_cols + geom::kColumns - 1) / geom::kColumns;
+  return (p.n_cols + E - 1) / E;
 }
 
+template <int E = geom::kColumns>
 constexpr ColumnSpec Column(const PageDesc &p, int group, int col) {
-  const int i = group * geom::kColumns + col;
-  return i < p.n_cols ? p.cols[i] : ColumnSpec{ColumnKind::kNone, {}};
+  const int i = group * E + col;
+  return i < p.n_cols ? p.cols[i] : ColumnSpec{ColumnKind::kNone, "", {}};
 }
 
 extern const PageDesc g_pages[static_cast<int>(SubjectId::kCount)];
 ```
+
+`RouteField` has only `kSource`, `kDest` and `kAmount` because `ModRoute` carries those three
+(§3): the MOD page's `curve` and `enable` columns are `kPending` until `ModRoute` grows, not
+route fields.
 
 `kPending` renders its header dim with an empty value and ignores input. It keeps the page
 taxonomy complete and honest while `ParamId` grows from its current 11 entries. `kNone` is a
@@ -560,13 +583,14 @@ This is a decision, and it has a large consequence. Per-instance enumerators wou
 `ParamId` roughly $4 \times 7 + 3 \times 6 + 3 \times 7 + \ldots \approx 130$ entries and
 would duplicate every oscillator page four times in `g_pages`. Per-kind makes it about 39, and
 the four oscillator pages share one column list. It also means the engine's parameter API
-needs an address argument it does not currently have — `EngineSetParam(part, ref, value)`, a
-`ParamRef {instance, id}` — which is engine work this design depends on and does not perform.
+needs an address argument — `EngineSetParam(part, ref, value)`, a `ParamRef {instance, id}` —
+which is the companion `engine-parameter-surface_arch-design.md`'s job and now exists.
 
 ### 7.6. The page table
 
-Ordered by pane position. `∗` marks a column whose `ParamId` exists today; everything else is
-`kPending`. A label written `OSC`/`2` is a class label plus a strip cell: one pane row for the
+Ordered by pane position. `∗` marks a column whose `ParamId` exists today; `†` marks a MOD
+route field the engine does not yet have; everything else is `kPending`. A label written
+`OSC`/`2` is a class label plus a strip cell: one pane row for the
 class, one cell per instance, and the cell is what NAV1 selects. Every subject also carries a
 long-form name for the title bar — `OSCILLATOR 2`, `MODULATION`, `CONFIGURATION` — spelled out
 except where the acronym is the established term (`LFO`). Group boundaries are derived at $E = 5$ and shown only to make the packing visible.
@@ -579,7 +603,7 @@ except where the acronym is the established term (`LFO`). Group boundaries are d
 | `kAmp` | `AMP` | level∗, pan, velo sens, send A, send B | — | — |
 | `kEnv1..3` | `ENV`/`1`..`3` | A∗, D∗, S∗, R∗, curve ‖ velo sens | — | envelope |
 | `kLfo1..3` | `LFO`/`1`..`3` | rate, shape, depth, sync, fade ‖ phase, retrig | — | shape |
-| `kMod` | `MOD` | source, dest, amount, curve, enable | slots | — |
+| `kMod` | `MOD` | source, dest, amount, curve†, enable† | slots | — |
 | `kOutScope` | `OUT`/`SC` | source∗, timebase, scale, trigger, hold | — | scope |
 | `kOutCycle` | `OUT`/`CY` | source∗, cycles, scale, align, hold | — | single cycle |
 | `kOutSpec` | `OUT`/`SP` | source∗, range, scale, average, window | — | spectrum |
@@ -643,9 +667,9 @@ enum class BindKind : std::uint8_t {
 };
 
 struct Binding {
-  BindKind    kind;
+  BindKind kind;
   union {
-    ParamId    param;   ///< kParam, kRouteAmount
+    ParamRef   param;   ///< kParam, kRouteAmount — kind + instance
     RouteField field;   ///< kRouteField
     ViewCtl    ctl;     ///< kViewCtl
   };
@@ -654,6 +678,10 @@ struct Binding {
 };
 
 Binding ResolveBinding(const NavState &nav, Control c);
+
+A binding names a *kind plus an instance*: `param` is a full `ParamRef`, filled once by
+`ResolveBinding`, so the Dispatcher never re-derives `subject → instance`. `ColumnSpec::param`
+stays a `ParamId` — declaration is a kind; resolution is a kind plus instance.
 
 `ColumnKind` and `BindKind` are in one-to-one correspondence for the four column kinds, so
 resolving a column encoder is a tag copy plus the operand. The resolution rules for the three
@@ -669,28 +697,51 @@ non-parameter kinds:
 `item[subject]` for the slot, which is why `Binding::slot` is populated for it.
 ```
 
-### 7.8. Change required in `engine/params.h`
+### 7.8. Changes required in the engine
 
 Acceleration is a property of the parameter, so `ParamDesc` gains two fields:
 
 ```cpp
 struct ParamDesc {
   // ... existing: name, unit, disp_min, disp_max, def, curve, offset, comb
-  std::uint8_t accel_max;   ///< 1 = none; 3 = capped 3x (modulation amounts)
+  std::uint8_t accel_max;   ///< 1 = none; N = capped at Nx (modulation amounts)
   bool         zero_notch;  ///< require one extra detent to cross zero
 };
 ```
 
-This is the only change this design imposes outside `nostromo/`. `accel_max` defaults to
-`FeelProfile::accel_max_default` (§7.10); `zero_notch` is true for bipolar amounts, whose zero
-state the split well renders distinctly.
+`accel_max` defaults to `FeelProfile::accel_max_default` (§7.10); `zero_notch` is true for
+bipolar amounts, whose zero state the split well renders distinctly.
+
+Two changes, not one. The design also needs a **route reader**: the modulation band and the
+inbound-route summary (§7.1) must read the routes they render, so the engine gains
+`EngineGetRoute(int part, int slot, ModRoute *out)` — the `GetRoute` counterpart to the
+existing `EngineSetRoute`. It reads, never writes, so the interaction layer stays the sole
+route writer.
 
 ### 7.9. Surface profile
 
 ```cpp
+/// The three stateless MIDI relative-encoder encodings. Quadrature is NOT one:
+/// a 2-bit Gray-code transition needs previous-state memory, so it gets its own
+/// stateful reader, not a "pure" decode.
+enum class EncEncoding : std::uint8_t {
+  kSignedBit,      ///< bit 6 = sign, bits 0-5 = magnitude
+  kTwosComplement, ///< 7-bit two's complement
+  kBinaryOffset,   ///< centre 0x40, offset wraps
+};
+
+/// Pure decode of one relative-encoder byte to -1 / 0 / +1 (magnitude clamped).
+int DecodeEnc(std::uint8_t raw, EncEncoding enc);
+
+/// One physical→logical entry. `turn` distinguishes a relative-encoder byte
+/// (decoded to detents) from a button (press/release edge). `enc` is the
+/// control's own encoding, declarable per-control so a mixed surface is
+/// expressible; meaningful only when `turn` is true.
 struct ControlMap {
   std::uint16_t physical;   ///< MIDI CC (host) or scan index (target)
   Control       logical;
+  bool          turn;       ///< true = relative encoder; false = button
+  EncEncoding   enc = EncEncoding::kTwosComplement;
 };
 
 struct SurfaceProfile {
@@ -705,6 +756,15 @@ struct SurfaceProfile {
 const SurfaceProfile &Surface();
 void SetSurface(const SurfaceProfile &p);
 ```
+
+**Encoder encoding is per-control, not per-surface.** A relative-encoder byte decodes by
+`DecodeEnc` to a signed detent count — the X-Touch Compact's two's-complement scheme is CW
+`0x01` → +1, CCW `0x7F` → −1. `ControlMap::turn` distinguishes an encoder byte from a button,
+and `ControlMap::enc` names that control's own encoding (default `kTwosComplement`), so a
+mixed surface — quadrature GPIO on some controls, two's-complement on others — states it per
+control rather than assuming one encoding for the whole surface. The device must be in
+relative mode first: an absolute-mode encoder reads every detent as +1 under a
+two's-complement decode.
 
 A prototype is a `ControlMap` table and nothing else. Profiles may be **supersets** — the
 X-Touch's ringed encoder bank exceeds $E$, and the surplus is simply unmapped, which is what
@@ -801,7 +861,7 @@ Resolution by mode, for a column encoder $n$ in group $g$:
 ### Route creation
 
 ```cpp
-bool InteractionCreateRoute(std::uint8_t part, ModSourceId src, ParamId dst, float amount);
+bool InteractionCreateRoute(std::uint8_t part, ModSourceId src, ParamRef dst, float amount);
 ```
 
 - Finds the existing route matching `(part, src, dst)` and updates its amount, or allocates
@@ -811,20 +871,28 @@ bool InteractionCreateRoute(std::uint8_t part, ModSourceId src, ParamId dst, flo
 - Setting an amount to exactly zero does **not** free the slot: zero is a distinct, visible
   state ("present but silent"), and the split well renders it as such.
 
+`dst` is a full `ParamRef` — the instance comes from `ResolveBinding` and is never re-derived
+here, mirroring `Binding::param` (§7.7).
+
 ## 9. System Invariants
 
 1. **Input never draws, and never invalidates directly.** No code path from
    `InteractionOnInput` reaches a drawing primitive or writes `DynSlot::dirty`,
    `Panel::pending` or the damage list. The only output channels are the engine API and
    `MarkDirty`.
-2. **Every column resolves.** For every page and group, `n_cols <= geom::kColumns`, and every
-   entry in `cols[0..n_cols)` carries a valid operand for its `ColumnKind`, or is `kPending`.
+2. **Every column resolves.** `n_cols` is the page's *total* column count, which may exceed
+   `geom::kColumns` — that is what grouping exists for. `Column(page, group, col)` is total
+   over every `group < GroupCount(page)` and `col < geom::kColumns`, returning `kNone` past
+   the end of a partial final group. Every entry in `cols[0..n_cols)` carries a valid operand
+   for its `ColumnKind`, or is `kPending`.
 3. **Pane labels fit.** Every `PageDesc::label` is at most
    $\lfloor (\text{kPaneW} - \text{bracket} - 2\cdot\text{pad}) / \text{advance} \rfloor$
    characters. The give is the pane slack and the left margin, never the column pitch (study
    §4.4).
 4. **No latched mode without a physical indicator.** `kModView` and `kPerform` are latched and
    each drives an LED. `kModArm` is momentary. No mode is signalled by screen state alone.
+   *(Unimplemented: the mode-LED driving is not yet scheduled — deferred feedback work — so
+   until it lands the latched modes are signalled by screen state only.)*
 5. **At most one latched mode.** `kModView` and `kPerform` are mutually exclusive.
 6. **A part change alters values only.** `subject`, `group`, `item`, `focus_col` and `mode`
    are invariant across a part button press, so chrome is never re-interpreted.
@@ -870,9 +938,10 @@ directions over the controls it claims, and that every `Control` the page table 
 either mapped or explicitly absent. A prototype whose table forgets the group button should
 fail a test, not a session.
 
-**Golden images** — the existing `test_panel` hash and `test_mockup_chrome` continue to cover
-rendering. This component adds no drawing, so it adds no golden images; it adds *state* that
-the DYN hooks read, so the mockup tool gains canned `NavState` values.
+**Golden images** — the existing `test_panel` hash and the `mockup_pages --check` hashes
+continue to cover rendering; `test_mockup_chrome` was removed and its coverage folded into
+them. This component adds no drawing, so it adds no golden images; it adds *state* that the
+DYN hooks read, so the mockup tool gains canned `NavState` values.
 
 **Interaction cost instrumentation** — the simulator logs $S(\tau)$, page and modifier actions
 per task, separately from $A(\tau)$, total discrete actions, over a fixed task suite. $S(\tau)$
@@ -935,9 +1004,11 @@ is a property of the layout rather than of the encoder, so it validates $E$ with
 | `nostromo/panel.{h,cc}` | Existing — owns `spike::Damage`, `pending[]`, and `MarkDirty`; the sole invalidation entry point |
 | `spike/descriptor.h` | Existing — `DynSlot`, `DescriptorCtx` |
 | `engine/params.h` | `ParamDesc` gains `accel_max`, `zero_notch` (§7.8) |
-| `engine/engine.h` | Existing — `ParamRef` and the `ParamRef`-based `EngineSetParam`/`GetParam`/`SetRoute` (see `engine-parameter-surface_arch-design.md`) |
+| `engine/engine.h` | Existing — `ParamRef` and the `ParamRef`-based `EngineSetParam`/`GetParam`/`SetRoute`; new `EngineGetRoute` (§7.8) |
 | `tests/test_bindings.cc` | Exhaustive resolution and page-table validation |
 | `tests/test_gestures.cc` | Gesture recognition boundaries |
+| `tests/test_surface.cc` | ControlMap injectivity and encoder-decode round-trips |
+| `tests/test_interaction.cc` | End-to-end dispatch, MarkDirty discipline, OUT round-trip |
 
 ## 13. Open Questions
 

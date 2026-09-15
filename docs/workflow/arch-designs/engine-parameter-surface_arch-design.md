@@ -117,11 +117,16 @@ struct ParamDesc {
     const char *const *labels;    ///< discrete value labels; nullptr = continuous
     std::uint8_t n_labels;        ///< 0 = continuous
     CombinationClass comb;        ///< meaningful only when modulatable (defined by routing)
+    std::uint8_t accel_max;       ///< encoder acceleration cap: 1 = none, N = capped at Nx
+    bool zero_notch;              ///< require one extra detent to cross zero (bipolar amounts)
 };
 ```
 
 `CombinationClass` — the fold semantics of a modulatable destination — is defined by the routing
-arch-design; the parameter surface only carries the field.
+arch-design; the parameter surface only carries the field. `accel_max` and `zero_notch` are
+input-feel fields: they describe how a turn moves the parameter, not what the parameter is.
+They are imposed by the interaction layer (nostromo-interaction_arch-design.md §7.8) and
+carried here because feel is a per-parameter property, not an input-layer constant.
 
 ## 7. Contracts
 
