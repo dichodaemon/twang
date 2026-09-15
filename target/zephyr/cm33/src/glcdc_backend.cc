@@ -68,6 +68,12 @@ void TouchCallback(struct input_event *evt, void *user_data) {
   }
 }
 
+// Justified exception, not a pattern -- the touch state must outlive the
+// INPUT_CALLBACK_DEFINE registration: the input callback writes through the
+// pointer for the process lifetime, and the macro takes a pointer to static
+// storage (it stores &g_touch at registration time), so a namespace-scope
+// object is the only storage that survives. This is the one object the Zephyr
+// input callback imposes; it is not a template for general state.
 TouchState g_touch;
 // Single input device on the target: bind to the chosen touch panel.
 INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(DT_CHOSEN(zephyr_touch)), TouchCallback,

@@ -23,6 +23,10 @@ constexpr int kBlockBytes = kFramesPerBlock * 2 * sizeof(int16_t);  // 256 B
 /// In-flight DMA blocks; each is only 256 B, so a few is plenty.
 constexpr int kNumBlocks = 4;
 
+// Justified exception, not a pattern -- tx_slab is a Zephyr kernel memory slab:
+// K_MEM_SLAB_DEFINE expands to a kernel object that must have static storage
+// duration (it is registered with the kernel at build time, and the I2S driver
+// holds a pointer to it for the process lifetime).
 K_MEM_SLAB_DEFINE(tx_slab, WB_UP(kBlockBytes), kNumBlocks, 4);
 
 /// The audio engine's complete DSP state. Static storage in DTCM (fast,
