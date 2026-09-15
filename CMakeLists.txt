@@ -186,6 +186,10 @@ add_executable(test_panel tests/test_panel.cc)
 target_link_libraries(test_panel PRIVATE nostromo)
 add_test(NAME panel COMMAND test_panel)
 
+add_executable(test_panel_pages tests/test_panel_pages.cc)
+target_link_libraries(test_panel_pages PRIVATE nostromo)
+add_test(NAME panel_pages COMMAND test_panel_pages)
+
 add_executable(test_bindings tests/test_bindings.cc)
 target_link_libraries(test_bindings PRIVATE nostromo)
 add_test(NAME bindings COMMAND test_bindings)
