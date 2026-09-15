@@ -37,14 +37,6 @@ int FindXtouch(rt::midi::RtMidi *midi, unsigned int count) {
 // The X-Touch Compact speaks on MIDI channel 1 (status low nibble 0).
 constexpr std::uint8_t kChannel = 0;
 
-// CC number → mapping entry, or nullptr if the surface does not map it.
-const nostromo::ControlMap *FindControl(const nostromo::SurfaceProfile &surface,
-                                        std::uint8_t cc) {
-    for (std::uint8_t i = 0; i < surface.n_map; ++i)
-        if (surface.map[i].physical == cc) return &surface.map[i];
-    return nullptr;
-}
-
 // Monotonic milliseconds for InputEvent::t_ms (the gesture recognizer's clock).
 std::uint32_t NowMs() {
     using namespace std::chrono;

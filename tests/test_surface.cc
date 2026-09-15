@@ -66,6 +66,39 @@ int main() {
         }
     }
 
+    // 3. §11: an unmapped CC (a surplus control) produces no InputEvent — the
+    //    input driver skips it when FindControl returns nullptr.
+    {
+        const SurfaceProfile &sp = Surface();
+        Check(FindControl(sp, 10) != nullptr, "mapped encoder CC has a control");
+        Check(FindControl(sp, 50) != nullptr, "mapped MOD CC has a control");
+        Check(FindControl(sp, 1) == nullptr, "unmapped CC 1 has no control");
+        Check(FindControl(sp, 15) == nullptr, "unmapped CC 15 has no control");
+        Check(FindControl(sp, 127) == nullptr, "unmapped CC 127 has no control");
+
+        // A surface wider than the column count: only the first kColumns
+        // encoders are mapped; the surplus (CCs 15-17) is unmapped.
+        const ControlMap kSurplusMap[] = {
+            {10, Enc(0), true}, {11, Enc(1), true}, {12, Enc(2), true},
+            {13, Enc(3), true}, {14, Enc(4), true},
+        };
+        const SurfaceProfile kSurplus = {
+            "surplus-8", kSurplusMap,
+            static_cast<std::uint8_t>(sizeof(kSurplusMap) /
+                                      sizeof(kSurplusMap[0])),
+            8,   // n_encoders: three beyond kColumns
+            13, false,
+        };
+        Check(kSurplus.n_encoders > geom::kColumns,
+              "surplus surface has more encoders than columns");
+        Check(FindControl(kSurplus, 15) == nullptr,
+              "surplus encoder CC 15 is unmapped");
+        Check(FindControl(kSurplus, 16) == nullptr,
+              "surplus encoder CC 16 is unmapped");
+        Check(FindControl(kSurplus, 17) == nullptr,
+              "surplus encoder CC 17 is unmapped");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

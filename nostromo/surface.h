@@ -55,6 +55,17 @@ struct SurfaceProfile {
   bool              has_rings;   ///< LED rings on the parameter encoders
 };
 
+/// The mapping entry for a physical address, or nullptr if the surface does
+/// not map it. An unmapped CC — a surplus encoder past `kColumns`, a fader, or
+/// an unassigned control — resolves to no logical control, so the input driver
+/// skips it and it produces no InputEvent (§11).
+inline const ControlMap *FindControl(const SurfaceProfile &surface,
+                                     std::uint16_t physical) {
+  for (std::uint8_t i = 0; i < surface.n_map; ++i)
+    if (surface.map[i].physical == physical) return &surface.map[i];
+  return nullptr;
+}
+
 /// The shipped X-Touch Compact control map (the only prototype). Header-
 /// declared so the table stays visible/configurable — swapping prototypes
 /// swaps this table, not code. Encoders (10-14) and nav rotaries (18, 20) send
