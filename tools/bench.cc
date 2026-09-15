@@ -12,8 +12,6 @@
 
 using namespace engine;
 
-static volatile float g_sink;  // defeats dead-code elimination
-
 static double NowNs() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -59,6 +57,7 @@ static inline float TanhRational(float x) {
 // 4 biquad ticks per input sample). Emitted by --breakdown.
 static void RunAaVariants(int seconds) {
     const int frames = seconds * kSampleRate;
+    volatile float sink = 0.0f;  // defeats dead-code elimination
     constexpr float kLn2 = 0.6931471805599453f;
     // Cheap varying input (sawtooth in [-1,1]) so the ADAA quotient path is
     // exercised (dx ~ 0.0078 > epsilon).
@@ -68,14 +67,14 @@ static void RunAaVariants(int seconds) {
 
     /* plain tanh (rational approximation) */
     double t0 = NowNs();
-    for (int i = 0; i < frames; ++i) g_sink += TanhRational(Input(i));
+    for (int i = 0; i < frames; ++i) sink += TanhRational(Input(i));
     double t1 = NowNs();
     const double plain_ns = (t1 - t0) / frames;
 
     /* ADAA, 1D F-table (ShaperProcess) */
     Voice v{};
     t0 = NowNs();
-    for (int i = 0; i < frames; ++i) g_sink += ShaperProcess(&v, Input(i));
+    for (int i = 0; i < frames; ++i) sink += ShaperProcess(&v, Input(i));
     t1 = NowNs();
     const double table_ns = (t1 - t0) / frames;
 
@@ -87,7 +86,7 @@ static void RunAaVariants(int seconds) {
         const float dx = x - xp;
         const float ax = ::fabsf(x);
         const float fx = ax + ::log1pf(::expf(-2.0f * ax)) - kLn2;
-        g_sink += (::fabsf(dx) < 1e-3f) ? TanhRational((x + xp) * 0.5f)
+        sink += (::fabsf(dx) < 1e-3f) ? TanhRational((x + xp) * 0.5f)
                                         : (fx - Fp) / dx;
         xp = x;
         Fp = fx;
@@ -102,7 +101,7 @@ static void RunAaVariants(int seconds) {
         const float x = Input(i);
         const float y0 = BiquadTick(&up, x);
         const float y1 = BiquadTick(&up, 0.0f);
-        g_sink += BiquadTick(&down, TanhRational(y0)) + BiquadTick(&down, TanhRational(y1));
+        sink += BiquadTick(&down, TanhRational(y0)) + BiquadTick(&down, TanhRational(y1));
     }
     t1 = NowNs();
     const double oversamp_ns = (t1 - t0) / frames;
@@ -142,6 +141,7 @@ static void RunBreakdown(EngineControl &control, EngineAudio &audio,
                          int seconds) {
     int frames = seconds * kSampleRate;
     std::vector<float> buf(frames);
+    volatile float sink = 0.0f;  // defeats dead-code elimination
 
     /* standalone voice for isolated stage timing */
     Voice sv = {};
@@ -149,15 +149,15 @@ static void RunBreakdown(EngineControl &control, EngineAudio &audio,
     DspSvfSetFq(&sv, 2000.0f, 2.0f);
 
     for (int i = 0; i < kBlockSize; ++i) {
-        g_sink += DspOscTick(&sv);
-        g_sink += DspSvfTick(&sv, 0.5f);
+        sink += DspOscTick(&sv);
+        sink += DspSvfTick(&sv, 0.5f);
     }
-    g_sink = 0.0f;
+    sink = 0.0f;
 
     /* oscillator only */
     sv.phase = 0.0f;
     double t0 = NowNs();
-    for (int i = 0; i < frames; ++i) g_sink += DspOscTick(&sv);
+    for (int i = 0; i < frames; ++i) sink += DspOscTick(&sv);
     double t1 = NowNs();
     double osc_ns = (t1 - t0) / frames;
 
@@ -167,7 +167,7 @@ static void RunBreakdown(EngineControl &control, EngineAudio &audio,
     sv.ic2eq = 0.0f;
     t0 = NowNs();
     for (int i = 0; i < frames; ++i)
-        g_sink += DspSvfTick(&sv, DspOscTick(&sv));
+        sink += DspSvfTick(&sv, DspOscTick(&sv));
     t1 = NowNs();
     double osf_ns = (t1 - t0) / frames;
 
@@ -180,7 +180,7 @@ static void RunBreakdown(EngineControl &control, EngineAudio &audio,
     t0 = NowNs();
     for (int i = 0; i < frames; ++i) {
         const float lp = DspSvfTick(&sv, DspOscTick(&sv));
-        g_sink += ShaperProcess(&sv, lp * 10.0f);
+        sink += ShaperProcess(&sv, lp * 10.0f);
     }
     t1 = NowNs();
     double osfs_ns = (t1 - t0) / frames;
