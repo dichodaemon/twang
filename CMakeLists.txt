@@ -107,16 +107,8 @@ target_link_libraries(bench PRIVATE engine)
 add_executable(panel_shot tools/panel_shot.cc)
 target_link_libraries(panel_shot PRIVATE nostromo)
 
-# ---- Panel mockups: all four screens as a design surface ----
-# Renders through the real primitives and atlases, so geometry and legibility
-# match the panel. `--check` verifies the golden hashes.
-add_executable(mockup_screens tools/mockup_screens.cc)
-target_include_directories(mockup_screens PRIVATE tools ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
-target_link_libraries(mockup_screens PRIVATE nostromo)
-
 # ---- Interaction-model pages: the design surface for the new layout ----
-# Draws through nostromo/geom.h only; no literal coordinates. Its hashes are
-# separate from mockup_screens' so the superseded screens keep their own.
+# Draws through nostromo/geom.h only; no literal coordinates.
 add_executable(mockup_pages tools/mockup_pages.cc)
 target_include_directories(mockup_pages PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
 target_link_libraries(mockup_pages PRIVATE spike)
@@ -126,7 +118,6 @@ enable_testing()
 add_executable(test_engine tests/test_engine.cc)
 target_link_libraries(test_engine PRIVATE engine)
 add_test(NAME engine_render COMMAND test_engine)
-add_test(NAME mockups COMMAND mockup_screens --check)
 add_test(NAME mockup_pages COMMAND mockup_pages --check)
 
 add_executable(test_shaper tests/test_shaper.cc)

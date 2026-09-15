@@ -9,8 +9,7 @@
 //
 // The encoder mirrors the old hand-written chrome arithmetic exactly (same
 // integer expressions, same draw order), so the interpreter output is
-// byte-identical to what nostromo/panel.cc and tools/mockup_screens.cc used
-// to draw.
+// byte-identical to what nostromo/panel.cc used to draw.
 
 #include "screens.h"
 
@@ -39,7 +38,7 @@ constexpr int kFrameW = 1024, kFrameH = 600;
 constexpr int kTitleX = 16, kTitleY = 16, kTitleW = 992, kTitleH = 26;
 constexpr int kNavY = 512;
 
-// Matrix / patch / save shared block geometry (mirrors mockup_screens.cc).
+// Matrix / patch / save shared block geometry.
 constexpr int kBlockY = 88, kBlockH = 388;
 constexpr int kLeftX = 16, kLeftW = 598;
 constexpr int kRightX = 652, kRightW = 356;
