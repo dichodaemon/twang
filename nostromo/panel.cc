@@ -915,6 +915,62 @@ static void DrawWellCaps(FrameBuffer &fb, int x, int y) {
   DrawVLine(fb, x + geom::kColW - kHeadEnd - 1, y, geom::kWellH, kMid);
 }
 
+// Folded [lo, hi] extent of a modulatable destination, in normalized [0,1]
+// (clamped), folding each inbound route at its min and max excursion through
+// the shared engine::Fold. Returns false (no band) when nothing modulates the
+// destination. Exponential destinations fold in semitones (log units), then
+// map ±24 semitones back onto [0,1]; additive/multiplicative fold directly.
+static bool ModulationExtent(engine::EngineControl &control, int part,
+                             engine::ParamRef dst, float *lo, float *hi) {
+  const engine::ParamDesc &desc =
+      engine::k_params[static_cast<std::size_t>(dst.id)];
+  const bool expo = desc.comb == engine::CombinationClass::kExponential;
+  const float base = control.GetParam(part, dst);
+  float lo_v = expo ? (base - 0.5f) * 48.0f : base;  // semitones vs normalized
+  float hi_v = lo_v;
+  bool any = false;
+  engine::ModRoute r;
+  for (int s = 0; s < engine::kModSlots; ++s) {
+    if (!control.GetRoute(part, s, &r)) continue;
+    if (r.dst.id != dst.id || r.dst.instance != dst.instance) continue;
+    if (r.source == engine::ModSourceId::kNone ||
+        r.source == engine::ModSourceId::kNote) continue;  // kNote is separate
+    const bool bip = engine::kSourceBipolar[static_cast<std::size_t>(r.source)];
+    lo_v = engine::Fold(desc.comb, lo_v, r.amount, bip ? -1.0f : 0.0f, bip);
+    hi_v = engine::Fold(desc.comb, hi_v, r.amount, 1.0f, bip);
+    any = true;
+  }
+  if (!any) return false;
+  *lo = expo ? lo_v / 48.0f + 0.5f : lo_v;
+  *hi = expo ? hi_v / 48.0f + 0.5f : hi_v;
+  if (*lo < 0.0f) *lo = 0.0f;
+  if (*lo > 1.0f) *lo = 1.0f;
+  if (*hi < 0.0f) *hi = 0.0f;
+  if (*hi > 1.0f) *hi = 1.0f;
+  return true;
+}
+
+// Draw the modulation band under the well's fill (call before DrawWell). The
+// band maps the folded [lo, hi] normalized extent onto the well's track: the
+// full track for a unipolar well, centred on the split-well gap for a bipolar.
+static void DrawModBand(FrameBuffer &fb, int x, int y, float lo, float hi,
+                        bool bipolar) {
+  constexpr int kHeadEnd = 8, kWellGap = 6;
+  const int kBarW = geom::kColW - kHeadEnd;
+  int a, b;
+  if (bipolar) {
+    const int segW = (kBarW - kWellGap) / 2;
+    const int mid = x + segW;
+    a = mid + static_cast<int>(std::lround((lo - 0.5f) * 2.0f * segW));
+    b = mid + static_cast<int>(std::lround((hi - 0.5f) * 2.0f * segW));
+  } else {
+    a = x + static_cast<int>(std::lround(lo * static_cast<float>(kBarW)));
+    b = x + static_cast<int>(std::lround(hi * static_cast<float>(kBarW)));
+  }
+  if (b < a) { const int t = a; a = b; b = t; }
+  if (b > a) FillRect(fb, a, y, b - a + 1, geom::kWellH, kMid);
+}
+
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
                  engine::EngineControl &control) {
   for (int c = 0; c < geom::kColumns; ++c) {
@@ -969,6 +1025,12 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
       const float norm = control.GetParam(nav.part, engine::ParamRef{0, cs.param});
       engine::ParamFormatValue(&desc, norm, val, sizeof(val));
       TextLeft(fb, val, x + 6, geom::kValueY + 1, kPrimaryFont, kMid);
+      if (desc.modulatable) {
+        float lo, hi;
+        if (ModulationExtent(control, nav.part, engine::ParamRef{0, cs.param},
+                             &lo, &hi))
+          DrawModBand(fb, x, geom::kWellY, lo, hi, desc.zero_notch);
+      }
       DrawWell(fb, x, geom::kWellY, norm, desc.zero_notch);
     }
     // kPending / kRouteField / kViewCtl: header only, empty value row.
