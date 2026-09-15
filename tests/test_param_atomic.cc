@@ -24,7 +24,7 @@ int main() {
     // Section 1: threaded stress — a multi-field batch is atomic.
     {
         ParamBlock block;
-        block.Reset(g_params);
+        block.Reset(k_params);
         block.Set(0, ParamRef{0, ParamId::kCutoff}, 0.5f);
         block.Set(0, ParamRef{0, ParamId::kResonance}, 0.5f);
         block.Flush();  // matched baseline before the reader starts

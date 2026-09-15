@@ -76,7 +76,7 @@ Gesture Recognize(const InputEvent &ev, PressState &st);
 
 /// A subject is an entry in the navigation pane. Enum order is pane order —
 /// NAV1 walks index order — which is arch-design §7.6's order, not §7.3's
-/// (the two disagree; §7.6 wins because g_pages is indexed by SubjectId).
+/// (the two disagree; §7.6 wins because k_pages is indexed by SubjectId).
 enum class SubjectId : std::uint8_t {
   kPart = 0,     ///< part-level settings
   kOsc1, kOsc2, kOsc3, kOsc4,

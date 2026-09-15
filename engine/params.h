@@ -39,7 +39,7 @@ struct ParamDesc {
 };
 
 /// The single source of truth for the parameter surface.
-extern const ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)];
+extern const ParamDesc k_params[static_cast<std::size_t>(ParamId::kCount)];
 
 /// @brief Number of parameters.
 /// @return The parameter count.

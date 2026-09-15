@@ -28,7 +28,7 @@ static void Check(bool ok, const char *msg) {
 template <int E>
 static void SweepE() {
     for (int s = 0; s < static_cast<int>(SubjectId::kCount); ++s) {
-        const PageDesc &p = g_pages[s];
+        const PageDesc &p = k_pages[s];
         const int gc = (p.n_cols + E - 1) / E;
         Check(GroupCount<E>(p) == gc, "GroupCount == ceil(n/E)");
         for (int g = 0; g < gc; ++g) {
@@ -62,7 +62,7 @@ int main() {
     //    Every control also resolves without out-of-bounds access.
     {
         for (int s = 0; s < static_cast<int>(SubjectId::kCount); ++s) {
-            const PageDesc &p = g_pages[s];
+            const PageDesc &p = k_pages[s];
             NavState nav{};
             nav.subject = static_cast<SubjectId>(s);
             nav.group = 0;

@@ -91,10 +91,10 @@ void UpdateFilterCoeffs(Voice *v, const Part *p, float cutoff_norm_eff,
     // Nyquist (fs/2): beyond it tan(π·fc/fs) turns negative and destabilizes
     // the SVF (the envelope-held filter would produce NaN).
     float fc = ParamNormToDisp(
-                   &g_params[static_cast<std::size_t>(ParamId::kCutoff)],
+                   &k_params[static_cast<std::size_t>(ParamId::kCutoff)],
                    cutoff_norm_eff) *
                std::exp2f(key_follow_factor);
-    const float fc_max = g_params[static_cast<std::size_t>(ParamId::kCutoff)].disp_max;
+    const float fc_max = k_params[static_cast<std::size_t>(ParamId::kCutoff)].disp_max;
     if (fc > fc_max) fc = fc_max;
     DspSvfSetFq(v, fc, q);
 }
@@ -376,7 +376,7 @@ void RenderBlock(float *out, int frames) {
                 const float contrib = r.amount * src;
 
                 // Destination -> accumulator. The fold operator is read from
-                // the destination's combination class so g_params stays the
+                // the destination's combination class so k_params stays the
                 // single source of truth for how a destination combines
                 // (arch-design §5.3); the switch only selects which accumulator
                 // a destination folds into.
@@ -389,7 +389,7 @@ void RenderBlock(float *out, int frames) {
                 default:                    continue;  // deferred destination
                 }
 
-                switch (g_params[static_cast<std::size_t>(r.dst.id)].comb) {
+                switch (k_params[static_cast<std::size_t>(r.dst.id)].comb) {
                 case CombinationClass::kMultiplicative: {
                     // A unipolar source attenuates (x(1 + amount*(src-1))), a
                     // bipolar source tremolos around the base (x(1 + amount*src)).
@@ -524,7 +524,7 @@ void EngineInit() {
     Shared().meter.store(0.0f, std::memory_order_relaxed);
     g_alloc.Reset();
     g_events.Reset();
-    g_param_block.Reset(g_params);
+    g_param_block.Reset(k_params);
 
     // Pre-populate the 5 default routes (arch-design §5.4). Slots 0-2 absorb
     // today's hardcoded modulation (velocity->amp, env0->amp, env1->cutoff);
@@ -574,7 +574,7 @@ void EngineSetParamDisp(int part, ParamRef ref, float disp) {
     if (part < 0 || part >= kNumParts) return;
     g_param_block.Set(
         part, ref,
-        ParamDispToNorm(&g_params[static_cast<std::size_t>(ref.id)], disp));
+        ParamDispToNorm(&k_params[static_cast<std::size_t>(ref.id)], disp));
     if (!g_batching) g_param_block.Flush();
 }
 
@@ -590,7 +590,7 @@ bool EngineSetRoute(int part, int slot, ModSourceId src, ParamRef dst,
     // dst must name a modulatable parameter. Named fields (kKeyFollowDepth),
     // performance inputs (kPitchBend), and kCount are not destinations; reject
     // them so a stored route can never silently do nothing.
-    if (!g_params[static_cast<std::size_t>(dst.id)].modulatable) return false;
+    if (!k_params[static_cast<std::size_t>(dst.id)].modulatable) return false;
     g_param_block.SetRoute(part, slot, src, dst, amount);
     if (!g_batching) g_param_block.Flush();
     return true;

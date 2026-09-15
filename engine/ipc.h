@@ -124,7 +124,7 @@ class ParamBlock {
     void Commit(Part *parts);
 
     /// @brief Reset both buffers to defaults (single-threaded init only).
-    /// @param table Parameter descriptor table (g_params).
+    /// @param table Parameter descriptor table (k_params).
     void Reset(const ParamDesc *table);
 
   private:

@@ -44,7 +44,7 @@ bool g_arm_used = false;
 bool g_mod_from_view = false;  // MOD was in kModView at kDown (toggle target)
 
 const PageDesc &PageOf(SubjectId s) {
-  return g_pages[static_cast<int>(s)];
+  return k_pages[static_cast<int>(s)];
 }
 
 float Clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
@@ -117,7 +117,7 @@ void Dispatcher(const InputEvent &ev, Gesture g, const Binding &b) {
     case BindKind::kParam: {
       if (g == Gesture::kTurn || g == Gesture::kHoldTurn) {
         const engine::ParamDesc &desc =
-            engine::g_params[static_cast<std::size_t>(b.param.id)];
+            engine::k_params[static_cast<std::size_t>(b.param.id)];
         const float rate = TurnRate(ev.control, ev.detents, ev.t_ms);
         const float delta =
             ParamDelta(desc, ev.detents, rate, g == Gesture::kHoldTurn);
@@ -133,7 +133,7 @@ void Dispatcher(const InputEvent &ev, Gesture g, const Binding &b) {
       } else if (g == Gesture::kPressLong) {
         // Revert to the default exactly once, no intermediate write.
         const engine::ParamDesc &desc =
-            engine::g_params[static_cast<std::size_t>(b.param.id)];
+            engine::k_params[static_cast<std::size_t>(b.param.id)];
         engine::EngineSetParam(g_nav.part, b.param, desc.def);
         MarkPage();
       }

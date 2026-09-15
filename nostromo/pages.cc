@@ -150,7 +150,7 @@ constexpr ColumnSpec kColsConf[] = {
 
 }  // namespace
 
-const PageDesc g_pages[static_cast<int>(SubjectId::kCount)] = {
+const PageDesc k_pages[static_cast<int>(SubjectId::kCount)] = {
     [static_cast<int>(SubjectId::kPart)] =
         {SubjectId::kPart, "PART", kColsPart, ColCount(kColsPart),
          ItemAxis::kNone, -1},
@@ -222,7 +222,7 @@ Binding ResolveBinding(const NavState &nav, Control c) {
   if (c >= Control::kEnc0 && c <= Control::kEncLast) {
     const int n = static_cast<int>(c) - static_cast<int>(Control::kEnc0);
     b.column = static_cast<std::int8_t>(n);
-    const PageDesc &page = g_pages[static_cast<int>(nav.subject)];
+    const PageDesc &page = k_pages[static_cast<int>(nav.subject)];
     const ColumnSpec col = Column<>(page, nav.group, n);
 
     if (nav.mode == ViewMode::kPerform) return b;  // reserved
@@ -274,7 +274,7 @@ Binding ResolveBinding(const NavState &nav, Control c) {
         b.kind = BindKind::kNavItem;
         break;
       }
-      const PageDesc &page = g_pages[static_cast<int>(nav.subject)];
+      const PageDesc &page = k_pages[static_cast<int>(nav.subject)];
       b.kind = (page.item_axis == ItemAxis::kNone) ? BindKind::kNone
                                                    : BindKind::kNavItem;
       break;

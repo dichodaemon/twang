@@ -24,7 +24,7 @@ int main() {
 
     for (int i = 0; i < static_cast<int>(ParamId::kCount); ++i) {
         Check(ParamName(static_cast<ParamId>(i))[0] != '\0', "name non-empty");
-        Check(g_params[i].def >= 0.0f && g_params[i].def <= 1.0f,
+        Check(k_params[i].def >= 0.0f && k_params[i].def <= 1.0f,
               "default in [0,1]");
     }
 
@@ -67,39 +67,39 @@ int main() {
     Check(buf[0] != '\0', "ParamFormat non-empty");
 
     /* phase-1 matrix params: combination class + default */
-    Check(g_params[static_cast<std::size_t>(ParamId::kAmp)].comb ==
+    Check(k_params[static_cast<std::size_t>(ParamId::kAmp)].comb ==
               CombinationClass::kMultiplicative,
           "amp class multiplicative");
-    Check(g_params[static_cast<std::size_t>(ParamId::kAmp)].def == 1.0f,
+    Check(k_params[static_cast<std::size_t>(ParamId::kAmp)].def == 1.0f,
           "amp def 1.0 (pure level; headroom on the bus)");
-    Check(g_params[static_cast<std::size_t>(ParamId::kDrive)].comb ==
+    Check(k_params[static_cast<std::size_t>(ParamId::kDrive)].comb ==
               CombinationClass::kAdditive,
           "drive class additive");
-    Check(g_params[static_cast<std::size_t>(ParamId::kDrive)].def == 0.0f,
+    Check(k_params[static_cast<std::size_t>(ParamId::kDrive)].def == 0.0f,
           "drive def 0");
-    Check(g_params[static_cast<std::size_t>(ParamId::kDrive)].base ==
+    Check(k_params[static_cast<std::size_t>(ParamId::kDrive)].base ==
               offsetof(Part, params) + 9 * sizeof(float),
           "drive base == params index 9");
-    Check(g_params[static_cast<std::size_t>(ParamId::kDrive)].stride == 0,
+    Check(k_params[static_cast<std::size_t>(ParamId::kDrive)].stride == 0,
           "drive stride 0 (single-instance)");
-    Check(g_params[static_cast<std::size_t>(ParamId::kDrive)].modulatable,
+    Check(k_params[static_cast<std::size_t>(ParamId::kDrive)].modulatable,
           "drive is modulatable");
-    Check(!g_params[static_cast<std::size_t>(ParamId::kResonance)].modulatable,
+    Check(!k_params[static_cast<std::size_t>(ParamId::kResonance)].modulatable,
           "resonance is not yet modulatable");
-    Check(g_params[static_cast<std::size_t>(ParamId::kPitchCoarse)].comb ==
+    Check(k_params[static_cast<std::size_t>(ParamId::kPitchCoarse)].comb ==
               CombinationClass::kExponential,
           "pitch_coarse class exponential");
-    Check(g_params[static_cast<std::size_t>(ParamId::kPitchCoarse)].def == 0.5f,
+    Check(k_params[static_cast<std::size_t>(ParamId::kPitchCoarse)].def == 0.5f,
           "pitch_coarse def 0.5");
-    Check(g_params[static_cast<std::size_t>(ParamId::kPitchBend)].comb ==
+    Check(k_params[static_cast<std::size_t>(ParamId::kPitchBend)].comb ==
               CombinationClass::kAdditive,
           "pitchbend class additive");
-    Check(g_params[static_cast<std::size_t>(ParamId::kPitchBend)].def == 0.5f,
+    Check(k_params[static_cast<std::size_t>(ParamId::kPitchBend)].def == 0.5f,
           "pitchbend def 0.5");
-    Check(g_params[static_cast<std::size_t>(ParamId::kKeyFollowDepth)].comb ==
+    Check(k_params[static_cast<std::size_t>(ParamId::kKeyFollowDepth)].comb ==
               CombinationClass::kAdditive,
           "key_follow class additive");
-    Check(g_params[static_cast<std::size_t>(ParamId::kKeyFollowDepth)].def ==
+    Check(k_params[static_cast<std::size_t>(ParamId::kKeyFollowDepth)].def ==
               0.5f,
           "key_follow def 0.5");
 
@@ -107,8 +107,8 @@ int main() {
     // reinterpret_cast the byte offset to a float*. A misaligned offset compiles
     // and misbehaves at runtime, so catch it here over the whole table.
     for (int i = 0; i < ParamCount(); ++i) {
-        Check(g_params[i].base % alignof(float) == 0, "base float-aligned");
-        Check(g_params[i].stride % alignof(float) == 0, "stride float-aligned");
+        Check(k_params[i].base % alignof(float) == 0, "base float-aligned");
+        Check(k_params[i].stride % alignof(float) == 0, "stride float-aligned");
     }
 
     // Discrete parameters render their label, not a number, in equal thirds.

@@ -5,7 +5,7 @@
 
 namespace engine {
 
-constexpr ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)] = {
+constexpr ParamDesc k_params[static_cast<std::size_t>(ParamId::kCount)] = {
     [static_cast<std::size_t>(ParamId::kCutoff)] =
         { "cutoff", "Hz", 20.0f, 20000.0f, 1.0f, ParamCurve::kExponential,
           static_cast<std::uint16_t>(offsetof(Part, params) + 0 * sizeof(float)), 0, true,
@@ -66,11 +66,11 @@ constexpr ParamDesc g_params[static_cast<std::size_t>(ParamId::kCount)] = {
 int ParamCount() { return static_cast<int>(ParamId::kCount); }
 
 const char *ParamName(ParamId id) {
-    return g_params[static_cast<std::size_t>(id)].name;
+    return k_params[static_cast<std::size_t>(id)].name;
 }
 
 const char *ParamUnit(ParamId id) {
-    return g_params[static_cast<std::size_t>(id)].unit;
+    return k_params[static_cast<std::size_t>(id)].unit;
 }
 
 // Exponential curve from zero (disp_min == 0): 0 at norm 0, disp_max at
@@ -98,7 +98,7 @@ float ParamDispToNorm(const ParamDesc *p, float disp) {
 }
 
 float ParamGet(const Part *p, ParamRef ref) {
-    const ParamDesc &desc = g_params[static_cast<std::size_t>(ref.id)];
+    const ParamDesc &desc = k_params[static_cast<std::size_t>(ref.id)];
     const auto *bytes = reinterpret_cast<const std::byte *>(p);
     return *reinterpret_cast<const float *>(
         bytes + desc.base + ref.instance * desc.stride);
@@ -109,20 +109,20 @@ void ParamSet(Part *p, ParamRef ref, float norm) {
     // parameter can never poison the voice (e.g. filter state).
     if (!(norm >= 0.0f)) norm = 0.0f;
     else if (norm > 1.0f) norm = 1.0f;
-    const ParamDesc &desc = g_params[static_cast<std::size_t>(ref.id)];
+    const ParamDesc &desc = k_params[static_cast<std::size_t>(ref.id)];
     auto *bytes = reinterpret_cast<std::byte *>(p);
     *reinterpret_cast<float *>(bytes + desc.base + ref.instance * desc.stride) =
         norm;
 }
 
 float ParamGetDisp(const Part *p, ParamRef ref) {
-    return ParamNormToDisp(&g_params[static_cast<std::size_t>(ref.id)],
+    return ParamNormToDisp(&k_params[static_cast<std::size_t>(ref.id)],
                            ParamGet(p, ref));
 }
 
 void ParamSetDisp(Part *p, ParamRef ref, float disp) {
     ParamSet(p, ref,
-             ParamDispToNorm(&g_params[static_cast<std::size_t>(ref.id)], disp));
+             ParamDispToNorm(&k_params[static_cast<std::size_t>(ref.id)], disp));
 }
 
 int ParamFormatValue(const ParamDesc *desc, float norm, char *buf,
@@ -147,7 +147,7 @@ int ParamFormatValue(const ParamDesc *desc, float norm, char *buf,
 }
 
 int ParamFormat(const Part *p, ParamRef ref, char *buf, std::size_t n) {
-    const ParamDesc &desc = g_params[static_cast<std::size_t>(ref.id)];
+    const ParamDesc &desc = k_params[static_cast<std::size_t>(ref.id)];
     return ParamFormatValue(&desc, ParamGet(p, ref), buf, n);
 }
 

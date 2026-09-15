@@ -20,10 +20,10 @@ int main() {
     Part parts[kNumParts] = {};
     Part &p = parts[0];  // Commit writes all kNumParts; read the part under test
 
-    block.Reset(g_params);
+    block.Reset(k_params);
     block.Commit(parts);
     Check(std::fabs(ParamGet(&p, ParamRef{0, ParamId::kCutoff}) -
-                    g_params[static_cast<std::size_t>(ParamId::kCutoff)].def) <
+                    k_params[static_cast<std::size_t>(ParamId::kCutoff)].def) <
               1e-6f,
           "default cutoff committed");
 

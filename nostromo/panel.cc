@@ -57,7 +57,7 @@ constexpr std::uint16_t kEmpty = 0xFFFF;
 
 struct Panel {
   // Cached engine state + transients (control thread). The parameter defaults
-  // mirror engine/params.cc's g_params so the panel renders the engine's
+  // mirror engine/params.cc's k_params so the panel renders the engine's
   // initial state before any input (the per-frame poll then keeps them in
   // sync).
   float freq = 440.0f;
@@ -157,12 +157,12 @@ float Clamp01(float v) {
 
 float NormToHz(float n) {
   return engine::ParamNormToDisp(
-      &engine::g_params[static_cast<int>(engine::ParamId::kCutoff)], n);
+      &engine::k_params[static_cast<int>(engine::ParamId::kCutoff)], n);
 }
 
 float HzToNorm(float h) {
   return engine::ParamDispToNorm(
-      &engine::g_params[static_cast<int>(engine::ParamId::kCutoff)], h);
+      &engine::k_params[static_cast<int>(engine::ParamId::kCutoff)], h);
 }
 
 float QOf(float res) { return 0.5f + res * res * 20.0f; }
@@ -400,11 +400,11 @@ EnvLayout EnvLayoutOf(int w, int h, const Panel &p) {
 // Real envelope level, mirroring the engine (linear attack/decay, exp release).
 float EnvLevel(std::uint32_t now, const Panel &p) {
   const float attack_s = engine::ParamNormToDisp(
-      &engine::g_params[static_cast<int>(engine::ParamId::kAttack)], p.attack);
+      &engine::k_params[static_cast<int>(engine::ParamId::kAttack)], p.attack);
   const float decay_s = engine::ParamNormToDisp(
-      &engine::g_params[static_cast<int>(engine::ParamId::kDecay)], p.decay);
+      &engine::k_params[static_cast<int>(engine::ParamId::kDecay)], p.decay);
   const float release_s = engine::ParamNormToDisp(
-      &engine::g_params[static_cast<int>(engine::ParamId::kRelease)], p.release);
+      &engine::k_params[static_cast<int>(engine::ParamId::kRelease)], p.release);
 
   if (!p.note_on) {
     if (release_s <= 0.0f) return 0.0f;
@@ -494,11 +494,11 @@ void DrawEnvPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   // Playhead.
   const std::uint32_t now = NowMs();
   const float attack_s = engine::ParamNormToDisp(
-      &engine::g_params[static_cast<int>(engine::ParamId::kAttack)], p.attack);
+      &engine::k_params[static_cast<int>(engine::ParamId::kAttack)], p.attack);
   const float decay_s = engine::ParamNormToDisp(
-      &engine::g_params[static_cast<int>(engine::ParamId::kDecay)], p.decay);
+      &engine::k_params[static_cast<int>(engine::ParamId::kDecay)], p.decay);
   const float release_s = engine::ParamNormToDisp(
-      &engine::g_params[static_cast<int>(engine::ParamId::kRelease)], p.release);
+      &engine::k_params[static_cast<int>(engine::ParamId::kRelease)], p.release);
 
   int px = -1, py = -1;
   if (p.note_on) {
@@ -703,7 +703,7 @@ void DrawOutPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
 // ---- readouts ----
 
 void FmtTime(float norm, engine::ParamId id, char *buf, int n) {
-  const float s = engine::ParamNormToDisp(&engine::g_params[static_cast<int>(id)], norm);
+  const float s = engine::ParamNormToDisp(&engine::k_params[static_cast<int>(id)], norm);
   if (s <= 0.0f) std::snprintf(buf, n, "0s");
   else if (s < 1.0f) std::snprintf(buf, n, "%.0fms", s * 1000.0f);
   else std::snprintf(buf, n, "%.2fs", s);
@@ -903,7 +903,7 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page) {
               geom::kColW - bw - 2 - 8, kDim);
     if (cs.kind == ColumnKind::kParam) {
       const engine::ParamDesc &desc =
-          engine::g_params[static_cast<std::size_t>(cs.param)];
+          engine::k_params[static_cast<std::size_t>(cs.param)];
       char val[16];
       const float norm = engine::EngineGetParam(
           nav.part, engine::ParamRef{0, cs.param});
@@ -979,7 +979,7 @@ const char *ModePrefix(ViewMode m) {
 
 void DrawEditChrome(FrameBuffer &fb) {
   const NavState &nav = InteractionNavState();
-  const PageDesc &page = g_pages[static_cast<int>(nav.subject)];
+  const PageDesc &page = k_pages[static_cast<int>(nav.subject)];
 
   // Title bar: part swatches, the screen name in full (with mode prefix), a
   // cut for the patch name, and the patch/group indicators (§7.1).
@@ -1077,7 +1077,7 @@ void MarkDirty(Panel *p, SlotIdx idx) {
 // four slots share one band; only the active page's plot may paint into it.
 int ActivePlotSlot() {
   const NavState &nav = InteractionNavState();
-  return g_pages[static_cast<int>(nav.subject)].dyn_slot;
+  return k_pages[static_cast<int>(nav.subject)].dyn_slot;
 }
 
 void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
