@@ -53,7 +53,7 @@ constexpr ColumnSpec kColsPart[] = {
 
 constexpr ColumnSpec kColsOsc[] = {
     {ColumnKind::kPending, "WAVE", {}},
-    {ColumnKind::kParam, "COARSE", {engine::ParamId::kPitchCoarse}},
+    {ColumnKind::kParam, nullptr, {engine::ParamId::kPitchCoarse}},
     {ColumnKind::kPending, "FINE", {}},
     {ColumnKind::kPending, "LEVEL", {}},
     {ColumnKind::kPending, "SHAPE", {}},
@@ -62,16 +62,16 @@ constexpr ColumnSpec kColsOsc[] = {
 };
 
 constexpr ColumnSpec kColsFilt[] = {
-    {ColumnKind::kParam, "CUTOFF", {engine::ParamId::kCutoff}},
-    {ColumnKind::kParam, "RESO", {engine::ParamId::kResonance}},
+    {ColumnKind::kParam, nullptr, {engine::ParamId::kCutoff}},
+    {ColumnKind::kParam, nullptr, {engine::ParamId::kResonance}},
     {ColumnKind::kPending, "ENVAMT", {}},
-    {ColumnKind::kParam, "DRIVE", {engine::ParamId::kDrive}},
-    {ColumnKind::kParam, "KEYTRK", {engine::ParamId::kKeyFollowDepth}},
+    {ColumnKind::kParam, nullptr, {engine::ParamId::kDrive}},
+    {ColumnKind::kParam, nullptr, {engine::ParamId::kKeyFollowDepth}},
     {ColumnKind::kPending, "MODE", {}},
 };
 
 constexpr ColumnSpec kColsAmp[] = {
-    {ColumnKind::kParam, "LEVEL", {engine::ParamId::kAmp}},
+    {ColumnKind::kParam, nullptr, {engine::ParamId::kAmp}},
     {ColumnKind::kPending, "PAN", {}},
     {ColumnKind::kPending, "VELO", {}},
     {ColumnKind::kPending, "SENDA", {}},
@@ -79,10 +79,10 @@ constexpr ColumnSpec kColsAmp[] = {
 };
 
 constexpr ColumnSpec kColsEnv[] = {
-    {ColumnKind::kParam, "A", {engine::ParamId::kAttack}},
-    {ColumnKind::kParam, "D", {engine::ParamId::kDecay}},
-    {ColumnKind::kParam, "S", {engine::ParamId::kSustain}},
-    {ColumnKind::kParam, "R", {engine::ParamId::kRelease}},
+    {ColumnKind::kParam, nullptr, {engine::ParamId::kAttack}},
+    {ColumnKind::kParam, nullptr, {engine::ParamId::kDecay}},
+    {ColumnKind::kParam, nullptr, {engine::ParamId::kSustain}},
+    {ColumnKind::kParam, nullptr, {engine::ParamId::kRelease}},
     {ColumnKind::kPending, "CURVE", {}},
     {ColumnKind::kPending, "VELO", {}},
 };
@@ -150,63 +150,63 @@ constexpr ColumnSpec kColsConf[] = {
 
 const PageDesc k_pages[static_cast<int>(SubjectId::kCount)] = {
     [static_cast<int>(SubjectId::kPart)] =
-        {SubjectId::kPart, "PART", kColsPart, ColCount(kColsPart),
+        {SubjectId::kPart, "PART", "PART", kColsPart, ColCount(kColsPart),
          ItemAxis::kNone, -1},
     [static_cast<int>(SubjectId::kOsc1)] =
-        {SubjectId::kOsc1, "OSC1", kColsOsc, ColCount(kColsOsc),
+        {SubjectId::kOsc1, "OSC1", "OSCILLATOR 1", kColsOsc, ColCount(kColsOsc),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotOsc)},
     [static_cast<int>(SubjectId::kOsc2)] =
-        {SubjectId::kOsc2, "OSC2", kColsOsc, ColCount(kColsOsc),
+        {SubjectId::kOsc2, "OSC2", "OSCILLATOR 2", kColsOsc, ColCount(kColsOsc),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotOsc)},
     [static_cast<int>(SubjectId::kOsc3)] =
-        {SubjectId::kOsc3, "OSC3", kColsOsc, ColCount(kColsOsc),
+        {SubjectId::kOsc3, "OSC3", "OSCILLATOR 3", kColsOsc, ColCount(kColsOsc),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotOsc)},
     [static_cast<int>(SubjectId::kOsc4)] =
-        {SubjectId::kOsc4, "OSC4", kColsOsc, ColCount(kColsOsc),
+        {SubjectId::kOsc4, "OSC4", "OSCILLATOR 4", kColsOsc, ColCount(kColsOsc),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotOsc)},
     [static_cast<int>(SubjectId::kFilt)] =
-        {SubjectId::kFilt, "FILT", kColsFilt, ColCount(kColsFilt),
+        {SubjectId::kFilt, "FILT", "FILTER", kColsFilt, ColCount(kColsFilt),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotFilter)},
     [static_cast<int>(SubjectId::kAmp)] =
-        {SubjectId::kAmp, "AMP", kColsAmp, ColCount(kColsAmp),
+        {SubjectId::kAmp, "AMP", "AMPLIFIER", kColsAmp, ColCount(kColsAmp),
          ItemAxis::kNone, -1},
     [static_cast<int>(SubjectId::kEnv1)] =
-        {SubjectId::kEnv1, "ENV1", kColsEnv, ColCount(kColsEnv),
+        {SubjectId::kEnv1, "ENV1", "ENVELOPE 1", kColsEnv, ColCount(kColsEnv),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotEnv)},
     [static_cast<int>(SubjectId::kEnv2)] =
-        {SubjectId::kEnv2, "ENV2", kColsEnv, ColCount(kColsEnv),
+        {SubjectId::kEnv2, "ENV2", "ENVELOPE 2", kColsEnv, ColCount(kColsEnv),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotEnv)},
     [static_cast<int>(SubjectId::kEnv3)] =
-        {SubjectId::kEnv3, "ENV3", kColsEnv, ColCount(kColsEnv),
+        {SubjectId::kEnv3, "ENV3", "ENVELOPE 3", kColsEnv, ColCount(kColsEnv),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotEnv)},
     [static_cast<int>(SubjectId::kLfo1)] =
-        {SubjectId::kLfo1, "LFO1", kColsLfo, ColCount(kColsLfo),
+        {SubjectId::kLfo1, "LFO1", "LFO 1", kColsLfo, ColCount(kColsLfo),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotEnv)},
     [static_cast<int>(SubjectId::kLfo2)] =
-        {SubjectId::kLfo2, "LFO2", kColsLfo, ColCount(kColsLfo),
+        {SubjectId::kLfo2, "LFO2", "LFO 2", kColsLfo, ColCount(kColsLfo),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotEnv)},
     [static_cast<int>(SubjectId::kLfo3)] =
-        {SubjectId::kLfo3, "LFO3", kColsLfo, ColCount(kColsLfo),
+        {SubjectId::kLfo3, "LFO3", "LFO 3", kColsLfo, ColCount(kColsLfo),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotEnv)},
     [static_cast<int>(SubjectId::kMod)] =
-        {SubjectId::kMod, "MOD", kColsMod, ColCount(kColsMod),
+        {SubjectId::kMod, "MOD", "MODULATION", kColsMod, ColCount(kColsMod),
          ItemAxis::kSlots, -1},
     [static_cast<int>(SubjectId::kOutScope)] =
-        {SubjectId::kOutScope, "SCOPE", kColsOutScope, ColCount(kColsOutScope),
+        {SubjectId::kOutScope, "SCOPE", "SCOPE", kColsOutScope, ColCount(kColsOutScope),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotOut)},
     [static_cast<int>(SubjectId::kOutCycle)] =
-        {SubjectId::kOutCycle, "CYCLE", kColsOutCycle, ColCount(kColsOutCycle),
+        {SubjectId::kOutCycle, "CYCLE", "CYCLE", kColsOutCycle, ColCount(kColsOutCycle),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotOut)},
     [static_cast<int>(SubjectId::kOutSpec)] =
-        {SubjectId::kOutSpec, "SPECTRUM", kColsOutSpec, ColCount(kColsOutSpec),
+        {SubjectId::kOutSpec, "SPECTRUM", "SPECTRUM", kColsOutSpec, ColCount(kColsOutSpec),
          ItemAxis::kNone, static_cast<std::int8_t>(kSlotOut)},
     [static_cast<int>(SubjectId::kFx)] =
-        {SubjectId::kFx, "FX", nullptr, 0, ItemAxis::kNone, -1},
+        {SubjectId::kFx, "FX", "EFFECTS", nullptr, 0, ItemAxis::kNone, -1},
     [static_cast<int>(SubjectId::kPatch)] =
-        {SubjectId::kPatch, "PATCH", kColsPatch, ColCount(kColsPatch),
+        {SubjectId::kPatch, "PATCH", "PATCH", kColsPatch, ColCount(kColsPatch),
          ItemAxis::kPatches, -1},
     [static_cast<int>(SubjectId::kConf)] =
-        {SubjectId::kConf, "CONF", kColsConf, ColCount(kColsConf),
+        {SubjectId::kConf, "CONF", "CONFIGURATION", kColsConf, ColCount(kColsConf),
          ItemAxis::kNone, -1},
 };
 

@@ -112,6 +112,7 @@ enum class ModSourceId : std::uint8_t {
     kModWheel, kAftertouch, kPitchBend, kExpression,  ///< per-part performance.
     kRandom,         ///< per-note latched random.
     kConstant,       ///< static 1.0.
+    kCount,          ///< Source count (not a source).
 };
 
 /// Polarity of each modulation source: true = bipolar (centered at 0, range
@@ -136,6 +137,32 @@ inline constexpr bool kSourceBipolar[] = {
     false,  // kExpression
     false,  // kRandom
     false,  // kConstant
+};
+
+/// Display names for a modulation source: `long_name` (full form) and
+/// `short_name` (routing token). Indexed by ModSourceId — must stay in sync
+/// with the enum order above (like kSourceBipolar).
+struct SourceDesc {
+    const char *long_name;
+    const char *short_name;
+};
+inline constexpr SourceDesc k_sources[] = {
+    {"", ""},                // kNone
+    {"VELOCITY", "VEL"},     // kVelocity
+    {"KEY", "KEY"},          // kNote
+    {"GATE", "GATE"},        // kGate
+    {"LFO 1", "LFO1"},       // kLfo0
+    {"LFO 2", "LFO2"},       // kLfo1
+    {"LFO 3", "LFO3"},       // kLfo2
+    {"ENVELOPE 1", "ENV1"},  // kEnv0
+    {"ENVELOPE 2", "ENV2"},  // kEnv1
+    {"ENVELOPE 3", "ENV3"},  // kEnv2
+    {"MOD WHEEL", "MODW"},   // kModWheel
+    {"AFTERTOUCH", "AT"},    // kAftertouch
+    {"PITCH BEND", "BEND"},  // kPitchBend
+    {"EXPRESSION", "EXPR"},  // kExpression
+    {"RANDOM", "RAND"},      // kRandom
+    {"CONSTANT", "CONST"},   // kConstant
 };
 
 /// One source->destination modulation route with a signed amount.

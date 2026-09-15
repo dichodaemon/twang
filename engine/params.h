@@ -22,7 +22,9 @@ enum class ParamCurve : std::uint8_t {
 
 /// Static description of one parameter.
 struct ParamDesc {
-    const char *name;       ///< Parameter name.
+    const char *name;       ///< Canonical lowercase name (engine-internal).
+    const char *long_name;  ///< Display long form (uppercase; column header).
+    const char *short_name; ///< Routing short form (uppercase, 3 chars; mod routing).
     const char *unit;       ///< Display unit, e.g. "Hz", "%", "s".
     float disp_min;         ///< Display value at normalized 0.
     float disp_max;         ///< Display value at normalized 1.

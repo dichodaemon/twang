@@ -37,12 +37,12 @@ enum class ViewCtl : std::uint8_t {
 
 /// A tagged column reference. A column *declares a kind*: `param` names a
 /// ParamId, not a ParamRef — the instance is resolved from SubjectId later.
-/// `label` is the column header's uppercase display name (the mockup's short
-/// forms); it is carried here rather than derived, because a pending column
-/// has no ParamId to derive one from.
+/// `label` is the column-header text for kPending/kRouteField/kViewCtl columns
+/// (entities with no ParamId). A kParam column derives its header from
+/// ParamDesc::long_name, so its label is nullptr.
 struct ColumnSpec {
   ColumnKind    kind;
-  const char   *label;   ///< column-header text, uppercase short form
+  const char   *label;   ///< header text; nullptr for kParam (derived)
   union {
     engine::ParamId param;
     RouteField      field;
@@ -61,8 +61,9 @@ enum class ItemAxis : std::uint8_t {
 /// One subject's page: an ordered column list, its item axis, and its plot.
 struct PageDesc {
   SubjectId         subject;
-  const char       *label;    ///< pane text; see the length invariant (§9)
-  const ColumnSpec *cols;     ///< ORDERED. Head of the list is the hot set.
+  const char       *label;     ///< pane text (short); see the length invariant (§9)
+  const char       *long_name; ///< title text (full); the pane's expansion
+  const ColumnSpec *cols;      ///< ORDERED. Head of the list is the hot set.
   std::uint8_t      n_cols;   ///< grouping is derived, not authored
   ItemAxis          item_axis;
   std::int8_t       dyn_slot; ///< plot slot, or -1

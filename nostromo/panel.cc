@@ -852,7 +852,9 @@ void DrawPane(FrameBuffer &fb, const NavState &nav) {
 }
 
 const char *ColumnLabel(const ColumnSpec &cs) {
-  return cs.label;  // the column's uppercase display name (pages.cc)
+  if (cs.kind == ColumnKind::kParam)
+    return engine::k_params[static_cast<std::size_t>(cs.param)].long_name;
+  return cs.label;  // kPending / kRouteField / kViewCtl
 }
 
 // The well under a parameter's value. A bipolar (zero_notch) parameter gets
@@ -969,29 +971,6 @@ static void DrawModBand(FrameBuffer &fb, int x, int y, float lo, float hi,
   if (b > a) FillRect(fb, a, y, b - a + 1, geom::kWellH, kMid);
 }
 
-// Short form of a modulation source for the inbound summary lines. ENV/LFO are
-// 1-indexed (kEnv0 -> ENV1) to match the pane's instance strips.
-const char *SourceAbbrev(engine::ModSourceId s) {
-  switch (s) {
-    case engine::ModSourceId::kVelocity:    return "VEL";
-    case engine::ModSourceId::kNote:        return "KEY";
-    case engine::ModSourceId::kGate:        return "GATE";
-    case engine::ModSourceId::kLfo0:        return "LFO1";
-    case engine::ModSourceId::kLfo1:        return "LFO2";
-    case engine::ModSourceId::kLfo2:        return "LFO3";
-    case engine::ModSourceId::kEnv0:        return "ENV1";
-    case engine::ModSourceId::kEnv1:        return "ENV2";
-    case engine::ModSourceId::kEnv2:        return "ENV3";
-    case engine::ModSourceId::kModWheel:    return "MODW";
-    case engine::ModSourceId::kAftertouch:  return "AT";
-    case engine::ModSourceId::kPitchBend:   return "BEND";
-    case engine::ModSourceId::kExpression:  return "EXPR";
-    case engine::ModSourceId::kRandom:      return "RAND";
-    case engine::ModSourceId::kConstant:    return "CONST";
-    default:                                return "";
-  }
-}
-
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
                  engine::EngineControl &control) {
   for (int c = 0; c < geom::kColumns; ++c) {
@@ -1066,7 +1045,7 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
               r.source == engine::ModSourceId::kNote) continue;
           if (r.amount == 0.0f) continue;  // "present but silent": not a modulation
           char tag[32];
-          std::snprintf(tag, sizeof(tag), "<-%s %+04d", SourceAbbrev(r.source),
+          std::snprintf(tag, sizeof(tag), "<-%s %+04d", engine::k_sources[static_cast<std::size_t>(r.source)].short_name,
                         static_cast<int>(std::lround(r.amount * 100.0f)));
           TextLeft(fb, tag, x + 6, geom::kSumY + line * geom::kSumPitch,
                    kSecondaryFont, kDim);
@@ -1102,34 +1081,6 @@ bool IsGlobalSubject(SubjectId s) {
   return static_cast<int>(s) >= static_cast<int>(SubjectId::kOutScope);
 }
 
-// The long-form subject name for the title bar (§7.6), spelled out so the
-// pane's abbreviated cells have their expansion always on screen.
-const char *LongName(SubjectId s) {
-  switch (s) {
-    case SubjectId::kPart: return "PART";
-    case SubjectId::kOsc1: return "OSCILLATOR 1";
-    case SubjectId::kOsc2: return "OSCILLATOR 2";
-    case SubjectId::kOsc3: return "OSCILLATOR 3";
-    case SubjectId::kOsc4: return "OSCILLATOR 4";
-    case SubjectId::kFilt: return "FILTER";
-    case SubjectId::kAmp: return "AMPLIFIER";
-    case SubjectId::kEnv1: return "ENVELOPE 1";
-    case SubjectId::kEnv2: return "ENVELOPE 2";
-    case SubjectId::kEnv3: return "ENVELOPE 3";
-    case SubjectId::kLfo1: return "LFO 1";
-    case SubjectId::kLfo2: return "LFO 2";
-    case SubjectId::kLfo3: return "LFO 3";
-    case SubjectId::kMod: return "MODULATION";
-    case SubjectId::kOutScope: return "SCOPE";
-    case SubjectId::kOutCycle: return "CYCLE";
-    case SubjectId::kOutSpec: return "SPECTRUM";
-    case SubjectId::kFx: return "EFFECTS";
-    case SubjectId::kPatch: return "PATCH";
-    case SubjectId::kConf: return "CONFIGURATION";
-    default: return "";
-  }
-}
-
 // Mode prefix for the title, or "" in edit mode.
 const char *ModePrefix(ViewMode m) {
   switch (m) {
@@ -1163,7 +1114,7 @@ void DrawEditChrome(FrameBuffer &fb, Panel &p) {
 
   char name[24];
   std::snprintf(name, sizeof(name), "%s%s", ModePrefix(nav.mode),
-                LongName(nav.subject));
+                page.long_name);
   TextLeft(fb, name, geom::kTitleNameX, geom::kTitleY + 2, kPrimaryFont,
            kBright);
 
