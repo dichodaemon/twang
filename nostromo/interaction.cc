@@ -45,6 +45,22 @@ float RouteAmount(engine::EngineControl &control, int part,
   return 0.0f;
 }
 
+// The next modulatable ParamId after `id` in enum order, wrapping. Modulatable
+// membership is a descriptor flag (k_params[].modulatable), not an enum split,
+// so cycling reads the table — a param promoted to modulatable joins the cycle
+// without a code change.
+engine::ParamId NextModulatable(engine::ParamId id, int dir) {
+  const int count = static_cast<int>(engine::ParamId::kCount);
+  for (int step = 1; step <= count; ++step) {
+    int idx = (static_cast<int>(id) + dir * step) % count;
+    if (idx < 0) idx += count;
+    const auto pid = static_cast<engine::ParamId>(idx);
+    if (engine::k_params[static_cast<std::size_t>(pid)].modulatable)
+      return pid;
+  }
+  return id;  // unreachable: kCutoff/kAmp/kPitchCoarse/kDrive are modulatable
+}
+
 bool IsOut(SubjectId s) {
   return s == SubjectId::kOutScope || s == SubjectId::kOutCycle ||
          s == SubjectId::kOutSpec;
@@ -232,12 +248,56 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
       }
       break;
     }
+    case BindKind::kRouteField: {
+      if (g == Gesture::kTurn || g == Gesture::kHoldTurn) {
+        const int slot = b.slot;
+        if (slot < 0 || slot >= engine::kModSlots) break;
+        engine::ModRoute r{};
+        if (!control->GetRoute(nav.part, slot, &r)) {
+          // Empty slot: seed a fresh route (kVelocity -> kCutoff, amount 0),
+          // then advance the turned field from the seed.
+          r.source = engine::ModSourceId::kVelocity;
+          r.dst = engine::ParamRef{0, engine::ParamId::kCutoff};
+          r.amount = 0.0f;
+        }
+        const int dir = ev.detents > 0 ? 1 : -1;
+        switch (b.field) {
+          case RouteField::kSource: {
+            int src = static_cast<int>(r.source) + dir;
+            if (src <= static_cast<int>(engine::ModSourceId::kNone))
+              src = kModSourceCount - 1;
+            if (src >= kModSourceCount)
+              src = static_cast<int>(engine::ModSourceId::kVelocity);
+            r.source = static_cast<engine::ModSourceId>(src);
+            break;
+          }
+          case RouteField::kDest:
+            r.dst.id = NextModulatable(r.dst.id, dir);
+            break;
+          case RouteField::kAmount: {
+            const float rate = TurnRate(ev.control, ev.detents, ev.t_ms);
+            float step = kRouteAmountStep;
+            if (rate > static_cast<float>(feel.accel_threshold_dps))
+              step *= kRouteAmountAccel;
+            if (g == Gesture::kHoldTurn)
+              step /= static_cast<float>(feel.fine_divisor);
+            float amt = r.amount + static_cast<float>(ev.detents) * step;
+            if (amt < -1.0f) amt = -1.0f;
+            if (amt > 1.0f) amt = 1.0f;
+            r.amount = amt;
+            break;
+          }
+        }
+        control->SetRoute(nav.part, slot, r.source, r.dst, r.amount);
+        MarkPage();
+      }
+      break;
+    }
     case BindKind::kPending:
     case BindKind::kNone:
-    case BindKind::kRouteField:
     case BindKind::kViewCtl:
     default:
-      break;  // pending is inert; route-field/view-control dispatch is later
+      break;  // pending is inert; view-control dispatch is later
   }
 }
 

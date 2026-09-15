@@ -146,6 +146,41 @@ int main() {
               "third MOD tap re-enters kModView");
     }
 
+    // 6. Route-field dispatch: the MOD page's source/dest/amount columns write
+    //    the selected slot's route (turn -> EngineSetRoute).
+    {
+        if (it.Nav().mode == ViewMode::kModView) Tap(it, Control::kMod);
+        for (int i = 0; i < 8; ++i) Turn(it, Control::kNav1, 1);  // kFilt -> kMod
+        Check(it.Nav().subject == SubjectId::kMod, "NAV1 reaches the MOD page");
+
+        // NAV2 walks the slot list; select slot 5 (past the 5 default routes).
+        for (int i = 0; i < 5; ++i) Turn(it, Control::kNav2, 1);
+        Check(it.Nav().item[static_cast<int>(SubjectId::kMod)] == 5,
+              "NAV2 selects slot 5");
+
+        const int part = static_cast<int>(it.Nav().part);
+        engine::ModRoute r;
+
+        // Source (Enc 0): an empty slot seeds kVelocity, then advances +1.
+        Turn(it, Enc(0), 1);
+        Check(control.GetRoute(part, 5, &r) &&
+                  r.source == engine::ModSourceId::kNote &&
+                  r.dst.id == engine::ParamId::kCutoff,
+              "source turn creates kNote -> cutoff");
+
+        // Dest (Enc 1): cycles cutoff -> amp (the next modulatable id).
+        Turn(it, Enc(1), 1);
+        Check(control.GetRoute(part, 5, &r) &&
+                  r.dst.id == engine::ParamId::kAmp &&
+                  r.source == engine::ModSourceId::kNote,
+              "dest turn cycles cutoff -> amp");
+
+        // Amount (Enc 2): a positive turn raises the amount.
+        Turn(it, Enc(2), 1);
+        Check(control.GetRoute(part, 5, &r) && r.amount > 0.0f,
+              "amount turn raises the amount");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;
