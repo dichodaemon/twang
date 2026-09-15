@@ -181,6 +181,48 @@ int main() {
               "amount turn raises the amount");
     }
 
+    // 7. CONF feel editing: an encoder turn over a CONF feel column edits the
+    //    runtime feel; a long press reverts the control to its default.
+    {
+        for (int i = 0; i < 6; ++i) Turn(it, Control::kNav1, 1);  // kMod -> kConf
+        Check(it.Nav().subject == SubjectId::kConf,
+              "NAV1 reaches the CONF page");
+
+        const std::uint8_t det = it.feel.detents_per_rev;
+        Turn(it, Enc(0), 1);  // DETENTS
+        Check(it.feel.detents_per_rev == det + 1,
+              "DETENTS turn raises detents_per_rev");
+
+        const std::uint8_t accel = it.feel.accel_max_default;
+        Turn(it, Enc(1), 1);  // ACCEL
+        Check(it.feel.accel_max_default == accel + 1,
+              "ACCEL turn raises accel_max_default");
+
+        const std::uint16_t thresh = it.feel.accel_threshold_dps;
+        Turn(it, Enc(2), 1);  // THRESH
+        Check(it.feel.accel_threshold_dps == thresh + 1,
+              "THRESH turn raises accel_threshold_dps");
+
+        const std::uint32_t press = it.feel.long_press_ms;
+        Turn(it, Enc(3), 1);  // PRESS
+        Check(it.feel.long_press_ms == press + 50,
+              "PRESS turn raises long_press_ms by 50 ms");
+
+        const std::uint8_t fine = it.feel.fine_divisor;
+        Turn(it, Enc(4), 1);  // FINE
+        Check(it.feel.fine_divisor == fine + 1,
+              "FINE turn raises fine_divisor");
+
+        // A long press (held past long_press_ms) reverts the control exactly
+        // once, back to the default.
+        g_t += 10;
+        it.OnInput(InputEvent{Enc(3), 0, Edge::kDown, g_t});
+        g_t += 700;  // clearly past long_press_ms (now 550)
+        it.OnInput(InputEvent{Enc(3), 0, Edge::kUp, g_t});
+        Check(it.feel.long_press_ms == 500,
+              "long press reverts PRESS to its default");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

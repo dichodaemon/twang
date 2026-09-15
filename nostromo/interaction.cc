@@ -77,6 +77,64 @@ int ItemCount(ItemAxis axis) {
   }
 }
 
+// Integer step with clamping to [lo, hi]. detents may be negative.
+std::uint32_t StepInt(std::uint32_t v, std::int8_t detents, std::uint32_t lo,
+                      std::uint32_t hi, std::uint32_t step) {
+  const long next = static_cast<long>(v) + static_cast<long>(detents) *
+                                               static_cast<long>(step);
+  if (next < static_cast<long>(lo)) return lo;
+  if (next > static_cast<long>(hi)) return hi;
+  return static_cast<std::uint32_t>(next);
+}
+
+// Advance one CONF feel field by `detents` detents (clamped to its edit range).
+// Hold-turn refines the one continuous field (long-press ms) to 10 ms steps;
+// the rest are already single-unit counts. PATCH controls (kCategory..kAction)
+// are inert here until patch storage lands (twang-9d7z).
+void TurnFeel(ViewCtl ctl, std::int8_t detents, bool fine, FeelProfile &feel) {
+  switch (ctl) {
+    case ViewCtl::kDetents:
+      feel.detents_per_rev = static_cast<std::uint8_t>(
+          StepInt(feel.detents_per_rev, detents, 1, 64, 1));
+      break;
+    case ViewCtl::kAccelMax:
+      feel.accel_max_default = static_cast<std::uint8_t>(
+          StepInt(feel.accel_max_default, detents, 1, 16, 1));
+      break;
+    case ViewCtl::kAccelThresh:
+      feel.accel_threshold_dps = static_cast<std::uint16_t>(
+          StepInt(feel.accel_threshold_dps, detents, 1, 64, 1));
+      break;
+    case ViewCtl::kLongPress:
+      feel.long_press_ms =
+          StepInt(feel.long_press_ms, detents, 100, 2000, fine ? 10 : 50);
+      break;
+    case ViewCtl::kFineDiv:
+      feel.fine_divisor = static_cast<std::uint8_t>(
+          StepInt(feel.fine_divisor, detents, 1, 64, 1));
+      break;
+    default:
+      break;  // PATCH controls are inert until patch storage
+  }
+}
+
+// Revert one CONF feel field to its default (a no-op for PATCH controls).
+void RevertFeel(ViewCtl ctl, FeelProfile &feel) {
+  const FeelProfile def = DefaultFeel();
+  switch (ctl) {
+    case ViewCtl::kDetents: feel.detents_per_rev = def.detents_per_rev; break;
+    case ViewCtl::kAccelMax:
+      feel.accel_max_default = def.accel_max_default;
+      break;
+    case ViewCtl::kAccelThresh:
+      feel.accel_threshold_dps = def.accel_threshold_dps;
+      break;
+    case ViewCtl::kLongPress: feel.long_press_ms = def.long_press_ms; break;
+    case ViewCtl::kFineDiv: feel.fine_divisor = def.fine_divisor; break;
+    default: break;  // PATCH controls are inert until patch storage
+  }
+}
+
 }  // namespace
 
 // ---- private methods ----
@@ -293,11 +351,25 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
       }
       break;
     }
+    case BindKind::kViewCtl: {
+      if (g == Gesture::kTurn || g == Gesture::kHoldTurn) {
+        // CONF controls edit the runtime feel; PATCH controls are inert until
+        // patch storage lands (twang-9d7z).
+        TurnFeel(b.ctl, ev.detents, g == Gesture::kHoldTurn, feel);
+        MarkPage();
+      } else if (g == Gesture::kPressLong) {
+        // Revert the control to its default exactly once.
+        RevertFeel(b.ctl, feel);
+        MarkPage();
+      }
+      // kPressShort: nothing to descend into (kAction executes once PATCH
+      // dispatch lands).
+      break;
+    }
     case BindKind::kPending:
     case BindKind::kNone:
-    case BindKind::kViewCtl:
     default:
-      break;  // pending is inert; view-control dispatch is later
+      break;  // pending is inert
   }
 }
 
