@@ -36,7 +36,7 @@ static std::uint32_t Hash(const std::uint16_t *px, int n) {
 }
 
 // Golden-image hash of the power-on page (kOutScope → scope plot) full render.
-static constexpr std::uint32_t kExpectedHash = 0x263EB13E;
+static constexpr std::uint32_t kExpectedHash = 0x9DDAF302;
 
 int main() {
     engine::SharedIpc ipc;

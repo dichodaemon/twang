@@ -1074,6 +1074,25 @@ static void DrawItemList(FrameBuffer &fb, const NavState &nav,
   }
 }
 
+// The OUT view strip (SCOPE/CYCLE/SPEC): on an OUT page, three cells in the
+// band the wells/summary occupy elsewhere, the active OUT view inverted
+// (kBright fill + kBg text) — the pane strips' selection treatment (§5).
+static void DrawViewStrip(FrameBuffer &fb, const NavState &nav) {
+  const int idx = static_cast<int>(nav.subject) -
+                  static_cast<int>(SubjectId::kOutScope);
+  if (idx < 0 || idx >= 3) return;
+  static const char *const kCells[3] = {"SCOPE", "CYCLE", "SPEC"};
+  const int cw = 5 * kPrimaryFont.w + 8;  // widest label (5 glyphs) + padding
+  const int y = geom::kSumY;
+  for (int k = 0; k < 3; ++k) {
+    const int cx = geom::kPlotX + k * cw;
+    const bool act = (k == idx);
+    // Fill either way so the inverse cursor never leaves a stale bright block.
+    FillRect(fb, cx, y, cw, geom::kStripH, act ? kBright : kBg);
+    TextLeft(fb, kCells[k], cx + 4, y + 3, kPrimaryFont, act ? kBg : kMid);
+  }
+}
+
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
                  engine::EngineControl &control) {
   // The summary row is shared by the per-column inbound tags AND the full-width
@@ -1277,6 +1296,7 @@ void DrawEditChrome(FrameBuffer &fb, Panel &p) {
 
   DrawPane(fb, nav);
   DrawColumns(fb, nav, page, *p.control);
+  DrawViewStrip(fb, nav);  // OUT pages: the view selector, all modes
   if (nav.mode == ViewMode::kEdit) {
     DrawSendsBand(fb, nav, *p.control);
     DrawItemList(fb, nav, page, *p.control);
