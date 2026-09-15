@@ -11,6 +11,7 @@
 #include "engine_control.h"
 #include "interaction.h"
 #include "midi.h"
+#include "pages.h"
 #include "panel.h"
 #include "surface.h"
 
@@ -141,32 +142,30 @@ void MidiIo::Poll(nostromo::Panel *panel, nostromo::Interaction *interaction) {
 }
 
 void MidiIo::Feedback() {
-    if (!out) return;
-    const engine::MidiLayout &layout = engine::kXtouchCompact;
-    for (int i = 0; i < layout.count; ++i) {
-        const engine::MidiBinding &b = layout.bindings[i];
-        const float v = control->GetParam(0, engine::ParamRef{0, b.param});
-        int out_cc, out_val;
-        if (b.mode == static_cast<std::uint8_t>(engine::MidiMode::kAbsolute)) {
-            out_cc = b.cc;
-            out_val = static_cast<int>(v * 127.0f + 0.5f);  // fader position
-        } else {
-            out_cc = b.ring_cc;
-            // The surface maps 0..127 across the ring's 13 segments itself;
-            // sending 0..13 lit only the first tenth of it. norm 0 still sends
-            // 0 (dark ring), so a true zero is preserved.
-            out_val = static_cast<int>(v * 127.0f + 0.5f);  // LED ring
-        }
+    if (!out || !control || !interaction) return;
+    const nostromo::SurfaceProfile &surface = nostromo::Surface();
+    const nostromo::NavState &nav = interaction->Nav();
+    for (int i = 0; i < surface.n_map; ++i) {
+        const nostromo::ControlMap &m = surface.map[i];
+        if (!m.turn) continue;  // buttons have no ring
+        const nostromo::Binding b = nostromo::ResolveBinding(nav, m.logical);
+        // Only a resolved parameter drives a ring; a pending/route-field/
+        // view-control/off-the-end column is dark.
+        float v = 0.0f;
+        if (b.kind == nostromo::BindKind::kParam)
+            v = control->GetParam(nav.part, b.param);
+        const int out_cc = static_cast<int>(m.physical);
+        const int out_val = static_cast<int>(v * 127.0f + 0.5f);
         if (last_sent[out_cc] == out_val) continue;
         last_sent[out_cc] = out_val;
         std::vector<unsigned char> msg = {
-            static_cast<unsigned char>(0xB0 | layout.channel),
+            static_cast<unsigned char>(0xB0 | kChannel),
             static_cast<unsigned char>(out_cc),
             static_cast<unsigned char>(out_val),
         };
         if (trace)
-            std::fprintf(stderr, "midi -> B%d %02X %02X\n", layout.channel,
-                         out_cc, out_val);
+            std::fprintf(stderr, "midi -> B%d %02X %02X\n", kChannel, out_cc,
+                         out_val);
         out->sendMessage(&msg);
     }
 }

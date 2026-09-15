@@ -72,6 +72,7 @@ int main() {
     MidiIo midi;
     midi.Init();
     midi.control = &control;
+    midi.interaction = &interaction;
 
     while (!backend.quit) {
         backend.PollEvents(panel, &interaction);
