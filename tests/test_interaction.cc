@@ -229,6 +229,36 @@ int main() {
               "long press reverts PRESS to its default");
     }
 
+    // 8. Route-table-full alert: arming a route on a full table drops the
+    //    write and raises nav.route_full.
+    {
+        for (int i = 0; i < 6; ++i) Turn(it, Control::kNav1, 1);  // kConf -> kFilt
+        Check(it.Nav().subject == SubjectId::kFilt,
+              "NAV1 returns to the filter page");
+
+        // Fill all 16 slots with distinct routes (sources 1..15 -> amp, plus
+        // velocity -> cutoff), so no slot is free and kNote -> cutoff is absent.
+        const int part = static_cast<int>(it.Nav().part);
+        const engine::ParamRef amp{0, engine::ParamId::kAmp};
+        for (int s = 0; s < 15; ++s)
+            control.SetRoute(part, s, static_cast<engine::ModSourceId>(1 + s),
+                             amp, 0.5f);
+        control.SetRoute(part, 15, engine::ModSourceId::kVelocity,
+                         engine::ParamRef{0, engine::ParamId::kCutoff}, 0.5f);
+
+        // Arm kNote; turning the cutoff column writes kNote -> cutoff, which
+        // has no match and no free slot. armed_source persists from section 2
+        // as kVelocity, so one NAV2 step reaches kNote.
+        g_t += 10;
+        it.OnInput(InputEvent{Control::kMod, 0, Edge::kDown, g_t});
+        Turn(it, Control::kNav2, 1);  // kVelocity -> kNote
+        Check(it.Nav().armed_source == engine::ModSourceId::kNote,
+              "NAV2 arms kNote");
+        Turn(it, Enc(0), 1);  // write kNote -> cutoff: table full
+        Check(it.Nav().route_full,
+              "a route write on a full table raises the alert");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

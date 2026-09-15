@@ -123,6 +123,7 @@ struct NavState {
   ViewMode     mode;
   engine::ModSourceId armed_source;  ///< persists between kModArm entries
   NavPos       prev;                  ///< return position for the OUT button
+  bool         route_full;            ///< a route write was dropped (table full)
 };
 
 struct SurfaceProfile;  ///< defined in surface.h

@@ -214,7 +214,9 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
         float amt = old + static_cast<float>(ev.detents) * step;
         if (amt < -1.0f) amt = -1.0f;
         if (amt > 1.0f) amt = 1.0f;
-        CreateRoute(nav.part, nav.armed_source, b.param, amt);
+        // CreateRoute returns false when the table is full and no route
+        // matches: the write is dropped, so raise the route-full alert.
+        nav.route_full = !CreateRoute(nav.part, nav.armed_source, b.param, amt);
         arm_used = true;
         MarkPage();
       }
@@ -269,6 +271,7 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
     case BindKind::kModeToggle: {
       if (ev.edge == Edge::kDown) {
         arm_used = false;
+        nav.route_full = false;  // fresh arming clears the alert
         mod_from_view = (nav.mode == ViewMode::kModView);
         nav.mode = ViewMode::kModArm;  // momentary
         MarkAll();

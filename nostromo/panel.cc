@@ -1285,13 +1285,22 @@ void DrawEditChrome(FrameBuffer &fb, Panel &p) {
            kPrimaryFont, kMid);
 
   int rx = geom::kTitleX + geom::kTitleW - 8;
-  TextRight(fb, "A007", rx, geom::kTitleY + 2, kPrimaryFont, kMid);
-  const int gc = GroupCount<>(page);
-  if (gc > 1) {
-    char gs[24];
-    std::snprintf(gs, sizeof(gs), "GROUP %d/%d", nav.group + 1, gc);
-    rx -= 4 * kPrimaryFont.w + 16;
-    TextRight(fb, gs, rx, geom::kTitleY + 2, kPrimaryFont, kBright);
+  if (nav.route_full) {
+    // Route-table-full alert: the one bright fill per screen (emphasis
+    // ladder level 1), replacing the patch and group indicators while raised.
+    const char *msg = "ROUTE FULL";
+    const int mw = static_cast<int>(std::strlen(msg)) * kPrimaryFont.w + 12;
+    FillRect(fb, rx - mw, geom::kTitleY, mw, geom::kTitleH - 4, kBright);
+    TextLeft(fb, msg, rx - mw + 6, geom::kTitleY + 2, kPrimaryFont, kBg);
+  } else {
+    TextRight(fb, "A007", rx, geom::kTitleY + 2, kPrimaryFont, kMid);
+    const int gc = GroupCount<>(page);
+    if (gc > 1) {
+      char gs[24];
+      std::snprintf(gs, sizeof(gs), "GROUP %d/%d", nav.group + 1, gc);
+      rx -= 4 * kPrimaryFont.w + 16;
+      TextRight(fb, gs, rx, geom::kTitleY + 2, kPrimaryFont, kBright);
+    }
   }
 
   DrawPane(fb, nav);
