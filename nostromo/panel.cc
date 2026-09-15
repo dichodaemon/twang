@@ -1126,6 +1126,41 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
       }
       continue;
     }
+    if (nav.mode == ViewMode::kModView) {
+      // MOD view: the column shows its inbound route list, replacing the
+      // well/summary (and the plot, suppressed by ActivePlotSlot). The focused
+      // column's routes read brighter — focus is a row cursor, not a relayout
+      // (arch-design §5). One value line stays for context.
+      if (cs.kind == ColumnKind::kParam &&
+          engine::k_params[static_cast<std::size_t>(cs.param)].modulatable) {
+        const engine::ParamDesc &desc =
+            engine::k_params[static_cast<std::size_t>(cs.param)];
+        char val[16];
+        const float norm =
+            control.GetParam(nav.part, engine::ParamRef{0, cs.param});
+        engine::ParamFormatValue(&desc, norm, val, sizeof(val));
+        TextLeft(fb, val, x + 6, geom::kValueY + 1, kPrimaryFont, kMid);
+        const bool focused = (nav.focus_col == c);
+        int line = 0;
+        engine::ModRoute r;
+        for (int s = 0; s < engine::kModSlots && line < geom::kRouteLines;
+             ++s) {
+          if (!control.GetRoute(nav.part, s, &r)) continue;
+          if (r.dst.id != cs.param || r.dst.instance != 0) continue;
+          if (r.source == engine::ModSourceId::kNone ||
+              r.source == engine::ModSourceId::kNote) continue;
+          if (r.amount == 0.0f) continue;  // "present but silent": not a modulation
+          char tag[32];
+          std::snprintf(tag, sizeof(tag), "<-%s %+04d",
+                        engine::k_sources[static_cast<std::size_t>(r.source)].short_name,
+                        static_cast<int>(std::lround(r.amount * 100.0f)));
+          TextLeft(fb, tag, x + 6, geom::kRouteY + line * geom::kRowPitch,
+                   kSecondaryFont, focused ? kBright : kMid);
+          ++line;
+        }
+      }
+      continue;
+    }
     if (cs.kind == ColumnKind::kParam) {
       const engine::ParamDesc &desc =
           engine::k_params[static_cast<std::size_t>(cs.param)];
@@ -1310,8 +1345,11 @@ void MarkDirty(Panel *p, SlotIdx idx) {
 
 // The plot slot the current page shows, or -1 for pages without a plot. The
 // four slots share one band; only the active page's plot may paint into it.
+// In MOD view the route lists replace everything below the headers, so the
+// plot is suppressed (its band is cleared and the lists draw over it).
 int ActivePlotSlot(const Panel &p) {
   const NavState &nav = p.interaction->Nav();
+  if (nav.mode == ViewMode::kModView) return -1;
   return k_pages[static_cast<int>(nav.subject)].dyn_slot;
 }
 

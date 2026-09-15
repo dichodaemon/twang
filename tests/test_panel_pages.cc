@@ -59,6 +59,10 @@ static constexpr std::uint32_t kGolden[static_cast<int>(SubjectId::kCount)] = {
     0x1DCAF6F2u,  // 19 CONF
 };
 
+// The AMP page in MOD view: route lists replace the plot, LEVEL shows its two
+// default inbound routes. Locks the route-list + plot-suppression render.
+static constexpr std::uint32_t kModViewGolden = 0x203653DCu;
+
 int main() {
     engine::SharedIpc ipc;
     engine::EngineControl control;
@@ -87,6 +91,26 @@ int main() {
         }
         t += 100;
         it.OnInput(InputEvent{Control::kNav1, 1, Edge::kNone, t});
+    }
+
+    // MOD view: back to AMP (subject 6), MOD tapped latches kModView.
+    {
+        for (int i = 0; i < 8; ++i) {  // kOutScope -> kAmp (NAV1 back)
+            t += 100;
+            it.OnInput(InputEvent{Control::kNav1, -1, Edge::kNone, t});
+        }
+        t += 10;
+        it.OnInput(InputEvent{Control::kMod, 0, Edge::kDown, t});
+        t += 10;
+        it.OnInput(InputEvent{Control::kMod, 0, Edge::kUp, t});
+        PanelDraw(p, fb0, 0);
+        PanelDraw(p, fb1, 1);
+        const std::uint32_t h = Hash(buf0, kW * kH);
+        if (h != kModViewGolden) {
+            std::printf("FAIL: mod-view hash 0x%08X != golden 0x%08X\n",
+                        h, kModViewGolden);
+            ++g_failures;
+        }
     }
 
     if (g_failures) {

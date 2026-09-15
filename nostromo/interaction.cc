@@ -192,8 +192,13 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
             engine::k_params[static_cast<std::size_t>(b.param.id)];
         control->SetParam(nav.part, b.param, desc.def);
         MarkPage();
+      } else if (g == Gesture::kPressShort && nav.mode == ViewMode::kModView) {
+        // MOD view: a short press focuses the column — a row cursor over its
+        // route list (arch-design §5). Pressing the focused column releases.
+        nav.focus_col = (nav.focus_col == b.column) ? -1 : b.column;
+        MarkPage();
       }
-      // kPressShort on a continuous parameter: nothing to descend into.
+      // kPressShort outside MOD view: nothing to descend into.
       break;
     }
     case BindKind::kRouteAmount: {

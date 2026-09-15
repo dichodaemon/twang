@@ -118,14 +118,17 @@ int main() {
         Check(n2.item[static_cast<int>(subj)] == item, "item invariant");
     }
 
-    // 4. A change marks the affected plot dirty (observed via PanelPlotDraws).
-    //    A MOD toggle changes no engine parameter, so the redraw is the layer's
-    //    own MarkDirty, not the panel's engine sync.
+    // 4. A mode change marks the affected plot dirty (observed via
+    //    PanelPlotDraws). A MOD toggle changes no engine parameter, so the
+    //    redraw is the layer's own MarkDirty, not the panel's engine sync.
+    //    The plot is suppressed in kModView (route lists replace it), so the
+    //    redraw is observed on the round trip back to kEdit.
     {
         PanelDraw(p, fb0, 0);
         PanelDraw(p, fb1, 1);
         const int before = PanelPlotDraws(p, 1);  // filter plot
-        Tap(it, Control::kMod);  // toggle kModView -> MarkAll
+        Tap(it, Control::kMod);  // kEdit -> kModView: MarkAll, plot suppressed
+        Tap(it, Control::kMod);  // kModView -> kEdit: plot dirty, redraws
         PanelDraw(p, fb0, 0);
         PanelDraw(p, fb1, 1);
         Check(PanelPlotDraws(p, 1) > before,
@@ -136,8 +139,11 @@ int main() {
     //    -> kEdit. Regression for the kDown-clobbers-mode bug (the toggle must
     //    snapshot the pre-press mode, not re-read it after kDown sets kModArm).
     {
+        Check(it.Nav().mode == ViewMode::kEdit,
+              "section 4 returned to kEdit");
+        Tap(it, Control::kMod);
         Check(it.Nav().mode == ViewMode::kModView,
-              "section 4 left the layer in kModView");
+              "MOD tap enters kModView");
         Tap(it, Control::kMod);
         Check(it.Nav().mode == ViewMode::kEdit,
               "second MOD tap exits kModView to kEdit");
