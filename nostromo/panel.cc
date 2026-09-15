@@ -890,6 +890,31 @@ void DrawWell(FrameBuffer &fb, int x, int y, float norm, bool bipolar) {
   DrawVLine(fb, x + kBarW - 1, y, geom::kWellH, kMid);
 }
 
+// The armed source's route amount to a destination, or false if none exists.
+// The panel reads it to render the arm overlay's value + well (the same lookup
+// interaction.cc's Dispatcher uses to arm/write a route).
+static bool FindRouteAmount(engine::EngineControl &control, int part,
+                            engine::ModSourceId src, engine::ParamRef dst,
+                            float *out) {
+  engine::ModRoute r;
+  for (int s = 0; s < engine::kModSlots; ++s)
+    if (control.GetRoute(part, s, &r) && r.source == src &&
+        r.dst.id == dst.id && r.dst.instance == dst.instance) {
+      *out = r.amount;
+      return true;
+    }
+  return false;
+}
+
+// The well's end caps only. "No route" is not "amount zero" (zero is the tall
+// centre tick DrawWell draws), so the track stays empty rather than reading as
+// a weak zero.
+static void DrawWellCaps(FrameBuffer &fb, int x, int y) {
+  constexpr int kHeadEnd = 8;
+  DrawVLine(fb, x, y, geom::kWellH, kMid);
+  DrawVLine(fb, x + geom::kColW - kHeadEnd - 1, y, geom::kWellH, kMid);
+}
+
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
                  engine::EngineControl &control) {
   for (int c = 0; c < geom::kColumns; ++c) {
@@ -911,6 +936,32 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
     TextLeft(fb, label, x + 6, geom::kHeaderY + 1, kPrimaryFont, kBright);
     DrawHLine(fb, x + bw + 2, geom::kHeaderY + geom::kHeaderH - 6,
               geom::kColW - bw - 2 - 8, kDim);
+    if (nav.mode == ViewMode::kModArm) {
+      // Arm overlay: a modulatable column shows the armed source's route to it;
+      // a non-modulatable or pending column shows "--" with caps only. kRouteField
+      // / kViewCtl columns keep their header-only treatment (not destinations).
+      if (cs.kind == ColumnKind::kParam) {
+        float amt = 0.0f;
+        const bool has =
+            engine::k_params[static_cast<std::size_t>(cs.param)].modulatable &&
+            FindRouteAmount(control, nav.part, nav.armed_source,
+                            engine::ParamRef{0, cs.param}, &amt);
+        char val[16];
+        if (has) {
+          std::snprintf(val, sizeof(val), "%+04d",
+                        static_cast<int>(std::lround(amt * 100.0f)));
+          TextLeft(fb, val, x + 6, geom::kValueY + 1, kPrimaryFont, kMid);
+          DrawWell(fb, x, geom::kWellY, (amt + 1.0f) / 2.0f, true);
+        } else {
+          TextLeft(fb, "--", x + 6, geom::kValueY + 1, kPrimaryFont, kMid);
+          DrawWellCaps(fb, x, geom::kWellY);
+        }
+      } else if (cs.kind == ColumnKind::kPending) {
+        TextLeft(fb, "--", x + 6, geom::kValueY + 1, kPrimaryFont, kMid);
+        DrawWellCaps(fb, x, geom::kWellY);
+      }
+      continue;
+    }
     if (cs.kind == ColumnKind::kParam) {
       const engine::ParamDesc &desc =
           engine::k_params[static_cast<std::size_t>(cs.param)];
