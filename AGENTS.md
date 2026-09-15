@@ -53,3 +53,16 @@ all C++ work in this repo and outlive any single task or epic.
 ## Naming
 
 - Constants are `k`-prefixed. Mutable state never uses the `g_` prefix.
+
+## Beads and commits
+
+- Work is tracked in beads (`bd`, with `BEADS_DB` routed to the workspace where
+  the code change lands).
+- Fold each bead close into its work commit: `bd close <id>`, then
+  `git add -A && git commit` once — code and the `.beads/issues.jsonl` export
+  together. Do not emit a separate "chore(beads): close <id>" commit per bead.
+- The bd git hooks (`.beads/hooks`, wired via `core.hooksPath`) auto-export
+  `issues.jsonl` on every commit; never commit the export by hand as its own
+  step, and never run `git add .beads/issues.jsonl` on its own.
+- Batch: close beads as you go and commit at a natural checkpoint (or session
+  end) — the export is cumulative.
