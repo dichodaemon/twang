@@ -1,28 +1,35 @@
 #include "png.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 
 namespace spike {
 
 namespace {
 
+// CRC-32 table, computed once at compile time (constexpr) — no function-local
+// static, no lazy init, no heap.
+constexpr std::array<std::uint32_t, 256> MakeCrcTable() {
+  std::array<std::uint32_t, 256> t{};
+  for (std::uint32_t i = 0; i < 256; ++i) {
+    std::uint32_t c = i;
+    for (int k = 0; k < 8; ++k)
+      c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+    t[i] = c;
+  }
+  return t;
+}
+
+constexpr std::array<std::uint32_t, 256> kCrcTable = MakeCrcTable();
+
+const std::uint8_t kPngSig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+
 std::uint32_t Crc32(const std::uint8_t *d, std::size_t n,
                     std::uint32_t crc = 0) {
-  static std::uint32_t table[256];
-  static bool init = false;
-  if (!init) {
-    for (std::uint32_t i = 0; i < 256; ++i) {
-      std::uint32_t c = i;
-      for (int k = 0; k < 8; ++k)
-        c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-      table[i] = c;
-    }
-    init = true;
-  }
   crc = ~crc;
   for (std::size_t i = 0; i < n; ++i)
-    crc = table[(crc ^ d[i]) & 0xFF] ^ (crc >> 8);
+    crc = kCrcTable[(crc ^ d[i]) & 0xFF] ^ (crc >> 8);
   return ~crc;
 }
 
@@ -52,9 +59,7 @@ bool WritePng(const char *path, int w, int h,
               const std::vector<std::uint8_t> &raw) {
   std::FILE *f = std::fopen(path, "wb");
   if (!f) return false;
-  static const std::uint8_t sig[8] = {0x89, 'P', 'N', 'G', 0x0D,
-                                      0x0A, 0x1A, 0x0A};
-  std::fwrite(sig, 1, 8, f);
+  std::fwrite(kPngSig, 1, 8, f);
 
   std::vector<std::uint8_t> ihdr;
   Be32(ihdr, static_cast<std::uint32_t>(w));

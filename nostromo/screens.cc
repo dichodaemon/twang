@@ -14,6 +14,7 @@
 
 #include "screens.h"
 
+#include <array>
 #include <cstring>
 
 #include "geom.h"
@@ -45,10 +46,11 @@ constexpr int kRightX = 652, kRightW = 356;
 
 // ---- palette + fonts ---------------------------------------------------
 
-const spike::Color *DescriptorPalette() {
-  static const spike::Color p[5] = {kBg, kFaint, kDim, kMid, kBright};
-  return p;
-}
+// The five-entry descriptor palette (ColorIdx order), resolved to RGB565.
+// Namespace-scope const — not a function-local static.
+const spike::Color kPalette[5] = {kBg, kFaint, kDim, kMid, kBright};
+
+const spike::Color *DescriptorPalette() { return kPalette; }
 
 namespace {
 const spike::Font kFonts[2] = {spike::kPrimaryFont, spike::kSecondaryFont};
@@ -72,14 +74,19 @@ spike::DescriptorCtx MakeCtx(spike::DynSlot *slots, int n_slots) {
 
 // ---- descriptor emitter --------------------------------------------------
 
-// A tiny variable-length byte-stream writer. All coordinates are u16 (the
-// panel is 1024x600); palette/font indices are u8.
+// Maximum encoded screen size. The four screens are static chrome; their
+// byte streams are small (a few hundred bytes) and fixed.
+constexpr std::size_t kMaxScreenBytes = 1024;
+
+// A tiny fixed-capacity byte-stream writer (no heap). All coordinates are u16
+// (the panel is 1024x600); palette/font indices are u8.
 struct Enc {
-  std::vector<std::uint8_t> b;
-  void U8(std::uint8_t v) { b.push_back(v); }
+  std::array<std::uint8_t, kMaxScreenBytes> b{};
+  std::size_t n = 0;
+  void U8(std::uint8_t v) { b[n++] = v; }
   void U16(std::uint16_t v) {
-    b.push_back(static_cast<std::uint8_t>(v & 0xFF));
-    b.push_back(static_cast<std::uint8_t>(v >> 8));
+    b[n++] = static_cast<std::uint8_t>(v & 0xFF);
+    b[n++] = static_cast<std::uint8_t>(v >> 8);
   }
   void Rect(int x, int y, int w, int h, int c) {
     U8(kOpRect); U16(x); U16(y); U16(w); U16(h); U8(c);
@@ -93,7 +100,7 @@ struct Enc {
   void Text(int x, int y, int font, int c, const char *s) {
     const std::uint8_t len = static_cast<std::uint8_t>(std::strlen(s));
     U8(kOpText); U16(x); U16(y); U8(font); U8(c); U8(len);
-    b.insert(b.end(), s, s + len);
+    for (std::uint8_t i = 0; i < len; ++i) b[n++] = s[i];
   }
   void Dyn(int slot, int x, int y, int w, int h) {
     U8(kOpDyn); U8(slot); U16(x); U16(y); U16(w); U16(h);
@@ -365,42 +372,35 @@ void DrawModeButtons(spike::FrameBuffer &fb, const spike::Rect &r, int mode) {
   }
 }
 
-// ---- built-once caches ---------------------------------------------------
+// ---- built-once caches (no heap, no function-local static) ---------------
 
-const std::vector<std::uint8_t> &SignalScreen() {
-  static const std::vector<std::uint8_t> bytes = [] {
-    Enc e;
-    EncodeSignal(e);
-    return e.b;
-  }();
-  return bytes;
+namespace {
+
+// Build a screen's byte stream into a fixed-size array at static init. The
+// encoded size is deterministic (static chrome), so a fixed buffer replaces
+// the std::vector heap allocation and its lazy init.
+std::array<std::uint8_t, kMaxScreenBytes> BuildBytes(void (*encode)(Enc &)) {
+  std::array<std::uint8_t, kMaxScreenBytes> a{};
+  Enc e;
+  encode(e);
+  std::memcpy(a.data(), e.b.data(), e.n);
+  return a;
 }
 
-const std::vector<std::uint8_t> &MatrixScreen() {
-  static const std::vector<std::uint8_t> bytes = [] {
-    Enc e;
-    EncodeMatrix(e);
-    return e.b;
-  }();
-  return bytes;
-}
+const std::array<std::uint8_t, kMaxScreenBytes> kSignalBytes =
+    BuildBytes(EncodeSignal);
+const std::array<std::uint8_t, kMaxScreenBytes> kMatrixBytes =
+    BuildBytes(EncodeMatrix);
+const std::array<std::uint8_t, kMaxScreenBytes> kPatchBytes =
+    BuildBytes(EncodePatch);
+const std::array<std::uint8_t, kMaxScreenBytes> kSaveBytes =
+    BuildBytes(EncodeSave);
 
-const std::vector<std::uint8_t> &PatchScreen() {
-  static const std::vector<std::uint8_t> bytes = [] {
-    Enc e;
-    EncodePatch(e);
-    return e.b;
-  }();
-  return bytes;
-}
+}  // namespace
 
-const std::vector<std::uint8_t> &SaveScreen() {
-  static const std::vector<std::uint8_t> bytes = [] {
-    Enc e;
-    EncodeSave(e);
-    return e.b;
-  }();
-  return bytes;
-}
+const std::uint8_t *SignalScreen() { return kSignalBytes.data(); }
+const std::uint8_t *MatrixScreen() { return kMatrixBytes.data(); }
+const std::uint8_t *PatchScreen() { return kPatchBytes.data(); }
+const std::uint8_t *SaveScreen() { return kSaveBytes.data(); }
 
 }  // namespace nostromo

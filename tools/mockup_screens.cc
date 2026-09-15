@@ -164,7 +164,7 @@ void DrawSignal(FrameBuffer &fb) {
   // construction (one description, two consumers). The DYN rects land in
   // `dyn`; the canned plot content below uses the same plot origins.
   spike::DynSlot dyn[nostromo::kNumSlots] = {};
-  spike::Interpret(nostromo::SignalScreen().data(), fb,
+  spike::Interpret(nostromo::SignalScreen(), fb,
                    nostromo::MakeCtx(dyn, nostromo::kNumSlots));
 
   const int gx0 = kPx0[0] + kPlotDX, gy = kModY + kPlotDY;
@@ -250,7 +250,7 @@ void DrawMatrix(FrameBuffer &fb) {
 
   // Static chrome (frames, headers, labels) from the descriptor; the cell
   // grid and detail values below are the canned DYN content.
-  spike::Interpret(nostromo::MatrixScreen().data(), fb,
+  spike::Interpret(nostromo::MatrixScreen(), fb,
                    nostromo::MakeCtx(nullptr, 0));
 
   const int ry = kBlockY + 31;
@@ -331,7 +331,7 @@ void DrawPatch(FrameBuffer &fb) {
 
   // Static chrome (title, filter strip, frames, column headers) from the
   // descriptor; the list rows, position bar and detail values are DYN content.
-  spike::Interpret(nostromo::PatchScreen().data(), fb,
+  spike::Interpret(nostromo::PatchScreen(), fb,
                    nostromo::MakeCtx(nullptr, 0));
 
   constexpr int kLw = 602;
@@ -402,7 +402,7 @@ void DrawPatch(FrameBuffer &fb) {
 void DrawSave(FrameBuffer &fb) {
   // Static chrome (title, field frames, group rules, target labels, action
   // row) from the descriptor; the cells, ribbon, values and occupancy are DYN.
-  spike::Interpret(nostromo::SaveScreen().data(), fb,
+  spike::Interpret(nostromo::SaveScreen(), fb,
                    nostromo::MakeCtx(nullptr, 0));
 
   // Name field: per-cell underline rather than a box, so it reads as sixteen

@@ -10,7 +10,6 @@
 #pragma once
 
 #include <cstdint>
-#include <vector>
 
 #include "descriptor.h"
 #include "fb.h"
@@ -37,11 +36,12 @@ enum SlotIdx : int {
 /// Index order is the ColorIdx enum; a descriptor `c:u8` names an entry here.
 const spike::Color *DescriptorPalette();
 
-/// The static-chrome descriptor for each screen (built once, then cached).
-const std::vector<std::uint8_t> &SignalScreen();
-const std::vector<std::uint8_t> &MatrixScreen();
-const std::vector<std::uint8_t> &PatchScreen();
-const std::vector<std::uint8_t> &SaveScreen();
+/// The static-chrome descriptor byte stream for each screen (built once at
+/// static init into a fixed-size buffer; interpreted until the END op).
+const std::uint8_t *SignalScreen();
+const std::uint8_t *MatrixScreen();
+const std::uint8_t *PatchScreen();
+const std::uint8_t *SaveScreen();
 
 /// A ready interpreter context: palette + the two Terminus atlases + no
 /// templates + the caller's DYN slot array. `slots`/`n_slots` are the caller's;

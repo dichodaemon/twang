@@ -1038,8 +1038,7 @@ void DrawChrome(FrameBuffer &fb, Panel &p) {
   // column header frames) and fills the DYN slot rects. The dynamic edit
   // chrome (title, pane cursor, column values) is drawn per-frame by
   // DrawEditChrome, not cached here.
-  const auto &bytes = SignalScreen();
-  spike::Interpret(bytes.data(), fb, MakeCtx(p.dyn, kNumSlots));
+  spike::Interpret(SignalScreen(), fb, MakeCtx(p.dyn, kNumSlots));
 }
 
 // ---- Panel API ----
