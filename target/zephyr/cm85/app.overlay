@@ -16,6 +16,19 @@
 	aliases {
 		i2s-tx = &i2s1;
 	};
+
+	chosen {
+		zephyr,dtcm = &dtcm;
+	};
+
+	// The audio engine's DSP state lives in the Cortex-M85 DTCM (tightly
+	// coupled, per-core data memory): fast and off the shared SDRAM. The
+	// chosen zephyr,dtcm node turns on the generic linker's .dtcm_bss section.
+	dtcm: memory@20000000 {
+		compatible = "zephyr,memory-region", "arm,dtcm";
+		reg = <0x20000000 DT_SIZE_K(64)>;
+		zephyr,memory-region = "DTCM";
+	};
 };
 
 &pinctrl {

@@ -25,10 +25,11 @@ constexpr int kNumBlocks = 4;
 
 K_MEM_SLAB_DEFINE(tx_slab, WB_UP(kBlockBytes), kNumBlocks, 4);
 
-/// The audio engine's complete DSP state. Static storage: zero-initialized and
-/// out of the (small) main-thread stack. Moved to DTCM by a .dtcm_bss section
-/// attribute (see the dtcm bead).
-engine::EngineAudio audio;
+/// The audio engine's complete DSP state. Static storage in DTCM (fast,
+/// per-core tightly-coupled memory): the .dtcm_bss section attribute keeps the
+/// ~3.5 KB struct off the small main-thread stack and off the shared SDRAM.
+/// Zero-initialized by the C runtime (NOLOAD section).
+engine::EngineAudio audio __attribute__((section(".dtcm_bss")));
 
 /// Render one engine block into an interleaved 16-bit stereo I2S block.
 void RenderBlock(int16_t *out) {
