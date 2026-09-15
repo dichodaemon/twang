@@ -11,6 +11,7 @@
 
 namespace nostromo {
 struct Panel;
+struct Interaction;
 }
 
 namespace spike {
@@ -37,10 +38,12 @@ struct SdlBackend {
   /// @brief Index of the back buffer `fb` currently points at (0 or 1).
   int BackIndex() const;
 
-  /// @brief Drains SDL events: quit handling + mouse → PanelPointer.
+  /// @brief Drains SDL events: quit handling + mouse → PanelPointer; keyboard
+  /// shortcuts → the interaction layer.
   ///
   /// @param panel Panel to feed pointer events.
-  void PollEvents(nostromo::Panel *panel);
+  /// @param interaction Interaction layer to feed logical control events.
+  void PollEvents(nostromo::Panel *panel, nostromo::Interaction *interaction);
 
   /// @brief Tears down SDL and frees the framebuffer.
   ~SdlBackend();

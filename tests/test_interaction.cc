@@ -1,6 +1,6 @@
 // test_interaction.cc — end-to-end interaction-layer behaviour.
 //
-// Drives the layer through InteractionOnInput and checks the engine and the
+// Drives the layer through Interaction::OnInput and checks the engine and the
 // panel react: a turn writes the right parameter and no other; MOD held + an
 // armed source + a turn creates a route; a part change leaves the navigation
 // state invariant; and a change marks the affected plot dirty (observed via
@@ -32,16 +32,16 @@ static void Check(bool ok, const char *msg) {
 
 static std::uint32_t g_t = 0;
 
-static void Turn(Control c, std::int8_t detents) {
+static void Turn(Interaction &it, Control c, std::int8_t detents) {
     g_t += 100;
-    InteractionOnInput(InputEvent{c, detents, Edge::kNone, g_t});
+    it.OnInput(InputEvent{c, detents, Edge::kNone, g_t});
 }
 
-static void Tap(Control c) {
+static void Tap(Interaction &it, Control c) {
     g_t += 10;
-    InteractionOnInput(InputEvent{c, 0, Edge::kDown, g_t});
+    it.OnInput(InputEvent{c, 0, Edge::kDown, g_t});
     g_t += 10;
-    InteractionOnInput(InputEvent{c, 0, Edge::kUp, g_t});
+    it.OnInput(InputEvent{c, 0, Edge::kUp, g_t});
 }
 
 int main() {
@@ -51,14 +51,16 @@ int main() {
     static std::uint16_t buf1[kW * kH];
     FrameBuffer fb0 = {buf0, kW, kH, kW, Rect{0, 0, kW, kH}};
     FrameBuffer fb1 = {buf1, kW, kH, kW, Rect{0, 0, kW, kH}};
+
+    Interaction it;
+    it.Init(p, Surface());
+
     PanelDraw(p, fb0, 0);
     PanelDraw(p, fb1, 1);
 
-    InteractionInit(p, Surface());
-
     // Power-on page is kOutScope (index 14); walk NAV1 back 9 to kFilt (5).
-    for (int i = 0; i < 9; ++i) Turn(Control::kNav1, -1);
-    Check(InteractionNavState().subject == SubjectId::kFilt,
+    for (int i = 0; i < 9; ++i) Turn(it, Control::kNav1, -1);
+    Check(it.Nav().subject == SubjectId::kFilt,
           "NAV1 walks to the filter page");
 
     // 1. A turn on the cutoff column writes cutoff and no other parameter.
@@ -66,7 +68,7 @@ int main() {
         const float reso = engine::EngineGetParam(0, {0, engine::ParamId::kResonance});
         const float atk = engine::EngineGetParam(0, {0, engine::ParamId::kAttack});
         const float cutoff = engine::EngineGetParam(0, {0, engine::ParamId::kCutoff});
-        Turn(Enc(0), -1);  // cutoff (default 1.0) lowers on a backward turn
+        Turn(it, Enc(0), -1);  // cutoff (default 1.0) lowers on a backward turn
         Check(engine::EngineGetParam(0, {0, engine::ParamId::kCutoff}) < cutoff,
               "cutoff turn lowers cutoff");
         Check(engine::EngineGetParam(0, {0, engine::ParamId::kResonance}) == reso,
@@ -79,16 +81,16 @@ int main() {
     //    to the prior mode.
     {
         g_t += 10;
-        InteractionOnInput(InputEvent{Control::kMod, 0, Edge::kDown, g_t});
-        Check(InteractionNavState().mode == ViewMode::kModArm,
+        it.OnInput(InputEvent{Control::kMod, 0, Edge::kDown, g_t});
+        Check(it.Nav().mode == ViewMode::kModArm,
               "MOD down arms");
-        Turn(Control::kNav2, 1);  // arm a source: kNone -> kVelocity
-        Check(InteractionNavState().armed_source == engine::ModSourceId::kVelocity,
+        Turn(it, Control::kNav2, 1);  // arm a source: kNone -> kVelocity
+        Check(it.Nav().armed_source == engine::ModSourceId::kVelocity,
               "NAV2 arms velocity");
-        Turn(Enc(0), 1);  // write velocity -> cutoff
+        Turn(it, Enc(0), 1);  // write velocity -> cutoff
         g_t += 10;
-        InteractionOnInput(InputEvent{Control::kMod, 0, Edge::kUp, g_t});
-        Check(InteractionNavState().mode == ViewMode::kEdit,
+        it.OnInput(InputEvent{Control::kMod, 0, Edge::kUp, g_t});
+        Check(it.Nav().mode == ViewMode::kEdit,
               "MOD up returns to edit after a route");
 
         engine::ModRoute r;
@@ -100,13 +102,13 @@ int main() {
 
     // 3. A part change sets part and leaves subject/group/item/mode invariant.
     {
-        const NavState &nav = InteractionNavState();
+        const NavState &nav = it.Nav();
         const SubjectId subj = nav.subject;
         const std::uint8_t group = nav.group;
         const std::uint8_t item = nav.item[static_cast<int>(subj)];
         const ViewMode mode = nav.mode;
-        Tap(Control::kPart2);
-        const NavState &n2 = InteractionNavState();
+        Tap(it, Control::kPart2);
+        const NavState &n2 = it.Nav();
         Check(n2.part == 2, "part changed to 2");
         Check(n2.subject == subj && n2.group == group && n2.mode == mode,
               "subject/group/mode invariant across a part change");
@@ -120,7 +122,7 @@ int main() {
         PanelDraw(p, fb0, 0);
         PanelDraw(p, fb1, 1);
         const int before = PanelPlotDraws(p, 1);  // filter plot
-        Tap(Control::kMod);  // toggle kModView -> MarkAll
+        Tap(it, Control::kMod);  // toggle kModView -> MarkAll
         PanelDraw(p, fb0, 0);
         PanelDraw(p, fb1, 1);
         Check(PanelPlotDraws(p, 1) > before,
@@ -131,13 +133,13 @@ int main() {
     //    -> kEdit. Regression for the kDown-clobbers-mode bug (the toggle must
     //    snapshot the pre-press mode, not re-read it after kDown sets kModArm).
     {
-        Check(InteractionNavState().mode == ViewMode::kModView,
+        Check(it.Nav().mode == ViewMode::kModView,
               "section 4 left the layer in kModView");
-        Tap(Control::kMod);
-        Check(InteractionNavState().mode == ViewMode::kEdit,
+        Tap(it, Control::kMod);
+        Check(it.Nav().mode == ViewMode::kEdit,
               "second MOD tap exits kModView to kEdit");
-        Tap(Control::kMod);
-        Check(InteractionNavState().mode == ViewMode::kModView,
+        Tap(it, Control::kMod);
+        Check(it.Nav().mode == ViewMode::kModView,
               "third MOD tap re-enters kModView");
     }
 

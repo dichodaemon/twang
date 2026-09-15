@@ -8,12 +8,14 @@
 
 namespace nostromo {
 
-FeelProfile g_feel = {
-    24,   // detents_per_rev
-    4,    // accel_max_default
-    8,    // accel_threshold_dps
-    500,  // long_press_ms
-    10,   // fine_divisor
-};
+FeelProfile DefaultFeel() {
+    return FeelProfile{
+        24,   // detents_per_rev
+        4,    // accel_max_default
+        8,    // accel_threshold_dps
+        500,  // long_press_ms
+        10,   // fine_divisor
+    };
+}
 
 }  // namespace nostromo

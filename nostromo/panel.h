@@ -55,11 +55,23 @@ struct TraceState {
 /// @brief Opaque panel state (owned by the caller; never freed in practice).
 struct Panel;
 
+/// Forward decl: the interaction layer's state (nostromo/interaction.h).
+struct Interaction;
 
 /// @brief Allocates the panel (fixed SDRAM placement on the target).
 ///
 /// @return The panel context (owned by the caller; never freed in practice).
 Panel *PanelCreate();
+
+/// @brief Bind the interaction layer to the panel (control thread, once).
+///
+/// The panel reads navigation state through this back-pointer to render the
+/// pane/header chrome and DYN plots; the interaction layer sets it in
+/// Interaction::Init.
+///
+/// @param p Panel context.
+/// @param it Interaction context (owned by the caller).
+void PanelSetInteraction(Panel *p, const Interaction *it);
 
 /// @brief Marks a slot dirty, repainting it into both buffers.
 ///

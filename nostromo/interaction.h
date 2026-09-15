@@ -14,6 +14,7 @@
 #include <cstdint>
 
 #include "engine.h"
+#include "feel.h"
 #include "geom.h"
 
 namespace nostromo {
@@ -57,12 +58,12 @@ enum class Gesture : std::uint8_t {
   kNone = 0,     ///< no gesture (a press start, or an absorbed release)
   kTurn,         ///< detents, no press held
   kHoldTurn,     ///< detents while pressed — fine adjust
-  kPressShort,   ///< press and release under g_feel.long_press_ms, no detent
-  kPressLong,    ///< press held past g_feel.long_press_ms, no detent
+  kPressShort,   ///< press and release under feel.long_press_ms, no detent
+  kPressLong,    ///< press held past feel.long_press_ms, no detent
 };
 
 /// Per-control press state for gesture recognition. One per Control, held by
-/// the interaction layer; the recognizer mutates it and reads g_feel.
+/// the interaction layer; the recognizer mutates it and reads the feel profile.
 struct PressState {
   bool          pressed = false;   ///< a press is in progress
   std::uint32_t press_t_ms = 0;    ///< kDown timestamp
@@ -72,7 +73,9 @@ struct PressState {
 /// Convert one InputEvent to a Gesture, mutating the per-control `st`. The
 /// hold-versus-press disambiguation lives here (arch-design §5): a detent
 /// during a press is kHoldTurn and the release is absorbed (emits kNone).
-Gesture Recognize(const InputEvent &ev, PressState &st);
+/// `feel` supplies the long-press threshold (no global).
+Gesture Recognize(const InputEvent &ev, PressState &st,
+                  const FeelProfile &feel);
 
 /// A subject is an entry in the navigation pane. Enum order is pane order —
 /// NAV1 walks index order — which is arch-design §7.6's order, not §7.3's
@@ -121,27 +124,41 @@ struct NavState {
 struct SurfaceProfile;  ///< defined in surface.h
 struct Panel;           ///< defined in panel.h
 
-/// @brief Initialise the layer (control thread, once).
-/// Binds the panel (the MarkDirty target) and surface; loads g_feel defaults;
-/// zeroes NavState; marks every plot slot dirty. Reports once if
-/// surface.n_encoders < geom::kColumns.
-void InteractionInit(Panel *panel, const SurfaceProfile &surface);
+/// The interaction layer's complete runtime state — a singleton owned by the
+/// caller (host/target main) and passed by pointer to whatever drives input or
+/// reads navigation. All mutable layer state lives here; there are no globals.
+struct Interaction {
+  Panel *panel = nullptr;   ///< MarkDirty target (panel.h)
+  NavState nav{};           ///< navigation + armed source + prev position
+  PressState press[static_cast<int>(Control::kCount)]{};  ///< per-control press
+  std::uint32_t last_turn_ms[static_cast<int>(Control::kCount)]{};  ///< turn rate
+  bool arm_used = false;    ///< a route was armed this MOD press
+  bool mod_from_view = false;  ///< MOD was in kModView at kDown
+  FeelProfile feel = DefaultFeel();  ///< runtime-tunable feel (CONF page)
+  const SurfaceProfile *surface = nullptr;  ///< active physical map
 
-/// @brief Feed one logical input event.
-/// Precondition: ev.control < Control::kCount, ev.t_ms monotonic.
-void InteractionOnInput(const InputEvent &ev);
+  /// @brief Initialise the layer (control thread, once).
+  /// Binds the panel (the MarkDirty target) and surface; loads feel defaults;
+  /// zeroes NavState; marks every plot slot dirty. Reports once if
+  /// surface.n_encoders < geom::kColumns.
+  void Init(Panel *panel, const SurfaceProfile &surface);
 
-/// @brief Create or update a modulation route (control thread).
-/// Finds the matching (src, dst) route or the lowest free slot; returns false
-/// if the table is full and no slot matched. A zero amount keeps the slot.
-/// `dst` is a full ParamRef — the instance comes from ResolveBinding and is
-/// never re-derived here (Design Decisions).
-bool InteractionCreateRoute(std::uint8_t part, engine::ModSourceId src,
-                            engine::ParamRef dst, float amount);
+  /// @brief Feed one logical input event.
+  /// Precondition: ev.control < Control::kCount, ev.t_ms monotonic.
+  void OnInput(const InputEvent &ev);
 
-/// @brief Read-only view of the navigation state for the renderer (pane/header
-/// chrome and DYN hooks). Returns a const reference so the screen cannot write
-/// back — the layer is the sole writer of NavState.
-const NavState &InteractionNavState();
+  /// @brief Create or update a modulation route (control thread).
+  /// Finds the matching (src, dst) route or the lowest free slot; returns false
+  /// if the table is full and no slot matched. A zero amount keeps the slot.
+  /// `dst` is a full ParamRef — the instance comes from ResolveBinding and is
+  /// never re-derived here (Design Decisions).
+  bool CreateRoute(std::uint8_t part, engine::ModSourceId src,
+                   engine::ParamRef dst, float amount);
+
+  /// @brief Read-only view of the navigation state for the renderer (pane/header
+  /// chrome and DYN hooks). Returns a const reference so the screen cannot write
+  /// back — the layer is the sole writer of NavState.
+  const NavState &Nav() const { return nav; }
+};
 
 }  // namespace nostromo

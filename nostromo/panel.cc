@@ -74,6 +74,10 @@ struct Panel {
   float phase = 0.0f;
   float scope_peak = 0.0f;
 
+  // Back-pointer to the interaction layer's navigation state (set once in
+  // Interaction::Init via PanelSetInteraction); read-only from the panel.
+  const Interaction *interaction = nullptr;
+
   // Audio tap + draw scratch (owned here, never heap-allocated in the draw).
   ScopeRing scope_ring;
   float cycle_buf[kCycleBufSize];
@@ -686,7 +690,7 @@ ScopeMode ScopeModeOf(SubjectId s) {
 }
 
 void DrawOutPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
-  switch (ScopeModeOf(InteractionNavState().subject)) {
+  switch (ScopeModeOf(p.interaction->Nav().subject)) {
     case ScopeMode::kCycle:
       DrawCyclePlot(fb, ox, oy, w, h, p);
       break;
@@ -977,8 +981,8 @@ const char *ModePrefix(ViewMode m) {
   }
 }
 
-void DrawEditChrome(FrameBuffer &fb) {
-  const NavState &nav = InteractionNavState();
+void DrawEditChrome(FrameBuffer &fb, Panel &p) {
+  const NavState &nav = p.interaction->Nav();
   const PageDesc &page = k_pages[static_cast<int>(nav.subject)];
 
   // Title bar: part swatches, the screen name in full (with mode prefix), a
@@ -1065,6 +1069,10 @@ Panel *PanelCreate() {
   return p;
 }
 
+void PanelSetInteraction(Panel *p, const Interaction *it) {
+  p->interaction = it;
+}
+
 void SyncFromEngine(Panel *p);  // defined below (after PanelDraw)
 
 void MarkDirty(Panel *p, SlotIdx idx) {
@@ -1075,8 +1083,8 @@ void MarkDirty(Panel *p, SlotIdx idx) {
 
 // The plot slot the current page shows, or -1 for pages without a plot. The
 // four slots share one band; only the active page's plot may paint into it.
-int ActivePlotSlot() {
-  const NavState &nav = InteractionNavState();
+int ActivePlotSlot(const Panel &p) {
+  const NavState &nav = p.interaction->Nav();
   return k_pages[static_cast<int>(nav.subject)].dyn_slot;
 }
 
@@ -1112,14 +1120,14 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
       std::memset(&p->traces[i][b], 0xFF, sizeof(TraceState));
     // Only the active page's plot paints into the shared band; the other three
     // slots are different pages and must not paint over it.
-    const int active = ActivePlotSlot();
+    const int active = ActivePlotSlot(*p);
     for (int i = 0; i < 4; ++i) {
       if (i != active) continue;
       p->dyn[i].draw(fb, p->dyn[i].rect, p->dyn[i].state);
       p->pending[i] = 0;
       p->dyn[i].dirty = false;
     }
-    DrawEditChrome(fb);
+    DrawEditChrome(fb, *p);
     p->chrome_drawn[b] = true;
     p->damage.Repaint();  // the full render subsumes the pending damage
     return;
@@ -1133,7 +1141,7 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   // says *a buffer is still owed* — and they coincide because MarkDirty is the
   // sole writer of both.
   const int n = p->damage.Repaint();
-  const int active = ActivePlotSlot();
+  const int active = ActivePlotSlot(*p);
   for (int k = 0; k < 4; ++k) {
     if (k != active) continue;  // only the active page's plot paints
     if (!p->dyn[k].dirty || p->pending[k] <= 0) continue;
@@ -1156,7 +1164,7 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
     // band would otherwise keep whatever the last plotted page drew.
     FillRect(fb, geom::kPlotX, geom::kPlotY, geom::kPlotW, geom::kPlotH, kBg);
   }
-  DrawEditChrome(fb);
+  DrawEditChrome(fb, *p);
 }
 
 // ---- pointer (touch/drag) ----

@@ -91,7 +91,7 @@ void MidiIo::Init() {
     }
 }
 
-void MidiIo::Poll(nostromo::Panel *panel) {
+void MidiIo::Poll(nostromo::Panel *panel, nostromo::Interaction *interaction) {
     if (!in) return;
     const nostromo::SurfaceProfile &surface = nostromo::Surface();
     std::vector<unsigned char> msg;
@@ -123,7 +123,7 @@ void MidiIo::Poll(nostromo::Panel *panel) {
                 ev.edge = (msg[2] > 0) ? nostromo::Edge::kDown
                                        : nostromo::Edge::kUp;
             }
-            nostromo::InteractionOnInput(ev);
+            interaction->OnInput(ev);
             break;
         }
         case 0x90:  // Note On (velocity 0 = note off)

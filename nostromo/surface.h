@@ -55,8 +55,8 @@ struct SurfaceProfile {
   bool              has_rings;   ///< LED rings on the parameter encoders
 };
 
-/// The active profile. Set once at startup; swapping prototypes swaps a table.
+/// The shipped surface profile (the only prototype). Swapping prototypes
+/// swaps the table returned here, not a runtime pointer.
 const SurfaceProfile &Surface();
-void SetSurface(const SurfaceProfile &p);
 
 }  // namespace nostromo

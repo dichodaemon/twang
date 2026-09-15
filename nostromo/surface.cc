@@ -37,13 +37,9 @@ const SurfaceProfile kXtouchCompact = {
     true,  // has_rings (LED rings on the parameter encoders)
 };
 
-const SurfaceProfile *g_surface = &kXtouchCompact;
-
 }  // namespace
 
-const SurfaceProfile &Surface() { return *g_surface; }
-
-void SetSurface(const SurfaceProfile &p) { g_surface = &p; }
+const SurfaceProfile &Surface() { return kXtouchCompact; }
 
 int DecodeEnc(std::uint8_t raw, EncEncoding enc) {
   switch (enc) {

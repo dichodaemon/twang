@@ -45,7 +45,8 @@ int main() {
     nostromo::Panel *panel = nostromo::PanelCreate();
 
     // Bind the interaction layer to the panel and the X-Touch surface map.
-    nostromo::InteractionInit(panel, nostromo::Surface());
+    nostromo::Interaction interaction;
+    interaction.Init(panel, nostromo::Surface());
 
     audio::Output audio_out;
     if (!audio_out.Start(engine::kSampleRate, AudioCallback, panel))
@@ -55,8 +56,8 @@ int main() {
     midi.Init();
 
     while (!backend.quit) {
-        backend.PollEvents(panel);
-        midi.Poll(panel);
+        backend.PollEvents(panel, &interaction);
+        midi.Poll(panel, &interaction);
         midi.Feedback();
         nostromo::PanelDraw(panel, backend.fb, backend.BackIndex());
         backend.Present();

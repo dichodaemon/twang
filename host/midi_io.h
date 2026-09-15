@@ -3,7 +3,7 @@
 ///
 /// Sim-only (desktop): opens the X-Touch Compact's MIDI input and output,
 /// maps incoming CCs to logical controls via the SurfaceProfile and feeds the
-/// interaction layer (InteractionOnInput); notes route through PanelNoteOn/Off.
+/// interaction layer (Interaction::OnInput); notes route through PanelNoteOn/Off.
 /// Feedback (fader positions + LED rings) is sent back. The target swaps this
 /// transport for Zephyr's MIDI stack; the surface map (nostromo/surface.h) is
 /// shared.
@@ -16,6 +16,7 @@
 
 namespace nostromo {
 struct Panel;
+struct Interaction;
 }
 
 /// MIDI transport state: the open ports and the feedback dedup cache.
@@ -30,10 +31,11 @@ struct MidiIo {
     void Init();
 
     /// @brief Drain pending MIDI messages (control thread): CCs become
-    /// InteractionOnInput events via the surface map; notes route through
+    /// Interaction::OnInput events via the surface map; notes route through
     /// PanelNoteOn/Off.
     /// @param panel Panel context (notes route through PanelNoteOn/Off).
-    void Poll(nostromo::Panel *panel);
+    /// @param interaction Interaction layer to feed logical control events.
+    void Poll(nostromo::Panel *panel, nostromo::Interaction *interaction);
 
     /// @brief Send current parameter values back to the controller (fader
     /// positions + LED rings). Call periodically from the main loop.

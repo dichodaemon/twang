@@ -20,7 +20,8 @@ struct FeelProfile {
   std::uint8_t  fine_divisor;         ///< hold-and-turn divisor (10 = x1/10)
 };
 
-/// Mutable; edited from the CONF page.
-extern FeelProfile g_feel;
+/// The tuned starting values (edited at runtime from the CONF page into the
+/// interaction layer's own copy, not a shared global).
+FeelProfile DefaultFeel();
 
 }  // namespace nostromo

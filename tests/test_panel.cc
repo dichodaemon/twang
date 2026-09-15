@@ -40,7 +40,8 @@ static constexpr std::uint32_t kExpectedHash = 0x263EB13E;
 int main() {
     engine::EngineInit();
     Panel *p = PanelCreate();
-    InteractionInit(p, Surface());  // power-on page: kOutScope → scope plot
+    Interaction it;
+    it.Init(p, Surface());  // power-on page: kOutScope → scope plot
 
     static std::uint16_t buf0[kW * kH];
     static std::uint16_t buf1[kW * kH];

@@ -122,7 +122,7 @@ void SdlBackend::Present() {
   fb.px = impl->px[impl->current];
 }
 
-void SdlBackend::PollEvents(Panel *panel) {
+void SdlBackend::PollEvents(Panel *panel, nostromo::Interaction *interaction) {
   SDL_Event e;
   while (SDL_PollEvent(&e)) {
     switch (e.type) {
@@ -140,7 +140,7 @@ void SdlBackend::PollEvents(Panel *panel) {
         std::int8_t detents;
         bool turn;
         if (KeyControl(e.key.keysym.sym, &c, &detents, &turn)) {
-          nostromo::InteractionOnInput(nostromo::InputEvent{
+          interaction->OnInput(nostromo::InputEvent{
               c, turn ? detents : std::int8_t{0},
               turn ? nostromo::Edge::kNone : nostromo::Edge::kDown,
               SDL_GetTicks()});
@@ -152,7 +152,7 @@ void SdlBackend::PollEvents(Panel *panel) {
       std::int8_t detents;
       bool turn;
       if (KeyControl(e.key.keysym.sym, &c, &detents, &turn) && !turn) {
-        nostromo::InteractionOnInput(
+        interaction->OnInput(
             nostromo::InputEvent{c, 0, nostromo::Edge::kUp, SDL_GetTicks()});
       }
       break;
