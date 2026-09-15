@@ -291,6 +291,26 @@ int main() {
         Check(same, "feel editing leaves bindings unchanged (invariant 12)");
     }
 
+    // 10. OUT round-trip: OUT pressed twice restores subject/group/focus_col
+    //     (§11 acceptance criterion).
+    {
+        // Focus column 0 in MOD view so focus_col is non-default.
+        Tap(it, Control::kMod);  // kEdit -> kModView
+        Tap(it, Enc(0));         // focus column 0
+        Check(it.Nav().focus_col == 0, "MOD-view short press focuses column 0");
+        Tap(it, Control::kMod);  // kModView -> kEdit (focus_col persists)
+
+        const SubjectId subj = it.Nav().subject;
+        const std::uint8_t group = it.Nav().group;
+        const std::int8_t focus = it.Nav().focus_col;
+        Tap(it, Control::kOut);
+        Check(it.Nav().subject == SubjectId::kOutScope, "OUT jumps to scope");
+        Tap(it, Control::kOut);
+        Check(it.Nav().subject == subj && it.Nav().group == group &&
+                  it.Nav().focus_col == focus,
+              "OUT round-trip restores subject/group/focus_col");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;
