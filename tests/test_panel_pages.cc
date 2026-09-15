@@ -4,10 +4,8 @@
 // against a baked hash, so a chrome regression on any page — not just the
 // power-on scope — fails the suite.
 //
-// Convergence with mockup_pages.cc is NOT asserted: the mockup draws fixed
-// fixtures while the panel reads live engine state, so the two renderers
-// cannot produce the same frame from the same state. Each renderer therefore
-// keeps its own hash set; this test is the panel's.
+// The panel is the single chrome implementation (the mockup tool was removed),
+// so these hashes are the authoritative render of the live engine state.
 
 #include <cstdint>
 #include <cstdio>

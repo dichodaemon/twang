@@ -14,7 +14,6 @@
 #include "panel.h"
 
 #include "palette.h"
-#include "screens.h"
 
 #if defined(__ZEPHYR__)
 #include <zephyr/kernel.h>  // k_uptime_get_32 (monotonic ms; no gettimeofday)
@@ -103,9 +102,8 @@ struct Panel {
   // Per-plot, per-buffer column trace (two copies — one per buffer).
   TraceState traces[4][2];
 
-  // The dynamic regions: four plots (slots 0-3) plus the output module's
-  // mode buttons (slot 4). Rects are filled by the screen descriptor on the
-  // first chrome draw; the hooks/state are set in PanelCreate.
+  // The dynamic regions: the four plots (slots 0-3). Rects are filled by
+  // DrawChrome on the first chrome draw; the hooks/state are set in PanelCreate.
   DynRegion dyn[kNumSlots];
 
   // Pending-buffer redraw count per plot: a plot invalidated in frame n must
@@ -1190,11 +1188,17 @@ void DrawEditChrome(FrameBuffer &fb, Panel &p) {
 }
 
 void DrawChrome(FrameBuffer &fb, Panel &p) {
-  // The screen descriptor draws the static chrome (background, pane boundary,
-  // column header frames) and fills the DYN slot rects. The dynamic edit
-  // chrome (title, pane cursor, column values) is drawn per-frame by
-  // DrawEditChrome, not cached here.
-  spike::Interpret(SignalScreen(), fb, MakeCtx(p.dyn, kNumSlots));
+  // Static chrome: background, pane gutter, and the four plot regions. The
+  // dynamic edit chrome (title, pane cursor, column values) is drawn per-frame
+  // by DrawEditChrome, not cached here.
+  FillRect(fb, 0, 0, kFrameW, kFrameH, kBg);
+  DrawVLine(fb, geom::kPaneX + geom::kPaneW - 5, geom::kPaneY, geom::kPaneH,
+            kDim);
+  DrawVLine(fb, geom::kPaneX + geom::kPaneW - 4, geom::kPaneY, geom::kPaneH,
+            kDim);
+  for (int i = 0; i < 4; ++i)
+    p.dyn[i].rect =
+        Rect{geom::kPlotX, geom::kPlotY, geom::kPlotW, geom::kPlotH};
 }
 
 // ---- Panel API ----
@@ -1218,14 +1222,12 @@ Panel *PanelCreate() {
   // Column traces start empty (no curve) in every column of every buffer.
   std::memset(p->traces, 0xFF, sizeof(p->traces));
 
-  // The four plot slots: hooks/state live here; the rects are filled by the
-  // screen descriptor's DYN ops on the first chrome draw. The mode-button slot
-  // (4) is drawn directly by DrawChrome, not through the damage walk.
+  // The four plot slots: hooks/state live here; the rects are filled by
+  // DrawChrome on the first chrome draw.
   void (*hooks[4])(FrameBuffer &, const Rect &, void *) = {
       PlotOsc, PlotFilter, PlotEnv, PlotOut};
   for (int i = 0; i < 4; ++i)
     p->dyn[i] = DynRegion{{0, 0, 0, 0}, hooks[i], p, true};
-  p->dyn[kSlotMode] = DynRegion{{0, 0, 0, 0}, nullptr, nullptr, false};
   return p;
 }
 

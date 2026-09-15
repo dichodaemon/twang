@@ -8,8 +8,6 @@
 
 #include "pages.h"
 
-#include "screens.h"  // SlotIdx (kSlotOsc, …) for dyn_slot
-
 namespace nostromo {
 
 namespace {

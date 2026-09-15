@@ -128,7 +128,15 @@ struct NavState {
 struct SurfaceProfile;  ///< defined in surface.h
 struct Panel;           ///< defined in panel.h
 struct Binding;         ///< defined in pages.h (Dispatcher's argument)
-enum SlotIdx : int;     ///< defined in screens.h (plot slot index)
+/// Plot slot indices (the four dynamic plot regions). A page descriptor's
+/// `dyn_slot` names one of these; MarkPlot/MarkDirty invalidate them.
+enum SlotIdx : int {
+  kSlotOsc = 0,   ///< Oscillator waveform plot.
+  kSlotFilter,    ///< Filter response plot (XY pad).
+  kSlotEnv,       ///< Envelope plot (draggable handles).
+  kSlotOut,       ///< Output plot (scope / cycle / spectrum).
+  kNumSlots,      ///< Slot count.
+};
 
 /// Base normalized increment per detent (a §13 tunable, measured during
 /// implementation). One detent moves an ordinary parameter by this fraction of

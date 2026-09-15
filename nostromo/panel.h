@@ -11,10 +11,8 @@
 
 #include <cstdint>
 
-#include "descriptor.h"
 #include "fb.h"
 #include "geom.h"
-#include "screens.h"
 
 namespace engine {
 class EngineControl;  ///< defined in engine_control.h; the control-core engine
@@ -41,10 +39,14 @@ struct PointerEvent {
 /// @brief A dynamic region: a rect plus a draw function and invalidation flag.
 ///
 /// "Chrome says where; C says what." The draw function renders the live
-/// content into the region; it runs only while `dirty` is set. This is the
-/// descriptor interpreter's DYN slot (§5.4), supplied with the rect by the
-/// screen descriptor and the hook/state by the panel.
-using DynRegion = spike::DynSlot;
+/// content into the region; it runs only while `dirty` is set. The panel owns
+/// the rect (plot-band geometry) and the hook/state.
+struct DynRegion {
+  Rect rect;                                             ///< Plot-band bounds.
+  void (*draw)(FrameBuffer &fb, const Rect &r, void *state);  ///< Draw hook.
+  void *state;                                           ///< Opaque state.
+  bool dirty;                                            ///< Needs a redraw.
+};
 
 /// @brief Per-plot column trace (previous vertical span), for column updates.
 ///
@@ -61,6 +63,9 @@ struct Panel;
 
 /// Forward decl: the interaction layer's state (nostromo/interaction.h).
 struct Interaction;
+
+/// Plot slot index (defined in interaction.h).
+enum SlotIdx : int;
 
 /// @brief Allocates the panel (fixed SDRAM placement on the target).
 ///
@@ -91,8 +96,7 @@ void PanelSetEngine(Panel *p, engine::EngineControl *control);
 /// @brief Marks a slot dirty, repainting it into both buffers.
 ///
 /// The single invalidation entry point: the slot's plot and its readout band
-/// are repainted together. `idx` names a plot slot (kSlotOsc..kSlotOut); the
-/// mode slot (kSlotMode) is drawn by DrawChrome, not through this path.
+/// are repainted together. `idx` names a plot slot (kSlotOsc..kSlotOut).
 ///
 /// @param p Panel context.
 /// @param idx Plot slot to invalidate.

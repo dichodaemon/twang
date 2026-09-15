@@ -45,11 +45,11 @@ target_include_directories(scope PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller)
 
 # ---- spike: minimal RGB565 renderer (framebuffer + font + damage + PNG) ----
 # General and HW-agnostic: no project vocabulary, no engine/scope dependency.
-add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc spike/png.cc spike/descriptor.cc)
+add_library(spike STATIC spike/fb.cc spike/font.cc spike/damage.cc spike/png.cc)
 target_include_directories(spike PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/spike)
 
 # ---- nostromo: this synth's GUI (panel + vocabulary), built on spike ----
-add_library(nostromo STATIC nostromo/panel.cc nostromo/screens.cc nostromo/pages.cc nostromo/feel.cc nostromo/surface.cc nostromo/interaction.cc)
+add_library(nostromo STATIC nostromo/panel.cc nostromo/pages.cc nostromo/feel.cc nostromo/surface.cc nostromo/interaction.cc)
 target_include_directories(nostromo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
 target_link_libraries(nostromo PUBLIC spike engine scope)
 
@@ -107,18 +107,11 @@ target_link_libraries(bench PRIVATE engine)
 add_executable(panel_shot tools/panel_shot.cc)
 target_link_libraries(panel_shot PRIVATE nostromo)
 
-# ---- Interaction-model pages: the design surface for the new layout ----
-# Draws through nostromo/geom.h only; no literal coordinates.
-add_executable(mockup_pages tools/mockup_pages.cc)
-target_include_directories(mockup_pages PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/nostromo)
-target_link_libraries(mockup_pages PRIVATE spike)
-
 # ---- Tests ----
 enable_testing()
 add_executable(test_engine tests/test_engine.cc)
 target_link_libraries(test_engine PRIVATE engine)
 add_test(NAME engine_render COMMAND test_engine)
-add_test(NAME mockup_pages COMMAND mockup_pages --check)
 
 add_executable(test_shaper tests/test_shaper.cc)
 target_link_libraries(test_shaper PRIVATE engine)
