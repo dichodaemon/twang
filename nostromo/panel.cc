@@ -971,6 +971,29 @@ static void DrawModBand(FrameBuffer &fb, int x, int y, float lo, float hi,
   if (b > a) FillRect(fb, a, y, b - a + 1, geom::kWellH, kMid);
 }
 
+// Short form of a modulation source for the inbound summary lines. ENV/LFO are
+// 1-indexed (kEnv0 -> ENV1) to match the pane's instance strips.
+const char *SourceAbbrev(engine::ModSourceId s) {
+  switch (s) {
+    case engine::ModSourceId::kVelocity:    return "VEL";
+    case engine::ModSourceId::kNote:        return "KEY";
+    case engine::ModSourceId::kGate:        return "GATE";
+    case engine::ModSourceId::kLfo0:        return "LFO1";
+    case engine::ModSourceId::kLfo1:        return "LFO2";
+    case engine::ModSourceId::kLfo2:        return "LFO3";
+    case engine::ModSourceId::kEnv0:        return "ENV1";
+    case engine::ModSourceId::kEnv1:        return "ENV2";
+    case engine::ModSourceId::kEnv2:        return "ENV3";
+    case engine::ModSourceId::kModWheel:    return "MODW";
+    case engine::ModSourceId::kAftertouch:  return "AT";
+    case engine::ModSourceId::kPitchBend:   return "BEND";
+    case engine::ModSourceId::kExpression:  return "EXPR";
+    case engine::ModSourceId::kRandom:      return "RAND";
+    case engine::ModSourceId::kConstant:    return "CONST";
+    default:                                return "";
+  }
+}
+
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
                  engine::EngineControl &control) {
   for (int c = 0; c < geom::kColumns; ++c) {
@@ -985,6 +1008,8 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
     // (kWellH + 6 tall), so a column that switches to unipolar — or whose
     // value moves off zero — would otherwise leave the tick behind.
     FillRect(fb, x, geom::kWellY - 3, geom::kColW, geom::kWellH + 6, kBg);
+    // Clear the summary row too: inbound route tags redraw as routes change.
+    FillRect(fb, x + 6, geom::kSumY, geom::kColW - 6, geom::kSumH, kBg);
     if (cs.kind == ColumnKind::kNone) continue;  // past a partial final group
     const char *label = ColumnLabel(cs);
     const int bw = static_cast<int>(std::strlen(label)) * kPrimaryFont.w + 12;
@@ -1032,6 +1057,24 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
           DrawModBand(fb, x, geom::kWellY, lo, hi, desc.zero_notch);
       }
       DrawWell(fb, x, geom::kWellY, norm, desc.zero_notch);
+      if (desc.modulatable) {
+        // Inbound summary: up to kSumLines routes, "<-SRC +amount".
+        int line = 0;
+        engine::ModRoute r;
+        for (int s = 0; s < engine::kModSlots && line < geom::kSumLines; ++s) {
+          if (!control.GetRoute(nav.part, s, &r)) continue;
+          if (r.dst.id != cs.param || r.dst.instance != 0) continue;
+          if (r.source == engine::ModSourceId::kNone ||
+              r.source == engine::ModSourceId::kNote) continue;
+          if (r.amount == 0.0f) continue;  // "present but silent": not a modulation
+          char tag[32];
+          std::snprintf(tag, sizeof(tag), "<-%s %+04d", SourceAbbrev(r.source),
+                        static_cast<int>(std::lround(r.amount * 100.0f)));
+          TextLeft(fb, tag, x + 6, geom::kSumY + line * geom::kSumPitch,
+                   kSecondaryFont, kDim);
+          ++line;
+        }
+      }
     }
     // kPending / kRouteField / kViewCtl: header only, empty value row.
   }
