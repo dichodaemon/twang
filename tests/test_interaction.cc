@@ -311,6 +311,38 @@ int main() {
               "OUT round-trip restores subject/group/focus_col");
     }
 
+    // 11. Invariant 13: one event causes bounded work. A turn on a column
+    //     invalidates the plot once, independent of route-table size — the
+    //     invalidation cost never scales with state.
+    {
+        // Cost of one cutoff turn with the default five routes.
+        PanelDraw(p, fb0, 0);
+        PanelDraw(p, fb1, 1);
+        const int before = PanelPlotDraws(p, 1);  // filter plot
+        Turn(it, Enc(0), 1);
+        PanelDraw(p, fb0, 0);
+        PanelDraw(p, fb1, 1);
+        const int delta_default = PanelPlotDraws(p, 1) - before;
+
+        // Fill every route slot (grow the state), then measure the same turn.
+        const int part = static_cast<int>(it.Nav().part);
+        for (int s = 0; s < engine::kModSlots; ++s)
+            control.SetRoute(part, s,
+                             static_cast<engine::ModSourceId>(1 + (s % 15)),
+                             engine::ParamRef{0, engine::ParamId::kAmp}, 0.5f);
+
+        PanelDraw(p, fb0, 0);
+        PanelDraw(p, fb1, 1);
+        const int before2 = PanelPlotDraws(p, 1);
+        Turn(it, Enc(0), 1);
+        PanelDraw(p, fb0, 0);
+        PanelDraw(p, fb1, 1);
+        const int delta_full = PanelPlotDraws(p, 1) - before2;
+
+        Check(delta_default == delta_full,
+              "work per event is bounded (invariant 13)");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;
