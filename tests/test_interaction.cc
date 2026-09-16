@@ -343,6 +343,25 @@ int main() {
               "work per event is bounded (invariant 13)");
     }
 
+    // 12. Non-modulatable destinations are inert in arm mode (regression: a
+    //     SetRoute rejection was mislabelled "route full"). Even with a full
+    //     table, a non-modulatable turn raises no alert; a modulatable one
+    //     does; and the alert clears on MOD release.
+    {
+        g_t += 10;
+        it.OnInput(InputEvent{Control::kMod, 0, Edge::kDown, g_t});  // arm
+        Turn(it, Enc(1), 1);  // RESONANCE: not modulatable -> inert
+        Check(!it.Nav().route_full,
+              "non-modulatable destination does not raise route-full");
+        Turn(it, Enc(3), 1);  // DRIVE: modulatable, table full -> alert
+        Check(it.Nav().route_full,
+              "modulatable destination on a full table raises route-full");
+        g_t += 10;
+        it.OnInput(InputEvent{Control::kMod, 0, Edge::kUp, g_t});  // release
+        Check(!it.Nav().route_full,
+              "route-full clears on MOD release");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

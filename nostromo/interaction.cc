@@ -203,6 +203,12 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
     }
     case BindKind::kRouteAmount: {
       if (g == Gesture::kTurn || g == Gesture::kHoldTurn) {
+        // A non-modulatable destination is inert in arm mode (the overlay
+        // shows "--"); skip it so SetRoute never rejects and the write is
+        // never mislabelled "route full".
+        const engine::ParamDesc &desc =
+            engine::k_params[static_cast<std::size_t>(b.param.id)];
+        if (!desc.modulatable) break;
         const float rate = TurnRate(ev.control, ev.detents, ev.t_ms);
         float step = kRouteAmountStep;
         if (rate > static_cast<float>(feel.accel_threshold_dps))
@@ -214,7 +220,7 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
         float amt = old + static_cast<float>(ev.detents) * step;
         if (amt < -1.0f) amt = -1.0f;
         if (amt > 1.0f) amt = 1.0f;
-        // CreateRoute returns false when the table is full and no route
+        // CreateRoute returns false only when the table is full and no route
         // matches: the write is dropped, so raise the route-full alert.
         nav.route_full = !CreateRoute(nav.part, nav.armed_source, b.param, amt);
         arm_used = true;
@@ -276,6 +282,7 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
         nav.mode = ViewMode::kModArm;  // momentary
         MarkAll();
       } else if (ev.edge == Edge::kUp) {
+        nav.route_full = false;  // leaving arm mode clears the alert
         if (arm_used) {
           nav.mode = ViewMode::kEdit;  // a route was armed: plain return
           arm_used = false;
