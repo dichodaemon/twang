@@ -833,6 +833,10 @@ static void DrawSourcePane(FrameBuffer &fb, const NavState &nav) {
 }
 
 void DrawPane(FrameBuffer &fb, const NavState &nav) {
+  // Wipe the pane content area once. The two pane forms (subject list vs the
+  // MOD-arm source list) use different row spacing, so a mode switch would
+  // otherwise leave the other form's rows behind.
+  FillRect(fb, geom::kPaneX, geom::kPaneY, geom::kPaneW - 8, geom::kPaneH, kBg);
   if (nav.mode == ViewMode::kModArm) {
     DrawSourcePane(fb, nav);
     return;
