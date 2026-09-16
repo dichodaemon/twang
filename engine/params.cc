@@ -13,7 +13,7 @@ constexpr ParamDesc k_params[static_cast<std::size_t>(ParamId::kCount)] = {
           CombinationClass::kAdditive, 4, false },
     [static_cast<std::size_t>(ParamId::kResonance)] =
         { "resonance", "RESONANCE", "RES", "%", 0.0f, 100.0f, 0.0f, ParamCurve::kLinear,
-          static_cast<std::uint16_t>(offsetof(Part, params) + 1 * sizeof(float)), 0, false,
+          static_cast<std::uint16_t>(offsetof(Part, params) + 1 * sizeof(float)), 0, true,
           nullptr, 0,
           CombinationClass::kAdditive, 4, false },
     [static_cast<std::size_t>(ParamId::kAttack)] =

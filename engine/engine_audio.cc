@@ -63,9 +63,8 @@ float ReadSource(ModSourceId src, const Part *p, const Voice *v) {
 }
 
 void UpdateFilterCoeffs(Voice *v, const Part *p, float cutoff_norm_eff,
-                        float key_follow_factor) {
-    const float q = QFromResonance(
-        p->params[static_cast<std::size_t>(ParamId::kResonance)]);
+                        float res_norm_eff, float key_follow_factor) {
+    const float q = QFromResonance(res_norm_eff);
 
     // Exact skip: cutoff_norm_eff, key_follow_factor and q are deterministic
     // floats, so bit-identical inputs imply bit-identical fc (ParamNormToDisp)
@@ -316,6 +315,8 @@ void RenderBlock(EngineAudio &e, float *out, int frames) {
             float pitch_route = 0.0f;
             float drive_eff =
                 part->params[static_cast<std::size_t>(ParamId::kDrive)];
+            float res_eff =
+                part->params[static_cast<std::size_t>(ParamId::kResonance)];
             for (int slot = 0; slot < kModSlots; ++slot) {
                 const ModRoute &r = part->routes[slot];
                 if (r.source == ModSourceId::kNone) continue;  // empty slot
@@ -331,6 +332,7 @@ void RenderBlock(EngineAudio &e, float *out, int frames) {
                 case ParamId::kCutoff:      acc = &cutoff_eff; break;
                 case ParamId::kPitchCoarse: acc = &pitch_route; break;
                 case ParamId::kDrive:       acc = &drive_eff; break;
+                case ParamId::kResonance:   acc = &res_eff; break;
                 default:                    continue;  // deferred destination
                 }
 
@@ -342,6 +344,8 @@ void RenderBlock(EngineAudio &e, float *out, int frames) {
             if (cutoff_eff < 0.0f) cutoff_eff = 0.0f;
             if (drive_eff > 1.0f) drive_eff = 1.0f;
             if (drive_eff < 0.0f) drive_eff = 0.0f;
+            if (res_eff > 1.0f) res_eff = 1.0f;
+            if (res_eff < 0.0f) res_eff = 0.0f;
             const float depth = drive_eff;            // blend [0,1], 0 = dry
             const float gain = DriveCurve(drive_eff); // input gain, unity at 0
             const float pitch_factor =
@@ -349,7 +353,8 @@ void RenderBlock(EngineAudio &e, float *out, int frames) {
             const float key_follow_factor =
                 part->key_follow_depth * voice->key_follow;
 
-            UpdateFilterCoeffs(voice, part, cutoff_eff, key_follow_factor);
+            UpdateFilterCoeffs(voice, part, cutoff_eff, res_eff,
+                               key_follow_factor);
 
             const float base_inc = voice->inc;
             voice->inc = base_inc * pitch_factor;

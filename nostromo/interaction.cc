@@ -45,6 +45,20 @@ float RouteAmount(engine::EngineControl &control, int part,
   return 0.0f;
 }
 
+// Remove route(s) from `src` to `dst`; kNone src removes every route to `dst`.
+// A route is deleted by writing its source back to the kNone sentinel (the
+// empty-slot marker the engine's GetRoute treats as unset).
+void ClearRoutes(engine::EngineControl &control, int part,
+                 engine::ModSourceId src, engine::ParamRef dst) {
+  engine::ModRoute r;
+  for (int s = 0; s < engine::kModSlots; ++s) {
+    if (!control.GetRoute(part, s, &r)) continue;
+    if (r.dst.id != dst.id || r.dst.instance != dst.instance) continue;
+    if (src != engine::ModSourceId::kNone && r.source != src) continue;
+    control.SetRoute(part, s, engine::ModSourceId::kNone, dst, 0.0f);
+  }
+}
+
 // The next modulatable ParamId after `id` in enum order, wrapping. Modulatable
 // membership is a descriptor flag (k_params[].modulatable), not an enum split,
 // so cycling reads the table — a param promoted to modulatable joins the cycle
@@ -58,7 +72,7 @@ engine::ParamId NextModulatable(engine::ParamId id, int dir) {
     if (engine::k_params[static_cast<std::size_t>(pid)].modulatable)
       return pid;
   }
-  return id;  // unreachable: kCutoff/kAmp/kPitchCoarse/kDrive are modulatable
+  return id;  // unreachable: kCutoff/kResonance/kAmp/kPitchCoarse/kDrive are modulatable
 }
 
 bool IsOut(SubjectId s) {
@@ -187,10 +201,16 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
         control->SetParam(nav.part, b.param, next);
         MarkPage();
       } else if (g == Gesture::kPressLong) {
-        // Revert to the default exactly once, no intermediate write.
         const engine::ParamDesc &desc =
             engine::k_params[static_cast<std::size_t>(b.param.id)];
-        control->SetParam(nav.part, b.param, desc.def);
+        if (nav.mode == ViewMode::kModView && nav.focus_col == b.column &&
+            desc.modulatable) {
+          // MOD view, focused column: long-press clears every route into it.
+          ClearRoutes(*control, nav.part, engine::ModSourceId::kNone, b.param);
+        } else {
+          // Revert to the default exactly once, no intermediate write.
+          control->SetParam(nav.part, b.param, desc.def);
+        }
         MarkPage();
       } else if (g == Gesture::kPressShort && nav.mode == ViewMode::kModView) {
         // MOD view: a short press focuses the column — a row cursor over its
@@ -223,6 +243,11 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
         // CreateRoute returns false only when the table is full and no route
         // matches: the write is dropped, so raise the route-full alert.
         nav.route_full = !CreateRoute(nav.part, nav.armed_source, b.param, amt);
+        arm_used = true;
+        MarkPage();
+      } else if (g == Gesture::kPressLong) {
+        // Long-press on a destination clears the armed source's route to it.
+        ClearRoutes(*control, nav.part, nav.armed_source, b.param);
         arm_used = true;
         MarkPage();
       }
@@ -362,6 +387,21 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
           }
         }
         control->SetRoute(nav.part, slot, r.source, r.dst, r.amount);
+        MarkPage();
+      } else if (g == Gesture::kPressLong) {
+        // Long-press clears the slot (kSource/kDest) or reverts the amount
+        // (arch-design §7.7: "clear the slot, else revert").
+        const int slot = b.slot;
+        if (slot < 0 || slot >= engine::kModSlots) break;
+        if (b.field == RouteField::kSource || b.field == RouteField::kDest) {
+          control->SetRoute(nav.part, slot, engine::ModSourceId::kNone,
+                            engine::ParamRef{0, engine::ParamId::kCutoff},
+                            0.0f);
+        } else {
+          engine::ModRoute r;
+          if (control->GetRoute(nav.part, slot, &r))
+            control->SetRoute(nav.part, slot, r.source, r.dst, 0.0f);
+        }
         MarkPage();
       }
       break;

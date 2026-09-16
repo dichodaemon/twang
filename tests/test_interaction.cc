@@ -175,12 +175,12 @@ int main() {
                   r.dst.id == engine::ParamId::kCutoff,
               "source turn creates kNote -> cutoff");
 
-        // Dest (Enc 1): cycles cutoff -> amp (the next modulatable id).
+        // Dest (Enc 1): cycles cutoff -> resonance (the next modulatable id).
         Turn(it, Enc(1), 1);
         Check(control.GetRoute(part, 5, &r) &&
-                  r.dst.id == engine::ParamId::kAmp &&
+                  r.dst.id == engine::ParamId::kResonance &&
                   r.source == engine::ModSourceId::kNote,
-              "dest turn cycles cutoff -> amp");
+              "dest turn cycles cutoff -> resonance");
 
         // Amount (Enc 2): a positive turn raises the amount.
         Turn(it, Enc(2), 1);
@@ -350,7 +350,7 @@ int main() {
     {
         g_t += 10;
         it.OnInput(InputEvent{Control::kMod, 0, Edge::kDown, g_t});  // arm
-        Turn(it, Enc(1), 1);  // RESONANCE: not modulatable -> inert
+        Turn(it, Enc(4), 1);  // KEY FOLLOW: not modulatable -> inert
         Check(!it.Nav().route_full,
               "non-modulatable destination does not raise route-full");
         Turn(it, Enc(3), 1);  // DRIVE: modulatable, table full -> alert
@@ -360,6 +360,47 @@ int main() {
         it.OnInput(InputEvent{Control::kMod, 0, Edge::kUp, g_t});  // release
         Check(!it.Nav().route_full,
               "route-full clears on MOD release");
+    }
+
+    // 13. Route removal: long-press clears a slot on the MOD page and the
+    //     armed route in arm mode.
+    {
+        const int part = static_cast<int>(it.Nav().part);
+        engine::ModRoute r;
+
+        // MOD page: long-press the SOURCE encoder clears the selected slot.
+        for (int i = 0; i < 8; ++i) Turn(it, Control::kNav1, 1);  // kFilt -> kMod
+        Check(it.Nav().subject == SubjectId::kMod, "NAV1 reaches the MOD page");
+        const int slot = it.Nav().item[static_cast<int>(SubjectId::kMod)];
+        Check(control.GetRoute(part, slot, &r), "selected slot occupied");
+        g_t += 10;
+        it.OnInput(InputEvent{Enc(0), 0, Edge::kDown, g_t});
+        g_t += 700;  // past long_press_ms
+        it.OnInput(InputEvent{Enc(0), 0, Edge::kUp, g_t});
+        Check(!control.GetRoute(part, slot, &r),
+              "long-press SOURCE clears the slot");
+
+        // Arm mode: long-press a destination clears the armed route to it.
+        for (int i = 0; i < 8; ++i) Turn(it, Control::kNav1, -1);  // kMod -> kFilt
+        g_t += 10;
+        it.OnInput(InputEvent{Control::kMod, 0, Edge::kDown, g_t});  // arm kNote
+        Turn(it, Enc(0), 1);  // write kNote -> cutoff (slot now free)
+        bool has = false;
+        for (int s = 0; s < engine::kModSlots; ++s)
+            if (control.GetRoute(part, s, &r) &&
+                r.source == engine::ModSourceId::kNote &&
+                r.dst.id == engine::ParamId::kCutoff) { has = true; break; }
+        Check(has, "arm writes kNote -> cutoff");
+        g_t += 10;
+        it.OnInput(InputEvent{Enc(0), 0, Edge::kDown, g_t});
+        g_t += 700;
+        it.OnInput(InputEvent{Enc(0), 0, Edge::kUp, g_t});
+        has = false;
+        for (int s = 0; s < engine::kModSlots; ++s)
+            if (control.GetRoute(part, s, &r) &&
+                r.source == engine::ModSourceId::kNote &&
+                r.dst.id == engine::ParamId::kCutoff) { has = true; break; }
+        Check(!has, "long-press cutoff clears the armed route");
     }
 
     if (g_failures) {

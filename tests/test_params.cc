@@ -84,8 +84,8 @@ int main() {
           "drive stride 0 (single-instance)");
     Check(k_params[static_cast<std::size_t>(ParamId::kDrive)].modulatable,
           "drive is modulatable");
-    Check(!k_params[static_cast<std::size_t>(ParamId::kResonance)].modulatable,
-          "resonance is not yet modulatable");
+    Check(k_params[static_cast<std::size_t>(ParamId::kResonance)].modulatable,
+          "resonance is modulatable");
     Check(k_params[static_cast<std::size_t>(ParamId::kPitchCoarse)].comb ==
               CombinationClass::kExponential,
           "pitch_coarse class exponential");

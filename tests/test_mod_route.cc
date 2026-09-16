@@ -262,6 +262,26 @@ int main() {
         Check(b == u, "unipolar multiplicative: full source is neutral");
     }
 
+    // 11. Resonance is modulatable: a constant route into it raises the
+    //     filter resonance (higher Q -> a louder peak at the cutoff).
+    {
+        Rig base;
+        FlatEnvelope(base.control);
+        base.control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.5f);
+        const float rms_base =
+            Rms(RenderNote(base.control, base.audio, kDur, 440.0f, 127));
+
+        Rig res;
+        FlatEnvelope(res.control);
+        res.control.SetParam(0, ParamRef{0, ParamId::kCutoff}, 0.5f);
+        res.control.SetRoute(0, 5, ModSourceId::kConstant,
+                             ParamRef{0, ParamId::kResonance}, 1.0f);
+        const float rms_res =
+            Rms(RenderNote(res.control, res.audio, kDur, 440.0f, 127));
+
+        Check(rms_res > rms_base, "resonance route raises the filter output");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;
