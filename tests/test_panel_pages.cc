@@ -61,7 +61,11 @@ static constexpr std::uint32_t kGolden[static_cast<int>(SubjectId::kCount)] = {
 
 // The AMP page in MOD view: route lists replace the plot, LEVEL shows its two
 // default inbound routes. Locks the route-list + plot-suppression render.
-static constexpr std::uint32_t kModViewGolden = 0x203653DCu;
+static constexpr std::uint32_t kModViewGolden = 0xA488ABAAu;
+
+// The AMP page in MOD arm: the pane shows the source list, the columns the
+// arm overlay. Locks the source-pane + arm-overlay render.
+static constexpr std::uint32_t kModArmGolden = 0xD4AD6544u;
 
 int main() {
     engine::SharedIpc ipc;
@@ -109,6 +113,20 @@ int main() {
         if (h != kModViewGolden) {
             std::printf("FAIL: mod-view hash 0x%08X != golden 0x%08X\n",
                         h, kModViewGolden);
+            ++g_failures;
+        }
+    }
+
+    // MOD arm: MOD held (from kModView) shows the source pane + arm overlay.
+    {
+        t += 10;
+        it.OnInput(InputEvent{Control::kMod, 0, Edge::kDown, t});
+        PanelDraw(p, fb0, 0);
+        PanelDraw(p, fb1, 1);
+        const std::uint32_t h = Hash(buf0, kW * kH);
+        if (h != kModArmGolden) {
+            std::printf("FAIL: mod-arm hash 0x%08X != golden 0x%08X\n",
+                        h, kModArmGolden);
             ++g_failures;
         }
     }

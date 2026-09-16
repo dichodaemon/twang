@@ -813,7 +813,30 @@ void DrawStrip(FrameBuffer &fb, int y, int n, int sel,
   }
 }
 
+// The pane in MOD-arm: the modulation source list (kNone skipped), the armed
+// source inverted. MOD held turns the pane into the source list and NAV2 walks
+// it (arch-design §4.8).
+static void DrawSourcePane(FrameBuffer &fb, const NavState &nav) {
+  const int tx = geom::kPaneX + geom::kLabelX;
+  int y = geom::kPaneY;
+  TextLeft(fb, "SRC", tx, y, kPrimaryFont, kMid);
+  y += geom::kPanePitch;
+  for (int i = 1; i < kModSourceCount; ++i) {  // kVelocity..kConstant
+    const bool sel = (static_cast<int>(nav.armed_source) == i);
+    const int ty = y + (geom::kPanePitch - kPrimaryFont.h) / 2;
+    FillRect(fb, geom::kPaneX, y + 1, geom::kPaneW - 8, geom::kPanePitch - 2,
+             sel ? kBright : kBg);
+    TextLeft(fb, engine::k_sources[i].short_name, tx, ty, kPrimaryFont,
+             sel ? kBg : kMid);
+    y += geom::kPanePitch;
+  }
+}
+
 void DrawPane(FrameBuffer &fb, const NavState &nav) {
+  if (nav.mode == ViewMode::kModArm) {
+    DrawSourcePane(fb, nav);
+    return;
+  }
   const int tx = geom::kPaneX + geom::kLabelX;
   int y = geom::kPaneY;
   bool rule = false;
@@ -1034,10 +1057,8 @@ static void DrawItemList(FrameBuffer &fb, const NavState &nav,
                          const PageDesc &page, engine::EngineControl &control) {
   if (page.item_axis != ItemAxis::kSlots) return;
 
-  // One wipe owns the whole list region (value/well/summary/plot bands are
-  // cleared piecemeal elsewhere; the list spans them all).
-  FillRect(fb, geom::kPlotX, geom::kListY, geom::kPlotW, geom::kListH, kBg);
-
+  // The region is already cleared: DrawColumns wipes the column band (value/
+  // well/summary) and PanelDraw clears the plot band for no-plot pages.
   const int sel = nav.item[static_cast<int>(nav.subject)];
   const int ty = (geom::kRowPitch - kPrimaryFont.h) / 2;
   engine::ModRoute r;
@@ -1095,23 +1116,19 @@ static void DrawViewStrip(FrameBuffer &fb, const NavState &nav) {
 
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
                  engine::EngineControl &control) {
-  // The summary row is shared by the per-column inbound tags AND the full-width
-  // SENDS band (modulator pages), whose caption starts at the plot left edge —
-  // 6 px left of the per-column text origin. Clear the whole band once, so a
-  // page switch (modulator -> non-modulator) leaves no stale caption behind.
-  FillRect(fb, geom::kPlotX, geom::kSumY, geom::kPlotW, geom::kSumH, kBg);
+  // Clear the whole column band (value/well/summary + the plot gap) once,
+  // full-width. It is shared by the per-column inbound tags, the SENDS band,
+  // and the item-axis list — the list owns the full height, so a page switch
+  // (slots -> anything else) must wipe its rows and dim bands, not just the
+  // per-column text origins.
+  FillRect(fb, geom::kPlotX, geom::kValueY, geom::kPlotW,
+           geom::kPlotY - geom::kValueY, kBg);
   for (int c = 0; c < geom::kColumns; ++c) {
     const ColumnSpec cs = Column<>(page, nav.group, c);
     const int x = geom::kColX(c);
-    // Clear the header and value rows for every column first, so a label
-    // change (TIMEBASE → CYCLES) or a kNone column past a partial final group
-    // leaves no stale glyphs behind.
+    // Clear the header row per column: a label change (TIMEBASE → CYCLES) or a
+    // kNone column past a partial final group leaves no stale glyphs behind.
     FillRect(fb, x, geom::kHeaderY, geom::kColW, geom::kHeaderH - 4, kBg);
-    FillRect(fb, x + 6, geom::kValueY, geom::kColW - 6, geom::kValueH, kBg);
-    // Clear the well row too: the bipolar zero tick overshoots the well
-    // (kWellH + 6 tall), so a column that switches to unipolar — or whose
-    // value moves off zero — would otherwise leave the tick behind.
-    FillRect(fb, x, geom::kWellY - 3, geom::kColW, geom::kWellH + 6, kBg);
     if (cs.kind == ColumnKind::kNone) continue;  // past a partial final group
     const char *label = ColumnLabel(cs);
     const int bw = static_cast<int>(std::strlen(label)) * kPrimaryFont.w + 12;
