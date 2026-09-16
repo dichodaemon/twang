@@ -65,7 +65,7 @@ static constexpr std::uint32_t kModViewGolden = 0xA488ABAAu;
 
 // The AMP page in MOD arm: the pane shows the source list, the columns the
 // arm overlay. Locks the source-pane + arm-overlay render.
-static constexpr std::uint32_t kModArmGolden = 0xDA2560B8u;
+static constexpr std::uint32_t kModArmGolden = 0xF73F04F0u;
 
 int main() {
     engine::SharedIpc ipc;

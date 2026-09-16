@@ -1145,9 +1145,19 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
       // a non-modulatable or pending column shows "--" with caps only. kRouteField
       // / kViewCtl columns keep their header-only treatment (not destinations).
       if (cs.kind == ColumnKind::kParam) {
+        const engine::ParamDesc &desc =
+            engine::k_params[static_cast<std::size_t>(cs.param)];
+        // The modulation band (folded extent of every route into this
+        // destination) stays visible while arming, under the armed amount.
+        if (desc.modulatable) {
+          float lo, hi;
+          if (ModulationExtent(control, nav.part,
+                               engine::ParamRef{0, cs.param}, &lo, &hi))
+            DrawModBand(fb, x, geom::kWellY, lo, hi, desc.zero_notch);
+        }
         float amt = 0.0f;
         const bool has =
-            engine::k_params[static_cast<std::size_t>(cs.param)].modulatable &&
+            desc.modulatable &&
             FindRouteAmount(control, nav.part, nav.armed_source,
                             engine::ParamRef{0, cs.param}, &amt);
         char val[16];
