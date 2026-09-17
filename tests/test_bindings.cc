@@ -218,7 +218,9 @@ int main() {
     }
 
     // 8. kOutView: encoders address the per-mode output settings table, and
-    //    the fifth encoder is kNone (four settings only).
+    //    the fifth encoder is kNone (four settings only). TIMEBASE and CYCLES
+    //    are implemented (kViewCtl); the other seven settings are declared but
+    //    unbuilt (kPending).
     {
         NavState nav{};
         nav.subject = SubjectId::kFilt;
@@ -228,24 +230,25 @@ int main() {
         Check(ResolveBinding(nav, Enc(0)).kind == BindKind::kViewCtl &&
                   ResolveBinding(nav, Enc(0)).ctl == ViewCtl::kTimebase,
               "kOutView scope col 1 -> timebase");
-        Check(ResolveBinding(nav, Enc(2)).ctl == ViewCtl::kTrigger,
-              "kOutView scope col 3 -> trigger");
-        Check(ResolveBinding(nav, Enc(3)).ctl == ViewCtl::kHold,
-              "kOutView scope col 4 -> hold");
+        Check(ResolveBinding(nav, Enc(2)).kind == BindKind::kPending,
+              "kOutView scope col 3 -> trigger (pending)");
+        Check(ResolveBinding(nav, Enc(3)).kind == BindKind::kPending,
+              "kOutView scope col 4 -> hold (pending)");
         Check(ResolveBinding(nav, Enc(4)).kind == BindKind::kNone,
               "kOutView 5th encoder -> kNone");
 
         nav.scope_mode = ScopeMode::kCycle;
-        Check(ResolveBinding(nav, Enc(0)).ctl == ViewCtl::kCycles,
+        Check(ResolveBinding(nav, Enc(0)).kind == BindKind::kViewCtl &&
+                  ResolveBinding(nav, Enc(0)).ctl == ViewCtl::kCycles,
               "kOutView cycle col 1 -> cycles");
-        Check(ResolveBinding(nav, Enc(2)).ctl == ViewCtl::kAlign,
-              "kOutView cycle col 3 -> align");
+        Check(ResolveBinding(nav, Enc(2)).kind == BindKind::kPending,
+              "kOutView cycle col 3 -> align (pending)");
 
         nav.scope_mode = ScopeMode::kSpectrum;
-        Check(ResolveBinding(nav, Enc(0)).ctl == ViewCtl::kRange,
-              "kOutView spectrum col 1 -> range");
-        Check(ResolveBinding(nav, Enc(3)).ctl == ViewCtl::kWindow,
-              "kOutView spectrum col 4 -> window");
+        Check(ResolveBinding(nav, Enc(0)).kind == BindKind::kPending,
+              "kOutView spectrum col 1 -> range (pending)");
+        Check(ResolveBinding(nav, Enc(3)).kind == BindKind::kPending,
+              "kOutView spectrum col 4 -> window (pending)");
 
         // The GROUP button is inert: the four settings form one group, so
         // there is nothing to cycle.

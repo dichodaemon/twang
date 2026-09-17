@@ -246,8 +246,15 @@ Binding ResolveBinding(const NavState &nav, Control c) {
       if (n >= 4) return b;  // kNone: the output view has exactly four settings
       const ColumnSpec col =
           kOutColumns[static_cast<int>(nav.scope_mode)][n];
-      b.kind = BindKind::kViewCtl;
-      b.ctl = col.ctl;
+      // TIMEBASE/CYCLES are kViewCtl (backing OutputSettings); the other seven
+      // settings are declared but unbuilt, so they resolve kPending, not a live
+      // but inert kViewCtl.
+      if (col.kind == ColumnKind::kViewCtl) {
+        b.kind = BindKind::kViewCtl;
+        b.ctl = col.ctl;
+      } else {
+        b.kind = BindKind::kPending;
+      }
       return b;
     }
 

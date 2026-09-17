@@ -439,6 +439,52 @@ int main() {
         Check(!has, "long-press cutoff clears the armed route");
     }
 
+    // 14. Output settings dispatch: kOutView turns edit TIMEBASE/CYCLES; a
+    //     long press reverts the control to its default.
+    {
+        g_t += 10;
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kDown, g_t});
+        g_t += 700;  // kPressLong
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kUp, g_t});
+        Check(it.Nav().mode == ViewMode::kOutView, "OUT hold enters kOutView");
+
+        // TIMEBASE (scope mode, Enc 0): a backward turn steps 341 -> 200.
+        Check(it.out.timebase_ms == 341, "timebase defaults to 341");
+        Turn(it, Enc(0), -1);
+        Check(it.out.timebase_ms == 200, "TIMEBASE turn steps 341 -> 200");
+
+        // CYCLES (cycle mode, Enc 0): OUT tap switches the table, +1 -> 4.
+        Tap(it, Control::kOut);  // kScope -> kCycle
+        Check(it.Nav().scope_mode == ScopeMode::kCycle, "OUT taps to cycle");
+        Turn(it, Enc(0), 1);
+        Check(it.out.cycles == 4, "CYCLES turn steps 3 -> 4");
+
+        // Long-press reverts CYCLES to its default.
+        g_t += 10;
+        it.OnInput(InputEvent{Enc(0), 0, Edge::kDown, g_t});
+        g_t += 700;
+        it.OnInput(InputEvent{Enc(0), 0, Edge::kUp, g_t});
+        Check(it.out.cycles == 3, "long press reverts CYCLES to 3");
+
+        // Back to scope; long-press reverts TIMEBASE to 341.
+        Tap(it, Control::kOut);  // kCycle -> kSpectrum
+        Tap(it, Control::kOut);  // kSpectrum -> kOff
+        Tap(it, Control::kOut);  // kOff -> kScope
+        Check(it.Nav().scope_mode == ScopeMode::kScope, "OUT back to scope");
+        g_t += 10;
+        it.OnInput(InputEvent{Enc(0), 0, Edge::kDown, g_t});
+        g_t += 700;
+        it.OnInput(InputEvent{Enc(0), 0, Edge::kUp, g_t});
+        Check(it.out.timebase_ms == 341, "long press reverts TIMEBASE to 341");
+
+        // Exit kOutView back to edit.
+        g_t += 10;
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kDown, g_t});
+        g_t += 700;
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kUp, g_t});
+        Check(it.Nav().mode == ViewMode::kEdit, "OUT hold exits kOutView");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;
