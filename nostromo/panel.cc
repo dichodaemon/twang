@@ -774,7 +774,6 @@ struct PaneRow {
   const char *const *cells;
 };
 
-const char *const kOutCells[3] = {"SC", "CY", "SP"};
 const PaneRow kPaneRows[] = {
     {"PART", 0, 1, false, nullptr},
     {"OSC", 1, 4, false, nullptr},
@@ -783,17 +782,16 @@ const PaneRow kPaneRows[] = {
     {"ENV", 7, 3, false, nullptr},
     {"LFO", 10, 3, false, nullptr},
     {"MOD", 13, 1, false, nullptr},
-    {"OUT", 14, 3, true, kOutCells},
-    {"FX", 17, 1, true, nullptr},
-    {"PATCH", 18, 1, true, nullptr},
-    {"CONF", 19, 1, true, nullptr},
+    {"FX", 14, 1, true, nullptr},
+    {"PATCH", 15, 1, true, nullptr},
+    {"CONF", 16, 1, true, nullptr},
 };
 
 void DrawStrip(FrameBuffer &fb, int y, int n, int sel,
                const char *const *cells) {
-  // Pitch the cells at the strip's widest label: OUT's "SC"/"CY"/"SP" are two
-  // glyphs, so the single-digit width (StripCellW(1) = 18) would overdraw by
-  // 6 px. The mockup passed the widest label into StripCellW.
+  // Pitch the cells at the widest label. No strip carries cells today (OSC/ENV/
+  // LFO are digit cells), so `chars` stays 1; the cells path remains for a
+  // future labelled strip.
   int chars = 1;
   if (cells)
     for (int k = 0; k < n; ++k) {
