@@ -705,6 +705,12 @@ now comes from the embedded split, not from a page the user must navigate to. Th
 quality comes from availability, not size; the embedded half is the same 404 px tall at half
 the width, enough for a glance and never crowding out the page's own plot.
 
+The embedded default — power-on `scope_mode = kScope`, so every plot page renders the split —
+is contingent on an unmeasured frame budget: §7.2 (does one plot draw fit the frame budget) is
+run once on silicon and tunes the half-width constant. If that measurement later fails, the
+fallback is `kOff` (no embedded output) plus `kOutView` (explicit full-screen) — a single
+`geom.h` value and a power-on constant, not a redesign.
+
 Being global has a visible consequence. A global subject is not owned by a part, so the title
 bar's part indicator says so rather than naming a part that has nothing to do with what is on
 screen: the four swatches go to outline and `P<n>` becomes `GL`. Without that, a global page
