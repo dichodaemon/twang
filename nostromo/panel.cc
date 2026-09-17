@@ -588,9 +588,23 @@ void DrawScopePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   p.scope_peak = peak;
 
   const GratLine grat[] = {
-      {(h * 17) / 100, kFaint}, {h / 2, kDim}, {(h * 83) / 100, kFaint}};
+      {mid - amp / 2, kFaint}, {mid, kDim}, {mid + amp / 2, kFaint},
+      {mid + amp, kFaint}};
   ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[3][p.fb_index],
-               grat, 3, kBright);
+               grat, 4, kBright);
+
+  // Axis labels: vertical ±0.5 on their graticule lines, horizontal window.
+  TextLeft(fb, "+0.5", ox + 2, oy + (mid - amp / 2) - kSecondaryFont.h / 2,
+           kSecondaryFont, kFaint);
+  TextLeft(fb, "-0.5", ox + 2, oy + (mid + amp / 2) - kSecondaryFont.h / 2,
+           kSecondaryFont, kFaint);
+  TextLeft(fb, "0ms", ox + 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
+           kDim);
+  char win[16];
+  std::snprintf(win, sizeof(win), "%ums",
+                static_cast<unsigned>(p.interaction->out.timebase_ms));
+  TextRight(fb, win, ox + w - 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
+            kDim);
 }
 
 void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
@@ -644,14 +658,28 @@ void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   }
 
   const GratLine grat[] = {
-      {(h * 17) / 100, kFaint}, {h / 2, kDim}, {(h * 83) / 100, kFaint}};
+      {mid - amp / 2, kFaint}, {mid, kDim}, {mid + amp / 2, kFaint},
+      {mid + amp, kFaint}};
   ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[3][p.fb_index],
-               grat, 3, kBright);
+               grat, 4, kBright);
 
   // n_eff == 0 (f < ~11.7 Hz): a dim flat line at mid marks the out-of-range
   // state instead of a silent blank — the cycle analog of the MOD page's "--".
   if (period >= 8 && n_eff == 0)
     DrawHLine(fb, ox, oy + mid, w, kFaint);
+
+  // Axis labels: vertical ±0.5 on their graticule lines, horizontal cycle
+  // count (the effective n_eff, not the stored CYCLES).
+  TextLeft(fb, "+0.5", ox + 2, oy + (mid - amp / 2) - kSecondaryFont.h / 2,
+           kSecondaryFont, kFaint);
+  TextLeft(fb, "-0.5", ox + 2, oy + (mid + amp / 2) - kSecondaryFont.h / 2,
+           kSecondaryFont, kFaint);
+  TextLeft(fb, "0", ox + 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
+           kDim);
+  char cyc[16];
+  std::snprintf(cyc, sizeof(cyc), "%d CYCLES", n_eff);
+  TextRight(fb, cyc, ox + w - 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
+            kDim);
 }
 
 void DrawSpectrumPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
@@ -701,11 +729,30 @@ void DrawSpectrumPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
     }
   }
 
+  // dB graticule: 15 dB steps from 0 (top) to -90 (bottom), six interior lines.
+  const int dB15 = B - (B - T) * 5 / 6;
+  const int dB30 = B - (B - T) * 2 / 3;
+  const int dB45 = B - (B - T) / 2;
+  const int dB60 = B - (B - T) / 3;
+  const int dB75 = B - (B - T) / 6;
   const GratLine grat[] = {
-      {(h * 17) / 100, kFaint}, {h / 2, kDim}, {(h * 83) / 100, kFaint},
-      {B, kDim}};
+      {dB15, kFaint}, {dB30, kFaint}, {dB45, kFaint},
+      {dB60, kFaint}, {dB75, kFaint}, {B, kDim}};
   ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[3][p.fb_index],
-               grat, 4, kBright);
+               grat, 6, kBright);
+
+  // Axis labels: dB on every other line (0 dB at the top is the full-scale
+  // rail), horizontal frequency range.
+  TextLeft(fb, "-30", ox + 2, oy + dB30 - kSecondaryFont.h / 2, kSecondaryFont,
+           kFaint);
+  TextLeft(fb, "-60", ox + 2, oy + dB60 - kSecondaryFont.h / 2, kSecondaryFont,
+           kFaint);
+  TextLeft(fb, "-90", ox + 2, oy + B - kSecondaryFont.h / 2, kSecondaryFont,
+           kFaint);
+  TextLeft(fb, "20Hz", ox + 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
+           kDim);
+  TextRight(fb, "20kHz", ox + w - 2, oy + h - kSecondaryFont.h - 2,
+            kSecondaryFont, kDim);
 }
 
 // Scope-mode name for the kOutView title and the output-region label. kOff is
