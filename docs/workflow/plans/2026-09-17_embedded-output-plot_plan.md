@@ -1,6 +1,6 @@
 ---
 title: Embedded Output Plot -- Implementation Plan
-status: draft
+status: approved
 date: 2026-09-17
 author: Dizan Vasquez
 arch-design: ../arch-designs/nostromo-interaction_arch-design.md
@@ -18,36 +18,53 @@ point (see [the brief](../briefs/2026-09-16_embedded-output-plot_brief.md) §2).
 The arch-design is the contract source; this plan sequences it and never
 duplicates its types, invariants, or acceptance criteria.
 
+Two review findings reshape the sequencing and are folded in as first-class
+tasks: the embedded half **crops the scope signal** (a fixed `kStride` derived
+from `kPlotW`), and the embedded output would make **every plot page repaint at
+trace rate**. The plan fixes the stride, adds a runtime-tunable refresh ceiling,
+and renders the embedded output through its **own slot** so the page's plot and
+the output invalidate independently.
+
 **Phases:**
 
-1. **Core** — geometry, vocabulary, page table, resolution, dispatch, and panel
-   rendering. One atomic change: the `SubjectId`/`ScopeMode` removals force all
-   three consumers (`pages.cc`, `interaction.cc`, `panel.cc`) to move together,
-   so there is no buildable half-way point. (depends on nothing)
-2. **Tests** — rewrite the OUT round-trip, add applicability/`kOutView` coverage,
-   re-bake the golden hashes. (depends on phase 1)
-3. **Documentation** — archive the superseded interaction plan. (depends on
-   phase 1)
+1. **Foundations** — fix the scope stride and add the output-refresh rate-limit.
+   Independent of the re-design; lands on today's full-band scope. (depends on nothing)
+2. **Retire the OUT subjects** — collapse the three subjects into a global
+   `scope_mode`, output still full-band. The buildable bisect point. (depends on phase 1)
+3. **Embedded split + `kOutView`** — two active slots, the per-mode `kOutColumns`
+   tables, full-screen `kOutView`, and the `kOff`-entry fix. (depends on phase 2)
+4. **Documentation** — record the frame-budget contingency, archive the superseded
+   plan. (depends on phase 3)
 
 | # | Task | Status |
 |---|---|---|
-| 1.1 | `nostromo/geom.h` — `kSubjectCount` 20→17; `kPaneRowsN` 11→10, `kPaneStripsN` 4→3 (drop OUT from both pane comments); add `kEmbedGap`/`kEmbedW`/`kEmbedX(int)`; replace the "OUT view strip" static_assert with `kEmbedW*2 + kEmbedGap == kPlotW` | Pending |
-| 1.2 | `nostromo/interaction.h` — `SubjectId`: delete `kOutScope`/`kOutCycle`/`kOutSpec` (→17); `ViewMode`: add `kOutView`; add `enum class ScopeMode {kOff,kScope,kCycle,kSpectrum}`; delete `NavPos`; `NavState`: delete `prev`, add `ScopeMode scope_mode`; update `Control::kOut` comment | Pending |
-| 1.3 | `nostromo/panel.h` — delete `enum class ScopeMode` (superseded by `interaction.h`'s `ScopeMode`) | Pending |
-| 1.4 | `nostromo/pages.h` — `ViewCtl`: add `kTimebase,kCycles,kRange,kScale,kTrigger,kAlign,kAverage,kHold,kWindow` | Pending |
-| 1.5 | `nostromo/pages.cc` — rewrite `kColsOutScope/Cycle/Spec` as `kViewCtl` tables (drop SOURCE, four cols each per §7.4); add `kOutColumns[4]`; delete the three `k_pages` entries; `ResolveBinding`: gate `kOut`→`kNone` on `dyn_slot==-1`, gate `kMod`→`kNone` via `HasModulatableColumn`, resolve `kOutView` encoders to `kOutColumns[scope_mode][n]`; add `HasModulatableColumn`; `#include "params.h"` | Pending |
-| 1.6 | `nostromo/interaction.cc` — delete `IsOut`; add `NextScopeMode`; rewrite the `kOutToggle` dispatcher (tap cycles `scope_mode`, hold toggles `kOutView`, both `MarkAll()`); `Init`: power-on `subject kFilt` + `scope_mode kScope`, drop `prev`; remove all `nav.prev` uses | Pending |
-| 1.7 | `nostromo/panel.cc` — delete `ScopeModeOf` + `DrawViewStrip` (+ its call); `DrawOutPlot` switches on `nav.scope_mode`; `IsGlobalSubject` → `>= kFx` | Pending |
-| 1.8 | `nostromo/panel.cc` — embedded split: `PlotOsc`/`PlotFilter`/`PlotEnv` draw the page plot into half 0 and `DrawOutPlot` into half 1 when `scope_mode != kOff`, else the full band | Pending |
-| 1.9 | `nostromo/panel.cc` — `kOutView`: `ActivePlotSlot` returns `kSlotOut` in `kOutView`; `DrawColumns` shows `kOutColumns[scope_mode]`; `kOutView` mode prefix; `scope_dirty` drain marks the active output-bearing slot | Pending |
-| 1.10 | Verify: `cmake --build /tmp/twang-build`; `cmake --build /tmp/twang-build --target panel_shot && /tmp/twang-build/panel_shot /tmp/embedded.png` and confirm the power-on page shows the filter plot + embedded scope (`read /tmp/embedded.png?q=...`); drive an OUT hold to `kOutView` in a throwaway render and confirm the full-screen output + settings columns; `ctest --test-dir /tmp/twang-build -E 'panel|interaction'` — 17 pass | Pending |
-| 2.1 | `tests/test_interaction.cc` — rewrite the power-on navigation (subject is now `kFilt`) and the OUT round-trip → tap cycles `scope_mode`, hold toggles `kOutView`, no-plot pages inert | Pending |
-| 2.2 | `tests/test_bindings.cc` — OUT → `kNone` on a no-plot page; MOD → `kNone` on a non-modulatable page (MOD page); `kOutView` encoder → `kOutColumns[scope_mode][n]`; the E-sweep remains valid at 17 subjects | Pending |
-| 2.3 | `tests/test_panel.cc` — re-bake `kExpectedHash`: run the test, read the printed `buffer0 hash`, write it into the constant (power-on is now `kFilt` + embedded scope) | Pending |
-| 2.4 | `tests/test_panel_pages.cc` — re-bake `kGolden[17]` (drop the three OUT rows) and `kModViewGolden`/`kModArmGolden`: render each page offscreen, read the hash, update the constant | Pending |
-| 2.5 | Verify: `ctest --test-dir /tmp/twang-build` — all 20 tests green | Pending |
-| 3.1 | Archive `docs/workflow/plans/2026-09-14_nostromo-interaction_plan.md` → `docs/archive/workflow/plans/` (superseded OUT/NavPos/20-subject design) | Pending |
-| 3.2 | Verify: `git status` shows only the intended changes; arch-design/brief need no edit (already reconciled in `d91ccbc`) | Pending |
+| 1.1 | `nostromo/panel.cc` — `DrawScopePlot`: derive the stride from the drawn width (`const int kStride = ScopeRing::kCapacity / w`), replacing `kCapacity / geom::kPlotW`. `DrawCyclePlot`/`DrawSpectrumPlot` are already width-correct (verified: cycle reads a full period at stride 1 and resamples by `period/w`; spectrum is FFT-width-independent) — no change | Pending |
+| 1.2 | `nostromo/feel.h` + `feel.cc` — add `std::uint32_t scope_interval_ms` to `FeelProfile` (doc-comment flags it as the one display-timing field, see Design Decision A); `DefaultFeel()` returns 33 | Pending |
+| 1.3 | `nostromo/pages.h` + `pages.cc` + `interaction.cc` — add `ViewCtl::kScopeRefresh`; append a REFRESH column to `kColsConf`; handle `kScopeRefresh` in `TurnFeel`/`RevertFeel` | Pending |
+| 1.4 | `nostromo/panel.cc` — add `Panel` members `std::uint32_t last_scope_ms` and `bool scope_pending`; replace the `scope_dirty` drain in `PanelDraw` with the interval-checked latch (§4.2) | Pending |
+| 1.5 | `tests/test_panel_pages.cc` — re-bake the CONF hash (the new REFRESH column) | Pending |
+| 1.6 | Verify: `cmake --build /tmp/twang-build && ctest --test-dir /tmp/twang-build` — 20 green | Pending |
+| 2.1 | `nostromo/geom.h` — `kSubjectCount` 20→17; `kPaneRowsN` 11→10, `kPaneStripsN` 4→3 (drop OUT from both pane comments); add `kEmbedGap`/`kEmbedW`/`kEmbedX(int)`; replace the "OUT view strip" static_assert with `kEmbedW*2 + kEmbedGap == kPlotW` | Pending |
+| 2.2 | `nostromo/interaction.h` — `SubjectId`: delete `kOutScope`/`kOutCycle`/`kOutSpec` (→17); add `enum class ScopeMode {kOff,kScope,kCycle,kSpectrum}`; `ViewMode`: add `kOutView`; delete `NavPos`; `NavState`: delete `prev`, add `ScopeMode scope_mode`; update `Control::kOut` comment | Pending |
+| 2.3 | `nostromo/panel.h` — delete `enum class ScopeMode` (superseded by `interaction.h`'s `ScopeMode`) | Pending |
+| 2.4 | `nostromo/pages.cc` — delete the three `k_pages` entries and the old `kPending` `kColsOutScope/Cycle/Spec` tables; `ResolveBinding`: gate `kOut`→`kNone` on `dyn_slot==-1`, gate `kMod`→`kNone` via `HasModulatableColumn`; add `HasModulatableColumn`; `#include "params.h"` | Pending |
+| 2.5 | `nostromo/interaction.cc` — delete `IsOut`; add `NextScopeMode`; rewrite the `kOutToggle` dispatcher: tap cycles `scope_mode` (hold is phase 3); `Init`: power-on `subject kFilt` + `scope_mode kScope`, drop `prev`; remove all `nav.prev` uses | Pending |
+| 2.6 | `nostromo/panel.cc` — delete `ScopeModeOf` + `DrawViewStrip` (+ its call); `DrawOutPlot` switches on `nav.scope_mode`; `IsGlobalSubject` → `>= kFx`; `ActivePlotSlot`: `scope_mode != kOff` → `kSlotOut`, else the page's `dyn_slot` (output full-band) | Pending |
+| 2.7 | `tests/test_bindings.cc` — subject sweep over 17; OUT → `kNone` on a no-plot page; MOD → `kNone` on a non-modulatable page (MOD page) | Pending |
+| 2.8 | `tests/test_interaction.cc` — power-on navigation (subject is now `kFilt`); OUT tap cycles `scope_mode` off→scope→cycle→spectrum→off | Pending |
+| 2.9 | `tests/test_panel.cc` + `test_panel_pages.cc` — re-bake hashes (intermediate: power-on `kFilt` + `scope_mode=kScope` shows the output full-band) | Pending |
+| 2.10 | Verify: `cmake --build /tmp/twang-build && ctest --test-dir /tmp/twang-build` — 20 green | Pending |
+| 3.1 | `nostromo/pages.h` — `ViewCtl`: add `kTimebase,kCycles,kRange,kScale,kTrigger,kAlign,kAverage,kHold,kWindow` | Pending |
+| 3.2 | `nostromo/pages.cc` — rewrite `kColsOutScope/Cycle/Spec` as `kViewCtl` tables (drop SOURCE, four cols each per §7.4); add `kOutColumns[4]`; `ResolveBinding`: resolve `kOutView` encoders to `kOutColumns[scope_mode][n]` (n<4 → `kViewCtl`, n≥4 → `kNone`) | Pending |
+| 3.3 | `nostromo/interaction.cc` — `kOutToggle` hold: toggle `kOutView`; on entering `kOutView` from `kOff`, force `scope_mode = kScope` (Design Decision 2) | Pending |
+| 3.4 | `nostromo/panel.cc` — two active slots (§4.9): `ActivePlotSlot` → `ActivePlotSlots{page,out}`; set each slot's rect from the mode; draw loop paints both active slots; `scope_dirty` drain marks `kSlotOut`; `DrawColumns` shows `kOutColumns[scope_mode]` in `kOutView`; `kOutView` mode prefix | Pending |
+| 3.5 | `tests/test_bindings.cc` — `kOutView` encoder → `kOutColumns[scope_mode][n]`; `Enc(4)` → `kNone` | Pending |
+| 3.6 | `tests/test_interaction.cc` — OUT hold toggles `kOutView`; hold from `kOff` forces `kScope` | Pending |
+| 3.7 | `tests/test_panel.cc` + `test_panel_pages.cc` — re-bake hashes (final: embedded split on plot pages) | Pending |
+| 3.8 | Verify: `cmake --build /tmp/twang-build && ctest --test-dir /tmp/twang-build`; smoke-render the power-on page (embedded scope) and an OUT hold (`kOutView` full-screen) | Pending |
+| 4.1 | `../arch-designs/nostromo-interaction_arch-design.md` — add one line (§7.6 keystone paragraph or §5): the embedded default is contingent on an unmeasured frame budget; `kOff` + `kOutView` is the fallback | Pending |
+| 4.2 | Archive `docs/workflow/plans/2026-09-14_nostromo-interaction_plan.md` → `docs/archive/workflow/plans/` | Pending |
+| 4.3 | Verify: `git status` shows only the intended changes | Pending |
 
 ## 2. Architecture
 
@@ -56,28 +73,31 @@ duplicates its types, invariants, or acceptance criteria.
 | File | Change |
 |---|---|
 | `nostromo/geom.h` | Modify: subject count, pane rows/strips, embed constants, static_asserts |
-| `nostromo/interaction.h` | Modify: `SubjectId` (17), `ViewMode`+`kOutView`, add `ScopeMode`, remove `NavPos`, `NavState` |
+| `nostromo/interaction.h` | Modify: `SubjectId` (17), `ScopeMode`, `ViewMode`+`kOutView`, remove `NavPos`, `NavState` |
 | `nostromo/panel.h` | Modify: remove `enum class ScopeMode` |
-| `nostromo/pages.h` | Modify: `ViewCtl` +9 entries |
-| `nostromo/pages.cc` | Modify: `kColsOut*` tables, `kOutColumns`, `k_pages` −3, `ResolveBinding`, `HasModulatableColumn` |
-| `nostromo/interaction.cc` | Modify: `kOutToggle` dispatch, `Init`, remove `IsOut`/`NavPos` uses, add `NextScopeMode` |
-| `nostromo/panel.cc` | Modify: `DrawOutPlot`, embedded split, `kOutView` render, remove `ScopeModeOf`/`DrawViewStrip` |
-| `tests/test_interaction.cc` | Modify: power-on + OUT round-trip → cycle/hold/applicability |
+| `nostromo/pages.h` | Modify: `ViewCtl` +10 (`kScopeRefresh` + 9 output settings) |
+| `nostromo/pages.cc` | Modify: `kColsOut*` tables, `kOutColumns`, `k_pages` −3, `ResolveBinding`, `HasModulatableColumn`, CONF column |
+| `nostromo/interaction.cc` | Modify: `kOutToggle` dispatch, `Init`, `TurnFeel`/`RevertFeel`, remove `IsOut`/`NavPos` uses, add `NextScopeMode` |
+| `nostromo/feel.h`, `feel.cc` | Modify: `scope_interval_ms` field + default |
+| `nostromo/panel.cc` | Modify: `DrawScopePlot` stride, `DrawOutPlot`, drain, `ActivePlotSlots`, embedded split, `kOutView` render, remove `ScopeModeOf`/`DrawViewStrip` |
+| `tests/test_interaction.cc` | Modify: power-on + OUT cycle/hold/applicability |
 | `tests/test_bindings.cc` | Modify: applicability + `kOutView` resolution cases |
 | `tests/test_panel.cc` | Modify: re-bake golden hash |
-| `tests/test_panel_pages.cc` | Modify: re-bake 17 per-page hashes + MOD goldens |
+| `tests/test_panel_pages.cc` | Modify: re-bake per-page hashes (twice: phase 2 intermediate, phase 3 final) + MOD goldens |
 | `docs/archive/workflow/plans/2026-09-14_nostromo-interaction_plan.md` | Move (archive) |
+| `docs/workflow/arch-designs/nostromo-interaction_arch-design.md` | Modify: one contingency line (§4.1) |
 
-No new files; no `CMakeLists.txt` change (the lib sources and test targets are
-unchanged). The one new include — `pages.cc` gains `#include "params.h"` for the
-`modulatable` descriptor flag — is within the already-linked `engine` package.
+No new files; no `CMakeLists.txt` change. The one new include — `pages.cc` gains
+`#include "params.h"` for the `modulatable` descriptor flag — is within the
+already-linked `engine` package.
 
 ### 2.2. Dependency Graph
 
 No inter-package edges change. The data-flow direction is unchanged: the audio
 thread still sets `scope_dirty` → `PanelDraw` drains it; the interaction layer
-still calls `MarkDirty` as its sole invalidation channel. What changes is
-*which* slot the drain and the OUT dispatcher mark (see §5.9).
+still calls `MarkDirty` as its sole invalidation channel. What changes is *which
+slots* the panel paints (two, not one) and *how often* it services the output
+(phase 1's interval) — see §4.2 and §4.9.
 
 ## 3. Interface Changes
 
@@ -104,8 +124,19 @@ static_assert(kEmbedW * 2 + kEmbedGap == kPlotW,
               "embedded plot halves must tile the plot width exactly");
 ```
 
-The `kStripW`/`StripW` helpers and the digit-strip assert stay; only the
-OUT-specific strip assert and the pane counts change.
+### `feel.h` — the refresh interval
+
+```cpp
+struct FeelProfile {
+  // ... existing five input-feel fields ...
+  std::uint32_t scope_interval_ms;   ///< min ms between output-view redraws.
+                                     ///< The one display-timing field here
+                                     ///< (Design Decision A): a refresh
+                                     ///< throttle, not an input feel.
+};
+```
+
+`DefaultFeel()` sets `scope_interval_ms = 33`.
 
 ### `interaction.h` — vocabulary
 
@@ -130,7 +161,7 @@ enum class ScopeMode : std::uint8_t {
   kOff = 0, kScope, kCycle, kSpectrum,
 };
 
-// NavPos — removed (OUT hold is a mode toggle, not navigation; no return position).
+// NavPos — removed (OUT hold is a mode toggle, not navigation).
 
 // NavState — `prev` removed, `scope_mode` added:
 struct NavState {
@@ -142,22 +173,24 @@ struct NavState {
   ViewMode     mode;
   ScopeMode    scope_mode;           ///< global, not per-subject
   engine::ModSourceId armed_source;
-  bool         route_full;           ///< unchanged (route-table-full alert)
+  bool         route_full;           ///< unchanged
 };
 ```
 
 ### `panel.h` — remove `enum class ScopeMode`
 
 Deleted outright. `panel.cc` already includes `interaction.h`, so the display
-view is now `interaction.h`'s `ScopeMode`; `DrawOutPlot` is only ever called
-with `scope_mode ∈ {kScope,kCycle,kSpectrum}` (see Design Decisions §1).
+view is `interaction.h`'s `ScopeMode`; the output view always lives in `kSlotOut`
+(§4.9), so `DrawOutPlot` is only called with `scope_mode ∈ {kScope,kCycle,kSpectrum}`
+after the `kOff`→`kScope` fix (Design Decision 2).
 
-### `pages.h` — `ViewCtl` +9
+### `pages.h` — `ViewCtl` +10
 
 ```cpp
 enum class ViewCtl : std::uint8_t {
   kCategory, kSort, kFavourite, kAction,                     // PATCH
   kDetents, kAccelMax, kAccelThresh, kLongPress, kFineDiv,   // CONF
+  kScopeRefresh,                                             // CONF (rate-limit)
   kTimebase, kCycles, kRange,                                // kOutView col 1
   kScale,                                                     // kOutView col 2 (shared)
   kTrigger, kAlign, kAverage,                                // kOutView col 3
@@ -184,7 +217,6 @@ constexpr const ColumnSpec *kOutColumns[4] = {
 
 // k_pages: the three kOutScope/kOutCycle/kOutSpec PageDesc entries are deleted.
 
-// New file-local predicate:
 bool HasModulatableColumn(SubjectId s);  // walks k_pages[s].cols; true iff any
                                          // kParam col has k_params[].modulatable
 ```
@@ -207,7 +239,12 @@ ScopeMode NextScopeMode(ScopeMode m);  // kOff→kScope→kCycle→kSpectrum→k
 case BindKind::kOutToggle: {
   if (g == Gesture::kPressShort) { nav.scope_mode = NextScopeMode(nav.scope_mode); MarkAll(); }
   else if (g == Gesture::kPressLong) {
-    nav.mode = (nav.mode == ViewMode::kOutView) ? ViewMode::kEdit : ViewMode::kOutView;
+    if (nav.mode == ViewMode::kOutView) {
+      nav.mode = ViewMode::kEdit;
+    } else {
+      nav.mode = ViewMode::kOutView;
+      if (nav.scope_mode == ScopeMode::kOff) nav.scope_mode = ScopeMode::kScope;
+    }
     MarkAll();
   }
   break;
@@ -219,223 +256,244 @@ nav.scope_mode = ScopeMode::kScope;
 // nav.prev removed.
 ```
 
-### `panel.cc` — rendering
+### `panel.cc` — stride, drain, two slots
 
-- **Removed**: `ScopeModeOf(SubjectId)` (subject → display mode); `DrawViewStrip`
-  and its call in `DrawEditChrome`.
-- **Changed**: `DrawOutPlot` switches on `p.interaction->Nav().scope_mode`
-  (`kCycle`→cycle, `kSpectrum`→spectrum, `kScope`/`kOff`→scope); `IsGlobalSubject`
-  returns `>= SubjectId::kFx` (was `>= kOutScope`).
-- **Embedded split** (`PlotOsc`/`PlotFilter`/`PlotEnv`): when
-  `scope_mode != kOff`, draw the page's plot into
-  `Rect{kEmbedX(0), kPlotY, kEmbedW, kPlotH}` and `DrawOutPlot` into
-  `Rect{kEmbedX(1), kPlotY, kEmbedW, kPlotH}`; else the full band as today.
-- **`kOutView`**: `ActivePlotSlot` returns `kSlotOut` when
-  `nav.mode == kOutView`; `DrawColumns` uses `kOutColumns[scope_mode]` in that
-  mode; `ModePrefix` emits the `kOutView` prefix; the `scope_dirty` drain marks
-  the active output-bearing slot (see §5.9).
+- **Stride** (`DrawScopePlot`): `kStride = ScopeRing::kCapacity / w` (runtime).
+- **Drain** (`PanelDraw`): interval-checked latch (§4.2), still `MarkDirty(kSlotOut)`.
+- **Removed**: `ScopeModeOf(SubjectId)`; `DrawViewStrip` and its call.
+- **Changed**: `DrawOutPlot` switches on `nav.scope_mode`; `IsGlobalSubject`
+  returns `>= SubjectId::kFx`.
+- **Two slots** (§4.9): `ActivePlotSlot` → `ActivePlotSlots{page,out}`; per-mode
+  rects; `DrawColumns` uses `kOutColumns[scope_mode]` in `kOutView`.
 
 ## 4. Solution Breakdown
 
-### 4.1 Geometry split (`nostromo/geom.h`)
+### 4.1 Scope stride from width (`nostromo/panel.cc`)
 
-Location: `namespace nostromo::geom`. Step: set `kSubjectCount = 17`; reduce the
-pane to 10 rows/3 strips with corrected comments; add the three embed constants
-and the tiling guard; drop the OUT strip assert.
+`DrawScopePlot`'s `kStride = kCapacity / kPlotW` (18) is only correct at full
+band. At `w = 440` the ring is read at stride 18, spanning `440·18 = 7920` of
+16384 samples — a 48%-of-window crop, not a magnify. The cycle and spectrum
+paths are already width-correct, so the fix is scope-only: compute the stride
+from `w` at runtime.
 
-- **Edge cases**: `kPaneNeedH` must stay ≤ `kPaneH` (526) — 359 satisfies it.
-  `kEmbedW = (900−20)/2 = 440` tiles exactly.
-- **Dependencies**: produces `kSubjectCount`, `kEmbedW/Gap/X` consumed by
-  `pages.h`'s `static_assert` (1.2), `interaction.h` (1.2), and `panel.cc` (1.8).
-- **Done**: task 1.10 — build succeeds and `static_assert(SubjectId::kCount ==
-  geom::kSubjectCount)` holds at 17.
+- **Edge cases**: `kCapacity / w` at `w = 440` is 37, `440·37 = 16280 ≤ 16384`
+  (full window); at `w = 900` it is 18 — unchanged. `buf[kPlotW]` stays sized
+  to the max width.
+- **Dependencies**: none (lands on today's full-band scope).
+- **Done**: task 1.6 (build + tests) and the phase-3 smoke render at half width.
 
-### 4.2 `ScopeMode` and `NavState` (`nostromo/interaction.h`)
+### 4.2 Output-refresh rate-limit (`feel.h`, `feel.cc`, `panel.cc`)
+
+`PanelAudioTap` stays exactly as it is — one relaxed store. The change is on the
+drain side only. The tap sets a `scope_pending` latch; `PanelDraw` services it
+when `NowMs() - last_scope_ms >= feel.scope_interval_ms`. The separate latch
+matters: `exchange` clears the atomic, so without it a tap arriving inside the
+interval window is dropped and the scope stalls until the next tap.
+
+- **Edge cases**: a tap inside the interval is remembered, not lost. The default
+  interval (33 ms ≈ 30 Hz) is shorter than the test frame gaps, so existing
+  render tests pass unchanged.
+- **Dependencies**: produces the ceiling that phase 3's embedded split inherits;
+  consumes `NowMs()` (already in `panel.cc`) and `p->interaction->feel`.
+- **Done**: task 1.6.
+
+### 4.3 Geometry split (`nostromo/geom.h`)
+
+Set `kSubjectCount = 17`, reduce the pane to 10 rows / 3 strips, add the three
+embed constants and the tiling guard, drop the OUT strip assert.
+
+- **Edge cases**: `kPaneNeedH` (359) stays ≤ `kPaneH` (526). `kEmbedW = 440`
+  tiles `kPlotW` exactly.
+- **Dependencies**: produces `kSubjectCount` (asserted by `pages.h`), `kEmbedW/Gap/X`
+  consumed by `panel.cc` (phase 3).
+- **Done**: task 2.10.
+
+### 4.4 `ScopeMode` and `NavState` (`nostromo/interaction.h`)
 
 The embedded-output mode is a global value, not a subject and not per-part.
-`NavState::scope_mode` is the single source of truth; `prev`/`NavPos` die
-because hold is a mode toggle with nothing to restore.
+`scope_mode` is the single source of truth; `prev`/`NavPos` die because hold is a
+mode toggle with nothing to restore.
 
-- **Edge cases**: `NavState{}` zero-initialises `scope_mode` to `kOff`; `Init`
-  explicitly sets `kScope` (4.6).
-- **Dependencies**: produces `ScopeMode`, `kOutView`, `scope_mode` consumed by
-  `pages.cc` (4.4), `interaction.cc` (4.5), `panel.cc` (4.7–4.9).
-- **Done**: task 1.10.
+- **Edge cases**: `NavState{}` zero-inits `scope_mode` to `kOff`; `Init` sets `kScope`.
+- **Dependencies**: consumed by `pages.cc` (4.6), `interaction.cc` (4.7), `panel.cc` (4.8–4.9).
+- **Done**: task 2.10.
 
-### 4.3 Page table: three per-mode tables + `kOutColumns` (`nostromo/pages.cc`)
+### 4.5 Page-table retirement (`nostromo/pages.cc`)
 
-Replace the three `kPending` SOURCE tables with `kViewCtl` tables of four
-columns each, and index them by `scope_mode`. No `SOURCE` column: the output is
-always the current part. The fifth encoder is `kNone` — the output view has
-exactly four settings.
+Delete the three OUT `PageDesc` entries and the old `kPending` SOURCE tables.
+The per-mode `kViewCtl` tables return in phase 3 as `kOutColumns`.
 
-- **Edge cases**: `kOff` shares `kColsOutScope` (`kOutColumns[0]`), matching the
-  "off is treated as scope" rule in `kOutView`.
-- **Dependencies**: consumes `ViewCtl` (1.4); produces `kOutColumns` consumed by
-  `ResolveBinding` (4.4) and `DrawColumns` (4.9).
-- **Done**: task 1.10.
+- **Edge cases**: nothing references the deleted tables after the entries go;
+  `k_pages` is still indexed by the 17-entry `SubjectId`.
+- **Dependencies**: consumes the 17-entry `SubjectId` (4.4).
+- **Done**: task 2.10.
 
-### 4.4 `ResolveBinding`: applicability + `kOutView` columns (`nostromo/pages.cc`)
+### 4.6 `ResolveBinding`: applicability (`nostromo/pages.cc`)
 
-Three additions to the pure resolver. (a) OUT: `kNone` unless the page has a
-plot (`dyn_slot != -1`). (b) MOD: `kNone` unless `HasModulatableColumn`
-returns true — which is what keeps arming inert on the MOD page (its columns
-are route fields) and on PART/AMP/FX/PATCH/CONF (their columns are
-`kPending`/`kViewCtl`). (c) `kOutView` column encoders resolve
-`kOutColumns[scope_mode][n]` to a `kViewCtl` binding (n < 4; n ≥ 4 → `kNone`).
+Two gates on the pure resolver. OUT → `kNone` unless the page has a plot; MOD →
+`kNone` unless `HasModulatableColumn` returns true — which keeps arming inert on
+the MOD page (route-field columns) and on PART/AMP/FX/PATCH/CONF. The predicate
+reads the `engine::k_params` descriptor table (const), so the resolver stays pure.
 
-- **Edge cases**: `HasModulatableColumn` reads the `engine::k_params` descriptor
-  table (const), so the resolver stays pure — no `GetParam`, no writes. A page
-  with `kParam` columns but none modulatable (none today, but structurally
-  possible) gates MOD to `kNone`.
-- **Dependencies**: consumes `kOutColumns` (4.3), `ViewCtl` (1.4), `params.h`;
-  produces the bindings the dispatcher (4.5) applies.
-- **Done**: task 1.10, plus the resolution cases in task 2.2.
+- **Edge cases**: a page with `kParam` columns but none modulatable (none today,
+  but structurally possible) gates MOD to `kNone`.
+- **Dependencies**: consumes `params.h` (new include) and `k_pages` (4.5).
+- **Done**: task 2.10, plus the resolution cases in task 2.7.
 
-### 4.5 OUT dispatch: cycle + hold (`nostromo/interaction.cc`)
+### 4.7 OUT dispatch: cycle (`nostromo/interaction.cc`)
 
-`kOutToggle` fires on the up edge (the recognizer emits `kPressShort`/
-`kPressLong` there, matching MOD's tap/hold convention). Tap cycles
-`scope_mode`; hold toggles `kOutView`. Both `MarkAll()` — the mode is global,
-so every plot page's render changes even though only the active slot repaints.
+`kOutToggle` fires on the up edge (the recognizer emits `kPressShort`/`kPressLong`
+there, matching MOD's tap/hold). Tap cycles `scope_mode`; hold is phase 3. Both
+`MarkAll()` — the mode is global, so every plot page's render changes even though
+only the active slot repaints.
 
-- **Edge cases**: the OUT down edge emits `kNone` and is ignored (no momentary
-  OUT state); applicability (§4.4) guarantees the case only runs on plot pages.
-  A second hold returns to `kEdit`.
-- **Dependencies**: consumes `NextScopeMode`, `ScopeMode`, `kOutView` (1.2).
-- **Done**: task 1.10; behavior locked by task 2.1.
+- **Edge cases**: OUT down edge emits `kNone` and is ignored; applicability (§4.6)
+  guarantees the case runs only on plot pages.
+- **Dependencies**: consumes `NextScopeMode`, `ScopeMode` (4.4).
+- **Done**: task 2.10; behavior locked by task 2.8.
 
-### 4.6 Power-on init (`nostromo/interaction.cc`)
+### 4.8 Panel scaffolding removal (`nostromo/panel.cc`)
 
-`Init` zeroes `NavState` then sets `subject = kFilt`, `scope_mode = kScope`,
-`group = 0`, `mode = kEdit`. Power-on shows the filter curve plus the embedded
-scope — the output view without an output subject. `MarkAll()` as today.
+Delete `ScopeModeOf` (subject→view map), `DrawViewStrip` and its call, and point
+`DrawOutPlot` at `nav.scope_mode`. `IsGlobalSubject` moves its boundary to
+`>= kFx`. `ActivePlotSlot` becomes: `scope_mode != kOff` → `kSlotOut` (output
+full-band), else the page's `dyn_slot`. This is the intermediate bisect state —
+the output is still full-band, just driven by `scope_mode` instead of a subject.
 
-- **Edge cases**: `prev` no longer exists, so nothing to initialise there.
-- **Dependencies**: consumes the new `NavState` layout (1.2).
-- **Done**: task 1.10; locked by the `test_interaction` power-on navigation (2.1).
+- **Edge cases**: power-on `kFilt` + `kScope` shows the output full-band until the
+  phase-3 split restores the page plot alongside it.
+- **Dependencies**: consumes `SubjectId` (17) and `ScopeMode` (4.4).
+- **Done**: task 2.10; locked by the phase-2 hash re-bake (2.9).
 
-### 4.7 Panel scaffolding removal (`nostromo/panel.cc`)
+### 4.9 `kOutView` tables (`pages.h`, `pages.cc`)
 
-Delete `ScopeModeOf` (the subject→view map), `DrawViewStrip` and its call (the
-OUT "SCOPE/CYCLE/SPEC" selector), and point `DrawOutPlot` at `nav.scope_mode`.
-`IsGlobalSubject` moves its boundary from `>= kOutScope` to `>= kFx`, so the
-title bar's `GL` vs `P<n>` stays correct after the OUT globals disappear.
+Three four-column `kViewCtl` tables indexed by `scope_mode`; no `SOURCE` column.
+The fifth encoder is `kNone` — the output view has exactly four settings.
 
-- **Edge cases**: `DrawOutPlot`'s `kOff` case falls through to scope (only
-  reachable inside `kOutView`).
-- **Dependencies**: consumes `SubjectId` (17) and `ScopeMode` (1.2).
-- **Done**: task 1.10.
+- **Edge cases**: `kOff` shares `kColsOutScope` (`kOutColumns[0]`), though after
+  the `kOff`→`kScope` entry fix `kOff` never coexists with `kOutView`.
+- **Dependencies**: consumes `ViewCtl` (3.1); produces `kOutColumns` for
+  `ResolveBinding` (3.2) and `DrawColumns` (4.10).
+- **Done**: task 3.8.
 
-### 4.8 Embedded split (`nostromo/panel.cc`)
+### 4.10 Two active slots, embedded split, `kOutView` (`interaction.cc`, `panel.cc`)
 
-The three plot hooks each check `nav.scope_mode`. When `!= kOff`, they fill the
-page's own plot into half 0 and call `DrawOutPlot` into half 1; otherwise the
-full 900×404 band. The column traces stay `kPlotW`-wide and are indexed
-`[0, w)`, so a 440-wide half simply uses the first 440 columns — no resize, no
-misalignment.
+`ActivePlotSlot` becomes `ActivePlotSlots` returning `{page, out}` (each `std::int8_t`,
+`-1` = none): `kEdit`+`kOff` → `{page.dyn_slot, -1}`; `kEdit`+`!=kOff` →
+`{page.dyn_slot, kSlotOut}`; `kOutView` → `{-1, kSlotOut}`. Each active slot's
+rect is set from the mode (page: full band or `kEmbedX(0)` half; out: `kEmbedX(1)`
+half or full band), and the draw loop paints both active slots rect-driven. The
+two halves are disjoint rects, so the single-writer invariant holds per rect and
+`kSlotOut` keeps its own trace buffer (`traces[3]`) — the erase path is unchanged.
 
-- **Edge cases**: the hooks already `FillRect` the full band and clip to their
-  rect; the split introduces a second fill+draw per hook. `PlotOut` (slot 3) is
-  unchanged — it still draws the full band when `kSlotOut` is active (4.9).
-- **Dependencies**: consumes `kEmbedX/W` (1.1) and `DrawOutPlot` (4.7).
-- **Done**: task 1.10; visual confirmation via the smoke render (1.10) and the
-  re-baked hashes (2.3, 2.4).
+This is what makes the output invalidate independently: a parameter change
+dirties the page slot only; a trace tick dirties `kSlotOut` only. The filter
+curve recomputes when the filter changes, not on every audio callback. It also
+collapses the embedded and `kOutView` paths into one rect-driven loop.
 
-### 4.9 `kOutView` full-screen + `scope_dirty` drain (`nostromo/panel.cc`)
+`DrawColumns` swaps its column source to `kOutColumns[scope_mode]` in `kOutView`;
+`ModePrefix` emits the mode prefix. The `kOutToggle` hold handler forces
+`scope_mode = kScope` on `kOutView` entry from `kOff` (Design Decision 2), so the
+first tap after entry visibly advances.
 
-`ActivePlotSlot` returns `kSlotOut` when `nav.mode == kOutView`, so the output
-fills the band and the page's own plot is suppressed. `DrawColumns` swaps its
-column source to `kOutColumns[scope_mode]` in that mode, and `ModePrefix`
-emits the mode prefix. The `scope_dirty` drain changes target: mark the *active
-output-bearing* slot — `kSlotOut` in `kOutView`, else the page's `dyn_slot`
-when `scope_mode != kOff`, else nothing.
-
-- **Edge cases**: the audio thread's `PanelAudioTap` is unchanged; only the
-  drain's target is computed. With `scope_mode == kOff` and no `kOutView`, the
-  flag is drained and discarded (no output is drawn).
-- **Dependencies**: consumes `kOutColumns` (4.3), `ActivePlotSlot` (existing).
-- **Done**: task 1.10; locked by `test_panel` (2.3) and the embedded-scope
-  hashes (2.4).
+- **Edge cases**: `pending[]`/`damage[]` bookkeeping is already per-slot; two
+  slots live at once, so each must clear its own `pending` counter (this is the
+  region the earlier `DrawDyn` bug lived in — review carefully). `scope_dirty`
+  keeps targeting `kSlotOut`; when `scope_mode == kOff` and no `kOutView`, the
+  flag is drained and discarded.
+- **Dependencies**: consumes `kEmbedX/W` (4.3), `kOutColumns` (4.9).
+- **Done**: task 3.8; locked by task 3.7's hash re-bake and the smoke render.
 
 ## 5. Design Decisions
 
 1. **Delete `panel.h`'s `ScopeMode`; reuse `interaction.h`'s.** The panel's
    `enum class ScopeMode {kScope,kCycle,kSpectrum}` collides with the new
-   embedded-mode enum in the same namespace once both headers meet in
-   `panel.cc`. Considered renaming the panel's to `OutPlotKind`. Chose deletion:
-   the display view is `scope_mode` minus `kOff`, and `DrawOutPlot` is never
-   called in the `kOff` state, so a second enum is a second source of truth for
-   one fact.
+   embedded-mode enum once both headers meet in `panel.cc`. Considered renaming
+   the panel's to `OutPlotKind`. Chose deletion: the output view now always lives
+   in `kSlotOut` (§4.10), so the display view is `scope_mode` minus `kOff`, and a
+   second enum would be a second source of truth for one fact.
 
-2. **`DrawOutPlot`'s `kOff` case falls through to scope.** `kOff` means "no
-   output drawn" and is only reachable inside `kOutView`, where the contract
-   says "off is treated as scope". A defensive default (not a separate hide
-   branch) keeps the draw path total without a `kOff` special case.
+2. **Entering `kOutView` from `kOff` forces `scope_mode = kScope`.** Without it,
+   `DrawOutPlot` would draw a scope while `scope_mode` was still `kOff`, and the
+   next tap (kOff→kScope) would change nothing visible — a dead first press.
+   Forcing the mutation on entry makes the cycle honest and lets `DrawOutPlot`
+   never see `kOff`. Considered making the hold inert at `kOff`; rejected because
+   a hold that sometimes does nothing is worse than a hold that always enters the
+   mode.
 
-3. **The embedded split lives in the page's own plot hook, not a new slot.** The
-   four-slot model paints only the active page's plot into the shared band, and
-   the embedded output must repaint with it (scope animates). Drawing half 0 and
-   half 1 inside `PlotOsc`/`PlotFilter`/`PlotEnv` keeps the single-writer
-   invariant and reuses the column-update erase, at the cost of one extra
-   fill+draw per split frame.
+3. **The embedded output gets its own slot, not a draw inside the page hook.** The
+   four-slot model paints only the active page's plot into the shared band; putting
+   `DrawOutPlot` inside `PlotOsc`/`PlotFilter`/`PlotEnv` (the earlier draft) would
+   make every trace tick redraw the page's own plot — a full filter-curve recompute
+   per callback. Two active slots with disjoint rects keep the single-writer
+   invariant per rect and give independent invalidation. This is the reviewer's
+   finding 3b, adopted in place rather than as a follow-up because it changes the
+   split's shape.
 
-4. **`scope_dirty` drain targets the active slot, not `kSlotOut`.** When the
-   output is embedded it is drawn by the page's hook (slot 0/1/2), not slot 3,
-   so marking `kSlotOut` would leave the embedded scope stale. The audio thread
-   (`PanelAudioTap`) is unchanged; only the drain computes where the output
-   currently lives.
+4. **The output refresh is rate-limited, not timer-driven.** `PanelAudioTap` stays
+   a single relaxed store; the drain throttles to `scope_interval_ms`. This converts
+   an unbounded repaint cost into a chosen ceiling (finding 3a) — the only form of
+   control available without target hardware — and also bounds finding 3's waste.
+   Invariant 1 ("no timer") is untouched: no audio-thread timing logic is added,
+   and the throttle is an existing-`MarkDirty`-path interval, not a scheduler.
 
-5. **`HasModulatableColumn` reads the `engine::k_params` descriptor table.** The
-   MOD applicability gate needs the `modulatable` flag, which is a const
-   descriptor field, not engine state. This matches `NextModulatable` in
-   `interaction.cc` (which already walks `k_params`); `pages.cc` gains the
-   `params.h` include and the resolver stays pure (no `GetParam`, no writes).
+5. **`scope_interval_ms` lives in `FeelProfile`, flagged as the display-timing
+   exception.** It is the first field that is not an input feel. Considered a
+   sibling `DisplayProfile`; rejected for one field. The doc-comment records the
+   exception, and invariant 12 is respected: the interval does not change which
+   parameter a control drives, how many columns exist, or what is drawn where — it
+   only throttles how often the live output redraws, the display analogue of
+   `long_press_ms`.
 
-6. **OUT hold toggles `kOutView` on release (`kPressLong`).** The recognizer
-   emits long-press only on the up edge, the same as MOD's tap/hold. Adding a
-   threshold callback for one control is not worth a new mechanism; the
-   difference from MOD is only that OUT has no momentary arm state, so its down
-   edge emits `kNone` and is ignored.
+6. **`HasModulatableColumn` reads the `engine::k_params` descriptor table.** The
+   MOD applicability gate needs the `modulatable` flag, a const descriptor field,
+   not engine state. This matches `NextModulatable`; the resolver stays pure.
 
-7. **A `scope_mode` change marks all four slots.** The mode is global, so every
-   plot page's render changes. `MarkAll()` is the existing helper; the panel
-   only repaints the active slot anyway, so the cost stays bounded (invariant 13).
+7. **OUT hold toggles `kOutView` on release (`kPressLong`).** The recognizer
+   emits long-press only on the up edge, like MOD's tap/hold. OUT has no momentary
+   arm state, so its down edge emits `kNone` and is ignored; no threshold callback
+   is added for one control.
 
-8. **`kOutView` has four settings; the fifth encoder is `kNone`.** The output
-   view carries exactly four controls per mode (`kColsOut*` are four-element
-   arrays). The `kOutView` resolution bounds-checks `n < 4` and returns `kNone`
-   past the end, mirroring `Column()`'s partial-final-group handling.
+8. **A `scope_mode` change marks all four slots.** The mode is global, so every
+   plot page's render changes. `MarkAll()` is the existing helper; the panel only
+   repaints active slots, so the cost stays bounded (invariant 13).
+
+9. **`kOutView` has four settings; the fifth encoder is `kNone`.** The `kColsOut*`
+   tables are four-element arrays; the `kOutView` resolution bounds-checks `n < 4`,
+   mirroring `Column()`'s partial-final-group handling.
 
 ## 6. Success Criteria
 
-- [ ] `SubjectId::kCount` is 17 and `static_assert(kCount == kSubjectCount)` holds (1.1, 1.2).
-- [ ] `kEmbedW*2 + kEmbedGap == kPlotW` static_assert compiles (1.1).
-- [ ] `NavState` has no `prev` and `NavPos` is gone; `scope_mode` is present (1.2).
-- [ ] `ResolveBinding(kFilt, kOut)` → `kOutToggle`; `ResolveBinding(kPart, kOut)` → `kNone` (2.2).
-- [ ] `ResolveBinding(kMod page, kMod)` → `kNone`; `ResolveBinding(kFilt, kMod)` → `kModeToggle` (2.2).
-- [ ] `ResolveBinding(kOutView, Enc(n<4))` → `kViewCtl` with `kOutColumns[scope_mode][n].ctl`; `Enc(4)` → `kNone` (2.2).
-- [ ] OUT tap on a plot page cycles `scope_mode` off→scope→cycle→spectrum→off; `subject`/`group`/`focus_col` unchanged (2.1).
-- [ ] OUT hold on a plot page toggles `kOutView`; a second hold returns to `kEdit` (2.1).
-- [ ] Power-on is `kFilt` + `scope_mode == kScope` (2.1, 2.3).
-- [ ] `test_panel` and `test_panel_pages` hashes re-baked and green after the split (2.3, 2.4).
-- [ ] Full `ctest` green — 20 tests (2.5).
-- [ ] The superseded interaction plan is archived (3.1).
+- [ ] `SubjectId::kCount` is 17 and `static_assert(kCount == kSubjectCount)` holds (2.1, 2.2).
+- [ ] `kEmbedW*2 + kEmbedGap == kPlotW` static_assert compiles (2.1).
+- [ ] `DrawScopePlot` at `w = 440` reads the full ring window (stride = `kCapacity / w`) (1.1, 3.8 smoke).
+- [ ] `scope_interval_ms` defaults to 33 and the drain throttles through the `scope_pending` latch (1.2, 1.4).
+- [ ] `NavState` has no `prev` and `NavPos` is gone; `scope_mode` is present (2.2).
+- [ ] `ResolveBinding(kFilt, kOut)` → `kOutToggle`; `ResolveBinding(kPart, kOut)` → `kNone` (2.7).
+- [ ] `ResolveBinding(kMod page, kMod)` → `kNone`; `ResolveBinding(kFilt, kMod)` → `kModeToggle` (2.7).
+- [ ] `ResolveBinding(kOutView, Enc(n<4))` → `kViewCtl` with `kOutColumns[scope_mode][n].ctl`; `Enc(4)` → `kNone` (3.5).
+- [ ] OUT tap on a plot page cycles `scope_mode`; `subject`/`group`/`focus_col` unchanged (2.8).
+- [ ] OUT hold on a plot page toggles `kOutView`; hold from `kOff` forces `kScope` (3.6).
+- [ ] A parameter change dirties the page slot only; a trace tick dirties `kSlotOut` only (3.4).
+- [ ] Power-on is `kFilt` + `scope_mode == kScope` (2.8, 2.9).
+- [ ] Golden hashes re-baked and green at both the phase-2 intermediate and the phase-3 final (2.9, 3.7).
+- [ ] Full `ctest` green — 20 tests (1.6, 2.10, 3.8).
+- [ ] The arch-design carries the frame-budget contingency line; the superseded plan is archived (4.1, 4.2).
 
 ## 7. Document Staleness Audit
 
 | Document | Invalidated? | Action |
 |---|---|---|
-| `../arch-designs/nostromo-interaction_arch-design.md` | No — the plan implements it; reconciled in `d91ccbc`. | None. |
+| `../arch-designs/nostromo-interaction_arch-design.md` | Yes — the embedded default is contingent on an unmeasured frame budget, which is not recorded there. | Task 4.1: add one contingency line (fallback `kOff` + `kOutView`). |
 | `../arch-designs/output-stage_arch-design.md` | No — the tap-point note (post-amp) is a future engine concern, out of this plan's scope. | None. |
 | `../briefs/2026-09-16_embedded-output-plot_brief.md` | No — the plan's companion framing. | None. |
-| `../plans/2026-09-14_nostromo-interaction_plan.md` | Yes — describes `NavPos`/`prev`, 20 subjects, and OUT jump-and-return. | Task 3.1: archive to `docs/archive/workflow/plans/`. |
+| `../plans/2026-09-14_nostromo-interaction_plan.md` | Yes — describes `NavPos`/`prev`, 20 subjects, and OUT jump-and-return. | Task 4.2: archive. |
 | `../briefs/2026-09-15_nostromo-edit-screen-completion_brief.md` | Minor — lists "§11 OUT round-trip test" as a P3 item. | None — a write-once framing brief; the reference is historical. |
 | `../../random/engine-recommendations.md` | No — perf guidance (§5.5/§5.7/§6.2/§7.2) unchanged; no OUT-subject references. | None. |
 
 ## 8. Cleanup
 
 None. This change adds no diagnostic instrumentation, logs, or temporary flags.
-The only removals are of obsolete scaffolding (`NavPos`, `IsOut`,
-`ScopeModeOf`, `DrawViewStrip`, the three `PageDesc` entries), which is the
-clean-cutover intent, not instrumentation.
+The only removals are of obsolete scaffolding (`NavPos`, `IsOut`, `ScopeModeOf`,
+`DrawViewStrip`, the three `PageDesc` entries), which is the clean-cutover intent,
+not instrumentation.
