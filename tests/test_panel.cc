@@ -35,9 +35,9 @@ static std::uint32_t Hash(const std::uint16_t *px, int n) {
     return h;
 }
 
-// Golden-image hash of the power-on page (kFilt + scope_mode=kScope: the
-// filter page with the output full-band) full render.
-static constexpr std::uint32_t kExpectedHash = 0x89979CD4;
+// Golden-image hash of the power-on page (kFilt + scope_mode=kScope: filter
+// half 0 + embedded scope half 1) full render.
+static constexpr std::uint32_t kExpectedHash = 0x116AFAA4;
 
 int main() {
     engine::SharedIpc ipc;
@@ -71,12 +71,12 @@ int main() {
           "MarkDirty redraws the active plot into both buffers");
 
     // A non-active plot is not drawn even when marked dirty (the four slots
-    // share one band, so only the active page's plot may paint).
-    const int filter_before = PanelPlotDraws(p, 1);
-    MarkDirty(p, kSlotFilter);
+    // share the band; at power-on kFilt+kScope the osc plot is not active).
+    const int osc_before = PanelPlotDraws(p, 0);  // osc plot (non-active)
+    MarkDirty(p, kSlotOsc);
     PanelDraw(p, fb0, 0);
     PanelDraw(p, fb1, 1);
-    Check(PanelPlotDraws(p, 1) == filter_before,
+    Check(PanelPlotDraws(p, 0) == osc_before,
           "a non-active plot is not drawn");
 
     // Steady state: a no-change frame redraws nothing.
