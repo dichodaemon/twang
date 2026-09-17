@@ -37,35 +37,32 @@ static std::uint32_t Hash(const std::uint16_t *px, int n) {
 // Golden hash per subject, indexed by SubjectId (pane order). Baked from the
 // offscreen render at power-on state (no notes, no audio tap).
 static constexpr std::uint32_t kGolden[static_cast<int>(SubjectId::kCount)] = {
-    0xDB0E2AA2u,  // 0 PART
-    0x5DFBAC32u,  // 1 OSC1
-    0xCEEF924Eu,  // 2 OSC2
-    0x8570CDFAu,  // 3 OSC3
-    0xBD4E72B6u,  // 4 OSC4
-    0x348E89E3u,  // 5 FILT
-    0xFB73FAC0u,  // 6 AMP
-    0xABDCCFA9u,  // 7 ENV1
-    0xB6FC3C8Eu,  // 8 ENV2
-    0x83CB754Au,  // 9 ENV3
-    0xE24AC19Eu,  // 10 LFO1
-    0x92A59D6Eu,  // 11 LFO2
-    0x1637844Eu,  // 12 LFO3
-    0xC2266A3Du,  // 13 MOD
-    0x9DDAF302u,  // 14 OUT SCOPE
-    0x156D85F1u,  // 15 OUT CYCLE
-    0xCF029AB7u,  // 16 OUT SPECTRUM
-    0xA037A982u,  // 17 FX
-    0x0B118F50u,  // 18 PATCH
-    0xAF8DCBD4u,  // 19 CONF
+    0xF48611A2u,  // 0 PART
+    0x4744BFF8u,  // 1 OSC1
+    0x20FE4F34u,  // 2 OSC2
+    0xA2F0E520u,  // 3 OSC3
+    0x5C308FFCu,  // 4 OSC4
+    0x89979CD4u,  // 5 FILT
+    0x4A1BD433u,  // 6 AMP
+    0xD4382BCEu,  // 7 ENV1
+    0xD90A6203u,  // 8 ENV2
+    0x9464943Fu,  // 9 ENV3
+    0xCED05037u,  // 10 LFO1
+    0xAE1819FBu,  // 11 LFO2
+    0xA9785C1Fu,  // 12 LFO3
+    0x14FF897Eu,  // 13 MOD
+    0x4B0B7EA2u,  // 14 FX
+    0xBA4C8C38u,  // 15 PATCH
+    0x428F8BB4u,  // 16 CONF
 };
 
 // The AMP page in MOD view: route lists replace the plot, LEVEL shows its two
 // default inbound routes. Locks the route-list + plot-suppression render.
-static constexpr std::uint32_t kModViewGolden = 0xA488ABAAu;
+static constexpr std::uint32_t kModViewGolden = 0xCC027CF9u;
 
 // The AMP page in MOD arm: the pane shows the source list, the columns the
 // arm overlay. Locks the source-pane + arm-overlay render.
-static constexpr std::uint32_t kModArmGolden = 0xF73F04F0u;
+static constexpr std::uint32_t kModArmGolden = 0x0E4F4328u;
 
 int main() {
     engine::SharedIpc ipc;
@@ -73,7 +70,7 @@ int main() {
     control.Init(ipc);
     Panel *p = PanelCreate();
     Interaction it;
-    it.Init(p, Surface(), &control);  // power-on: kOutScope
+    it.Init(p, Surface(), &control);  // power-on: kFilt + scope_mode = kScope
 
     static std::uint16_t buf0[kW * kH];
     static std::uint16_t buf1[kW * kH];
@@ -97,11 +94,11 @@ int main() {
         it.OnInput(InputEvent{Control::kNav1, 1, Edge::kNone, t});
     }
 
-    // MOD view: back to AMP (subject 6), MOD tapped latches kModView.
+    // MOD view: to AMP (subject 6), MOD tapped latches kModView.
     {
-        for (int i = 0; i < 8; ++i) {  // kOutScope -> kAmp (NAV1 back)
+        for (int i = 0; i < 1; ++i) {  // kFilt -> kAmp (NAV1 forward)
             t += 100;
-            it.OnInput(InputEvent{Control::kNav1, -1, Edge::kNone, t});
+            it.OnInput(InputEvent{Control::kNav1, 1, Edge::kNone, t});
         }
         t += 10;
         it.OnInput(InputEvent{Control::kMod, 0, Edge::kDown, t});

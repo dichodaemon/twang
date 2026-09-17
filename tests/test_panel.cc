@@ -35,8 +35,9 @@ static std::uint32_t Hash(const std::uint16_t *px, int n) {
     return h;
 }
 
-// Golden-image hash of the power-on page (kOutScope → scope plot) full render.
-static constexpr std::uint32_t kExpectedHash = 0x9DDAF302;
+// Golden-image hash of the power-on page (kFilt + scope_mode=kScope: the
+// filter page with the output full-band) full render.
+static constexpr std::uint32_t kExpectedHash = 0x89979CD4;
 
 int main() {
     engine::SharedIpc ipc;
@@ -44,7 +45,7 @@ int main() {
     control.Init(ipc);
     Panel *p = PanelCreate();
     Interaction it;
-    it.Init(p, Surface(), &control);  // power-on page: kOutScope → scope plot
+    it.Init(p, Surface(), &control);  // power-on page: kFilt + kScope → output
 
     static std::uint16_t buf0[kW * kH];
     static std::uint16_t buf1[kW * kH];
