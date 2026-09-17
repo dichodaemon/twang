@@ -75,9 +75,16 @@ engine::ParamId NextModulatable(engine::ParamId id, int dir) {
   return id;  // unreachable: kCutoff/kResonance/kAmp/kPitchCoarse/kDrive are modulatable
 }
 
-bool IsOut(SubjectId s) {
-  return s == SubjectId::kOutScope || s == SubjectId::kOutCycle ||
-         s == SubjectId::kOutSpec;
+// The next embedded-output mode, wrapping (arch-design §7.3: one global value
+// cycled by the OUT tap). kOff -> kScope -> kCycle -> kSpectrum -> kOff.
+ScopeMode NextScopeMode(ScopeMode m) {
+  switch (m) {
+    case ScopeMode::kOff: return ScopeMode::kScope;
+    case ScopeMode::kScope: return ScopeMode::kCycle;
+    case ScopeMode::kCycle: return ScopeMode::kSpectrum;
+    case ScopeMode::kSpectrum: return ScopeMode::kOff;
+  }
+  return ScopeMode::kOff;  // unreachable
 }
 
 // Item-axis length for NAV2. kNone axes are never walked (ResolveBinding
@@ -337,19 +344,12 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
     }
     case BindKind::kOutToggle: {
       if (g == Gesture::kPressShort) {
-        if (IsOut(nav.subject)) {
-          nav.subject = nav.prev.subject;
-          nav.group = nav.prev.group;
-          nav.focus_col = nav.prev.focus_col;
-        } else {
-          nav.prev =
-              NavPos{nav.subject, nav.group, nav.focus_col};
-          nav.subject = SubjectId::kOutScope;
-          nav.group = 0;
-          nav.focus_col = -1;
-        }
-        MarkPage();
+        // Cycle the embedded output view. Global, so every plot page's render
+        // changes even though only the active slots repaint.
+        nav.scope_mode = NextScopeMode(nav.scope_mode);
+        MarkAll();
       }
+      // kPressLong toggles kOutView (phase 3).
       break;
     }
     case BindKind::kRouteField: {
@@ -472,11 +472,11 @@ void Interaction::Init(Panel *panel, const SurfaceProfile &surface,
   // feel keeps its DefaultFeel() defaults (persisted-settings load deferred).
   nav = NavState{};
   nav.part = 0;
-  nav.subject = SubjectId::kOutScope;
-  nav.prev = NavPos{SubjectId::kFilt, 0, -1};
+  nav.subject = SubjectId::kFilt;
   nav.group = 0;
   nav.focus_col = -1;
   nav.mode = ViewMode::kEdit;
+  nav.scope_mode = ScopeMode::kScope;  // power-on: filter curve + embedded scope
   for (auto &st : press) st = PressState{};
   for (auto &t : last_turn_ms) t = 0;
   arm_used = false;
