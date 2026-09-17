@@ -1336,9 +1336,8 @@ void DrawChrome(FrameBuffer &fb, Panel &p) {
             kDim);
   DrawVLine(fb, geom::kPaneX + geom::kPaneW - 4, geom::kPaneY, geom::kPaneH,
             kDim);
-  for (int i = 0; i < 4; ++i)
-    p.dyn[i].rect =
-        Rect{geom::kPlotX, geom::kPlotY, geom::kPlotW, geom::kPlotH};
+  // Plot-slot rects are owned by SetSlotRects (tiled from the mode at the top
+  // of every PanelDraw); DrawChrome only lays the static background and gutter.
 }
 
 // ---- Panel API ----
