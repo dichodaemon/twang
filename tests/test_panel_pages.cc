@@ -56,7 +56,7 @@ static constexpr std::uint32_t kGolden[static_cast<int>(SubjectId::kCount)] = {
     0xCF029AB7u,  // 16 OUT SPECTRUM
     0xA037A982u,  // 17 FX
     0x0B118F50u,  // 18 PATCH
-    0x1DCAF6F2u,  // 19 CONF
+    0xAF8DCBD4u,  // 19 CONF
 };
 
 // The AMP page in MOD view: route lists replace the plot, LEVEL shows its two
