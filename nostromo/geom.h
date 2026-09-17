@@ -97,6 +97,12 @@ inline constexpr int kEmbedX(int half) {
 inline constexpr int kPlotBracketLeg = 12;  // arm length
 inline constexpr int kPlotBracketTh  = 2;   // arm thickness
 
+// Label insets: how far the output plot's text (mode name + axis labels) sits
+// from the plot edge so it clears the corner brackets. The bracket arm is
+// kPlotBracketTh thick, so the visible gap is pad - kPlotBracketTh.
+inline constexpr int kPlotLabelPadX = 6;  // left/right edge -> text
+inline constexpr int kPlotLabelPadY = 8;  // top/bottom edge -> text
+
 inline constexpr int kListY    = kValueY;                           //  90
 inline constexpr int kListH    = kBottom - kListY;                  // 494
 inline constexpr int kListRows = kListH / kRowPitch;                //  19

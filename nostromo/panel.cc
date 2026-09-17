@@ -622,16 +622,16 @@ void DrawScopePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
                grat, 4, kBright);
 
   // Axis labels: vertical ±0.5 on their graticule lines, horizontal window.
-  TextLeft(fb, "+0.5", ox + 2, oy + (mid - amp / 2) - kSecondaryFont.h / 2,
+  TextLeft(fb, "+0.5", ox + geom::kPlotLabelPadX, oy + (mid - amp / 2) - kSecondaryFont.h / 2,
            kSecondaryFont, kMid);
-  TextLeft(fb, "-0.5", ox + 2, oy + (mid + amp / 2) - kSecondaryFont.h / 2,
+  TextLeft(fb, "-0.5", ox + geom::kPlotLabelPadX, oy + (mid + amp / 2) - kSecondaryFont.h / 2,
            kSecondaryFont, kMid);
-  TextLeft(fb, "0ms", ox + 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
+  TextLeft(fb, "0ms", ox + geom::kPlotLabelPadX, oy + h - kSecondaryFont.h - geom::kPlotLabelPadY, kSecondaryFont,
            kDim);
   char win[16];
   std::snprintf(win, sizeof(win), "%ums",
                 static_cast<unsigned>(p.interaction->out.timebase_ms));
-  TextRight(fb, win, ox + w - 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
+  TextRight(fb, win, ox + w - geom::kPlotLabelPadX, oy + h - kSecondaryFont.h - geom::kPlotLabelPadY, kSecondaryFont,
             kDim);
 }
 
@@ -699,15 +699,15 @@ void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
 
   // Axis labels: vertical ±0.5 on their graticule lines, horizontal cycle
   // count (the effective n_eff, not the stored CYCLES).
-  TextLeft(fb, "+0.5", ox + 2, oy + (mid - amp / 2) - kSecondaryFont.h / 2,
+  TextLeft(fb, "+0.5", ox + geom::kPlotLabelPadX, oy + (mid - amp / 2) - kSecondaryFont.h / 2,
            kSecondaryFont, kMid);
-  TextLeft(fb, "-0.5", ox + 2, oy + (mid + amp / 2) - kSecondaryFont.h / 2,
+  TextLeft(fb, "-0.5", ox + geom::kPlotLabelPadX, oy + (mid + amp / 2) - kSecondaryFont.h / 2,
            kSecondaryFont, kMid);
-  TextLeft(fb, "0", ox + 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
+  TextLeft(fb, "0", ox + geom::kPlotLabelPadX, oy + h - kSecondaryFont.h - geom::kPlotLabelPadY, kSecondaryFont,
            kDim);
   char cyc[16];
   std::snprintf(cyc, sizeof(cyc), "%d CYCLES", n_eff);
-  TextRight(fb, cyc, ox + w - 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
+  TextRight(fb, cyc, ox + w - geom::kPlotLabelPadX, oy + h - kSecondaryFont.h - geom::kPlotLabelPadY, kSecondaryFont,
             kDim);
 }
 
@@ -773,15 +773,15 @@ void DrawSpectrumPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
 
   // Axis labels: dB on every other line (0 dB at the top is the full-scale
   // rail), horizontal frequency range.
-  TextLeft(fb, "-30", ox + 2, oy + dB30 - kSecondaryFont.h / 2, kSecondaryFont,
+  TextLeft(fb, "-30", ox + geom::kPlotLabelPadX, oy + dB30 - kSecondaryFont.h / 2, kSecondaryFont,
            kMid);
-  TextLeft(fb, "-60", ox + 2, oy + dB60 - kSecondaryFont.h / 2, kSecondaryFont,
+  TextLeft(fb, "-60", ox + geom::kPlotLabelPadX, oy + dB60 - kSecondaryFont.h / 2, kSecondaryFont,
            kMid);
-  TextLeft(fb, "-90", ox + 2, oy + B - kSecondaryFont.h / 2, kSecondaryFont,
+  TextLeft(fb, "-90", ox + geom::kPlotLabelPadX, oy + B - kSecondaryFont.h / 2, kSecondaryFont,
            kMid);
-  TextLeft(fb, "20Hz", ox + 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
+  TextLeft(fb, "20Hz", ox + geom::kPlotLabelPadX, oy + h - kSecondaryFont.h - geom::kPlotLabelPadY, kSecondaryFont,
            kDim);
-  TextRight(fb, "20kHz", ox + w - 2, oy + h - kSecondaryFont.h - 2,
+  TextRight(fb, "20kHz", ox + w - geom::kPlotLabelPadX, oy + h - kSecondaryFont.h - geom::kPlotLabelPadY,
             kSecondaryFont, kDim);
 }
 
@@ -815,7 +815,8 @@ void DrawOutPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
 
   // Mode label: the active mode's name in the output region's top-left corner,
   // drawn after the plot content so it sits on top of any curve pixels.
-  TextLeft(fb, ScopeModeName(p.interaction->Nav().scope_mode), ox + 6, oy + 4,
+  TextLeft(fb, ScopeModeName(p.interaction->Nav().scope_mode),
+           ox + geom::kPlotLabelPadX, oy + geom::kPlotLabelPadY,
            kSecondaryFont, kDim);
 }
 
