@@ -552,10 +552,12 @@ void DrawScopePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const int amp = static_cast<int>(h * 0.42f);
 
   // One ring window across the plot: ReadLast requires count * stride <=
-  // kCapacity, so stride = kCapacity / kPlotW (16384 / 900 = 18). The old
-  // stride 48 was sized for the 230 px module plot and, at 900 px, wrapped
-  // the ring ~2.6 times — three copies of the waveform.
-  constexpr int kStride = ScopeRing::kCapacity / geom::kPlotW;
+  // kCapacity, so stride = kCapacity / w (full ring at any drawn width). At
+  // the full 900 px band that is 16384 / 900 = 18; at the embedded 440 px
+  // half it is 37 (440 * 37 = 16280 <= 16384). A constant derived from
+  // kPlotW would read the ring at stride 18 regardless, cropping the signal
+  // to 440 * 18 = 7920 of 16384 samples when the plot narrows.
+  const int kStride = ScopeRing::kCapacity / w;
   float buf[geom::kPlotW];
   p.scope_ring.ReadLast(buf, w, kStride);
 
