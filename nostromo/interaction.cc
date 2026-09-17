@@ -127,6 +127,9 @@ void TurnFeel(ViewCtl ctl, std::int8_t detents, bool fine, FeelProfile &feel) {
       feel.fine_divisor = static_cast<std::uint8_t>(
           StepInt(feel.fine_divisor, detents, 1, 64, 1));
       break;
+    case ViewCtl::kScopeRefresh:
+      feel.scope_interval_ms = StepInt(feel.scope_interval_ms, detents, 16, 250, 1);
+      break;
     default:
       break;  // PATCH controls are inert until patch storage
   }
@@ -145,6 +148,9 @@ void RevertFeel(ViewCtl ctl, FeelProfile &feel) {
       break;
     case ViewCtl::kLongPress: feel.long_press_ms = def.long_press_ms; break;
     case ViewCtl::kFineDiv: feel.fine_divisor = def.fine_divisor; break;
+    case ViewCtl::kScopeRefresh:
+      feel.scope_interval_ms = def.scope_interval_ms;
+      break;
     default: break;  // PATCH controls are inert until patch storage
   }
 }

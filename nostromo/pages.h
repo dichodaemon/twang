@@ -33,6 +33,7 @@ enum class RouteField : std::uint8_t { kSource, kDest, kAmount };
 enum class ViewCtl : std::uint8_t {
   kCategory, kSort, kFavourite, kAction,                    // PATCH
   kDetents, kAccelMax, kAccelThresh, kLongPress, kFineDiv,  // CONF
+  kScopeRefresh,                                            // CONF (output refresh)
 };
 
 /// A tagged column reference. A column *declares a kind*: `param` names a

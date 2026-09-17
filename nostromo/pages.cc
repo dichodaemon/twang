@@ -144,6 +144,7 @@ constexpr ColumnSpec kColsConf[] = {
     {ColumnKind::kViewCtl, "THRESH", {.ctl = ViewCtl::kAccelThresh}},
     {ColumnKind::kViewCtl, "PRESS", {.ctl = ViewCtl::kLongPress}},
     {ColumnKind::kViewCtl, "FINE", {.ctl = ViewCtl::kFineDiv}},
+    {ColumnKind::kViewCtl, "REFRESH", {.ctl = ViewCtl::kScopeRefresh}},
 };
 
 }  // namespace
