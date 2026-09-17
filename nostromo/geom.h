@@ -42,11 +42,12 @@ inline constexpr int kPaneRule  = 3;
 inline constexpr int kPrimaryH  = 20;   // ter-u20n cell height
 inline constexpr int kPlotMinH  = 120;
 
-// Selectable subjects in the pane. Class labels (OSC, ENV, LFO, OUT) are
-// presentation, not subjects: NAV1 skips them. 20 = PART, FILT, AMP, MOD,
-// OSC1-4, ENV1-3, LFO1-3, OUT scope/cycle/spectrum, FX, PATCH, CONF.
+// Selectable subjects in the pane. Class labels (OSC, ENV, LFO) are
+// presentation, not subjects: NAV1 skips them. 17 = PART, FILT, AMP, MOD,
+// OSC1-4, ENV1-3, LFO1-3, FX, PATCH, CONF. OUT is gone — the output view is
+// an embedded plot plus a latched full-screen mode, not a subject.
 // pages.h static_asserts SubjectId::kCount against this.
-inline constexpr int kSubjectCount = 20;
+inline constexpr int kSubjectCount = 17;
 
 // ---- derived -----------------------------------------------------------
 
@@ -80,6 +81,15 @@ inline constexpr int kPlotX = kMargin + kPaneW;                     // 108
 
 inline constexpr int kPlotW = kColumns * kColW;                     // 900
 inline constexpr int kPlotH = kBottom - kPlotY;                     // 404
+
+// Embedded output plot: the plot band splits into two equal halves with a
+// gap. Half 0 hosts the page's own plot; half 1 hosts the output view. Both
+// are 440 px wide; kOutView re-tiles the full 900 px into the output slot.
+inline constexpr int kEmbedGap = 20;
+inline constexpr int kEmbedW   = (kPlotW - kEmbedGap) / 2;             // 440
+inline constexpr int kEmbedX(int half) {
+  return kPlotX + half * (kEmbedW + kEmbedGap);                        // 108 / 568
+}
 
 inline constexpr int kListY    = kValueY;                           //  90
 inline constexpr int kListH    = kBottom - kListY;                  // 494
@@ -120,8 +130,8 @@ inline constexpr int StripW(int cells, int chars) {
 
 // Pane height requirement. Rows are class labels and singletons; each class
 // with instances adds a strip and its trailing gap. Computed, not assumed.
-inline constexpr int kPaneRowsN   = 11;  // PART FILT AMP MOD OSC ENV LFO OUT FX PATCH CONF
-inline constexpr int kPaneStripsN = 4;   // OSC ENV LFO OUT
+inline constexpr int kPaneRowsN   = 10;  // PART FILT AMP MOD OSC ENV LFO FX PATCH CONF
+inline constexpr int kPaneStripsN = 3;   // OSC ENV LFO
 inline constexpr int kPaneNeedH   = kPaneRowsN * kPanePitch +
                                     kPaneStripsN * (kStripH + 8) +
                                     kPaneRule + 6;
@@ -146,7 +156,10 @@ static_assert(kPaneH >= kPaneNeedH,
 // Every strip must fit the pane. A four-cell alphabetic strip is 96 px and
 // would silently overflow, which is how the OUT strip first shipped wrong.
 static_assert(StripW(4, 1) <= kStripAvail, "digit strip overflows the pane");
-static_assert(StripW(3, 2) <= kStripAvail, "OUT view strip overflows the pane");
+// The embedded output halves must tile the plot band exactly, so half 0 and
+// half 1 together span the full plot width with no stray pixels.
+static_assert(kEmbedW * 2 + kEmbedGap == kPlotW,
+              "embedded plot halves must tile the plot width exactly");
 
 }  // namespace nostromo::geom
 
