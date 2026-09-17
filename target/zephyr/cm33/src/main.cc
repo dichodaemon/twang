@@ -13,7 +13,9 @@
 
 #include "engine_control.h"
 #include "glcdc_backend.h"
+#include "interaction.h"
 #include "panel.h"
+#include "surface.h"
 
 namespace engine {
 
@@ -41,6 +43,12 @@ int main(void) {
     // The Panel is placement-new'd into SDRAM by PanelCreate (TWANG_UI_SDRAM).
     nostromo::Panel *panel = nostromo::PanelCreate();
     nostromo::PanelSetEngine(panel, &control);
+
+    // The panel reads navigation state (Nav()) and output/feel settings
+    // through the interaction layer; without it PanelDraw dereferences a null
+    // interaction pointer. Same wiring as the desktop host (host/main.cc).
+    nostromo::Interaction interaction;
+    interaction.Init(panel, nostromo::Surface(), &control);
 
     // Smoke: a held A4 note drives the envelope playhead so the panel has
     // something to draw (the audio core renders it from the shared ring).
