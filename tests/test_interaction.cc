@@ -329,6 +329,24 @@ int main() {
               "OUT cycling leaves subject/group/focus_col unchanged");
     }
 
+    // 10b. OUT hold toggles kOutView; entering from kOff forces kScope.
+    {
+        g_t += 10;
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kDown, g_t});
+        g_t += 700;  // past long_press_ms -> kPressLong on release
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kUp, g_t});
+        Check(it.Nav().mode == ViewMode::kOutView, "OUT hold enters kOutView");
+        Check(it.Nav().scope_mode == ScopeMode::kScope,
+              "kOutView entry from kOff forces kScope");
+
+        g_t += 10;
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kDown, g_t});
+        g_t += 700;
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kUp, g_t});
+        Check(it.Nav().mode == ViewMode::kEdit,
+              "second OUT hold exits kOutView to kEdit");
+    }
+
     // 11. Invariant 13: one event causes bounded work. A turn on a column
     //     invalidates the plot once, independent of route-table size — the
     //     invalidation cost never scales with state.
