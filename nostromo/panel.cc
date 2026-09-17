@@ -689,19 +689,11 @@ void DrawSpectrumPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
                grat, 4, kBright);
 }
 
-// The OUT view the current subject wants. The three OUT subjects share one
-// plot slot, so the hook reads the subject to pick the view (the old mode
-// buttons are gone, so scope_mode is no longer driven by anything).
-ScopeMode ScopeModeOf(SubjectId s) {
-  switch (s) {
-    case SubjectId::kOutCycle: return ScopeMode::kCycle;
-    case SubjectId::kOutSpec: return ScopeMode::kSpectrum;
-    default: return ScopeMode::kScope;
-  }
-}
-
 void DrawOutPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
-  switch (ScopeModeOf(p.interaction->Nav().subject)) {
+  // The output view is global (nav.scope_mode), not per-subject. kOff is
+  // forced to kScope on kOutView entry (Design Decision 2), so DrawOutPlot
+  // never sees kOff; the default is a defensive fallthrough to the scope.
+  switch (p.interaction->Nav().scope_mode) {
     case ScopeMode::kCycle:
       DrawCyclePlot(fb, ox, oy, w, h, p);
       break;
@@ -1107,25 +1099,6 @@ static void DrawItemList(FrameBuffer &fb, const NavState &nav,
   }
 }
 
-// The OUT view strip (SCOPE/CYCLE/SPEC): on an OUT page, three cells in the
-// band the wells/summary occupy elsewhere, the active OUT view inverted
-// (kBright fill + kBg text) — the pane strips' selection treatment (§5).
-static void DrawViewStrip(FrameBuffer &fb, const NavState &nav) {
-  const int idx = static_cast<int>(nav.subject) -
-                  static_cast<int>(SubjectId::kOutScope);
-  if (idx < 0 || idx >= 3) return;
-  static const char *const kCells[3] = {"SCOPE", "CYCLE", "SPEC"};
-  const int cw = 5 * kPrimaryFont.w + 8;  // widest label (5 glyphs) + padding
-  const int y = geom::kSumY;
-  for (int k = 0; k < 3; ++k) {
-    const int cx = geom::kPlotX + k * cw;
-    const bool act = (k == idx);
-    // Fill either way so the inverse cursor never leaves a stale bright block.
-    FillRect(fb, cx, y, cw, geom::kStripH, act ? kBright : kBg);
-    TextLeft(fb, kCells[k], cx + 4, y + 3, kPrimaryFont, act ? kBg : kMid);
-  }
-}
-
 void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
                  engine::EngineControl &control) {
   // Clear the whole column band (value/well/summary + the plot gap) once,
@@ -1277,7 +1250,7 @@ int DrawPartSwatches(FrameBuffer &fb, int x, int y, int active) {
 
 // Global subjects sit below the pane rule and are not owned by a part.
 bool IsGlobalSubject(SubjectId s) {
-  return static_cast<int>(s) >= static_cast<int>(SubjectId::kOutScope);
+  return static_cast<int>(s) >= static_cast<int>(SubjectId::kFx);
 }
 
 // Mode prefix for the title, or "" in edit mode.
@@ -1344,7 +1317,6 @@ void DrawEditChrome(FrameBuffer &fb, Panel &p) {
 
   DrawPane(fb, nav);
   DrawColumns(fb, nav, page, *p.control);
-  DrawViewStrip(fb, nav);  // OUT pages: the view selector, all modes
   if (nav.mode == ViewMode::kEdit) {
     DrawSendsBand(fb, nav, *p.control);
     DrawItemList(fb, nav, page, *p.control);
@@ -1411,13 +1383,15 @@ void MarkDirty(Panel *p, SlotIdx idx) {
   p->damage.Add(p->dyn[idx].rect);
 }
 
-// The plot slot the current page shows, or -1 for pages without a plot. The
-// four slots share one band; only the active page's plot may paint into it.
-// In MOD view the route lists replace everything below the headers, so the
-// plot is suppressed (its band is cleared and the lists draw over it).
+// The plot slot the current state shows, or -1 for none. The four slots share
+// one band; only the active slot's plot may paint into it. In MOD view the
+// route lists replace everything below the headers, so the plot is suppressed.
+// When scope_mode != kOff, the output view owns the band (phase 3 splits the
+// band into page + output halves instead of replacing).
 int ActivePlotSlot(const Panel &p) {
   const NavState &nav = p.interaction->Nav();
   if (nav.mode == ViewMode::kModView) return -1;
+  if (nav.scope_mode != ScopeMode::kOff) return kSlotOut;
   return k_pages[static_cast<int>(nav.subject)].dyn_slot;
 }
 
