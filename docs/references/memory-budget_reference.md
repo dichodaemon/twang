@@ -17,6 +17,16 @@ tree) and does not change across builds.
 The control core (cm33) is the constrained one — the entire panel UI ships
 against a 256 KB flash ceiling, while the audio core has 768 KB.
 
+## Pre-spike baseline (LVGL)
+
+Historical reference, not part of the tracked series. Before the `spike`
+renderer, the cm33 image used LVGL; its ~150 KB of fixed overhead (multi-format
+blending, gradients, shadows, arcs, the default theme) put flash at **78.55% of
+256 KB (~201 KB)** for a controller at only ~15% of its intended scope. The
+LVGL→spike migration (2026-09-10) cut it to ~24% (~63 KB). This is why 256 KB
+is treated as the hard ceiling: LVGL was consuming most of it before the real
+UI existed.
+
 ## History
 
 Percentages are of the budget above. Reproduce a build per AGENTS.md
