@@ -1416,8 +1416,7 @@ ActivePlotSlots ActivePlotSlotsOf(const Panel &p) {
 // MarkDirty (which adds the slot's rect to damage) and the draw loop agree on
 // geometry. Inactive slots keep the full band, so a MarkAll on a mode change
 // still covers the whole band in damage.
-void SetSlotRects(Panel &p) {
-  const ActivePlotSlots a = ActivePlotSlotsOf(p);
+void SetSlotRects(Panel &p, const ActivePlotSlots &a) {
   for (int i = 0; i < 4; ++i)
     p.dyn[i].rect =
         Rect{geom::kPlotX, geom::kPlotY, geom::kPlotW, geom::kPlotH};
@@ -1434,9 +1433,10 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   // in, so there is no independent toggle to desync.
   p->fb_index = buffer_index;
 
-  // Tile the active plot slots from the mode before any MarkDirty, so damage
-  // and the draw loop agree on geometry.
-  SetSlotRects(*p);
+  // One resolution of the active slots per draw, shared by the rect tiling and
+  // both draw paths — so they can never disagree about which slots paint.
+  const ActivePlotSlots active = ActivePlotSlotsOf(*p);
+  SetSlotRects(*p, active);
 
   // Poll the engine for parameter changes (MIDI CC, encoders) and invalidate
   // the affected plots before drawing.
@@ -1475,7 +1475,6 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
       std::memset(&p->traces[i][b], 0xFF, sizeof(TraceState));
     // Only the active slots paint; the others are different pages and must not
     // paint over the shared band.
-    const ActivePlotSlots active = ActivePlotSlotsOf(*p);
     for (int i = 0; i < 4; ++i) {
       if (i != active.page && i != active.out) continue;
       p->dyn[i].draw(fb, p->dyn[i].rect, p->dyn[i].state);
@@ -1496,7 +1495,6 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   // says *a buffer is still owed* — and they coincide because MarkDirty is the
   // sole writer of both.
   const int n = p->damage.Repaint();
-  const ActivePlotSlots active = ActivePlotSlotsOf(*p);
   for (int k = 0; k < 4; ++k) {
     if (k != active.page && k != active.out) continue;
     if (!p->dyn[k].dirty || p->pending[k] <= 0) continue;
