@@ -23,9 +23,6 @@ namespace nostromo {
 using spike::FrameBuffer;
 using spike::Rect;
 
-/// @brief Output-module display mode.
-enum class ScopeMode : int { kScope = 0, kCycle, kSpectrum };
-
 /// @brief Pointer event kind.
 enum class PointerKind : int { kPress, kMove, kRelease };
 
