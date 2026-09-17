@@ -21,9 +21,11 @@ target_sources(app PRIVATE
     ${SPIKE_DIR}/fb.cc
     ${SPIKE_DIR}/font.cc
     ${SPIKE_DIR}/damage.cc
-    ${SPIKE_DIR}/descriptor.cc
     ${NOSTROMO_DIR}/panel.cc
-    ${NOSTROMO_DIR}/screens.cc
+    ${NOSTROMO_DIR}/interaction.cc
+    ${NOSTROMO_DIR}/pages.cc
+    ${NOSTROMO_DIR}/feel.cc
+    ${NOSTROMO_DIR}/surface.cc
     ${CONTROLLER_DIR}/fft.cc
     ${CONTROLLER_DIR}/scope_ring.cc
     ${ENGINE_DIR}/allocator.cc
