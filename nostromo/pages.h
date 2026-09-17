@@ -34,6 +34,10 @@ enum class ViewCtl : std::uint8_t {
   kCategory, kSort, kFavourite, kAction,                    // PATCH
   kDetents, kAccelMax, kAccelThresh, kLongPress, kFineDiv,  // CONF
   kScopeRefresh,                                            // CONF (output refresh)
+  kTimebase, kCycles, kRange,                               // kOutView col 1
+  kScale,                                                   // kOutView col 2 (shared)
+  kTrigger, kAlign, kAverage,                               // kOutView col 3
+  kHold, kWindow,                                           // kOutView col 4
 };
 
 /// A tagged column reference. A column *declares a kind*: `param` names a
