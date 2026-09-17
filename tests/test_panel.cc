@@ -8,6 +8,7 @@
 #include "engine_control.h"
 #include "fb.h"
 #include "interaction.h"
+#include "palette.h"
 #include "panel.h"
 #include "surface.h"
 
@@ -84,6 +85,32 @@ int main() {
     PanelDraw(p, fb0, 0);
     PanelDraw(p, fb1, 1);
     Check(PanelPlotDraws(p, 3) == out_steady, "steady state: no redraw");
+
+    // Regression: the split seam is dead space between the two embedded
+    // halves, outside both active rects. A full-band -> split transition
+    // (kOutView -> kEdit) must clear it — it is only ever filled explicitly.
+    {
+        std::uint32_t t = 1000;
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kDown, t});
+        t += 700;  // past long_press_ms -> kPressLong -> kOutView
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kUp, t});
+        PanelDraw(p, fb0, 0);
+        PanelDraw(p, fb1, 1);
+
+        t += 10;
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kDown, t});
+        t += 700;
+        it.OnInput(InputEvent{Control::kOut, 0, Edge::kUp, t});
+        PanelDraw(p, fb0, 0);
+        PanelDraw(p, fb1, 1);
+
+        bool seam_clear = true;
+        for (int y = geom::kPlotY; y < geom::kPlotY + geom::kPlotH; ++y)
+            for (int x = geom::kEmbedX(0) + geom::kEmbedW;
+                 x < geom::kEmbedX(0) + geom::kEmbedW + geom::kEmbedGap; ++x)
+                if (buf0[y * kW + x] != kBg) { seam_clear = false; break; }
+        Check(seam_clear, "split seam is cleared after full-band -> split");
+    }
 
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);

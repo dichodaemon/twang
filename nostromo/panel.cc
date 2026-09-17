@@ -1514,6 +1514,12 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
     // No plot at all (MOD view, or a page with no plot and kOff): must not
     // leave the previous page's plot in the band.
     FillRect(fb, geom::kPlotX, geom::kPlotY, geom::kPlotW, geom::kPlotH, kBg);
+  } else if (active.page >= 0 && active.out >= 0) {
+    // Embedded split: the seam between the two halves is dead space, so the
+    // union of the two active rects does not cover the band. Keep it clear —
+    // a full-band -> split transition would otherwise leave the old pixels.
+    FillRect(fb, geom::kEmbedX(0) + geom::kEmbedW, geom::kPlotY,
+             geom::kEmbedGap, geom::kPlotH, kBg);
   }
   DrawEditChrome(fb, *p);
 }
