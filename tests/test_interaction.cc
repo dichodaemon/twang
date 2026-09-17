@@ -62,10 +62,19 @@ int main() {
     PanelDraw(p, fb0, 0);
     PanelDraw(p, fb1, 1);
 
-    // Power-on page is kOutScope (index 14); walk NAV1 back 9 to kFilt (5).
-    for (int i = 0; i < 9; ++i) Turn(it, Control::kNav1, -1);
-    Check(it.Nav().subject == SubjectId::kFilt,
-          "NAV1 walks to the filter page");
+    // Power-on page is kFilt with scope_mode = kScope (filter curve + embedded
+    // scope). Cycle OUT to kOff so the filter plot is the active plot for the
+    // rest of the test.
+    Check(it.Nav().subject == SubjectId::kFilt, "power-on subject is the filter");
+    Check(it.Nav().scope_mode == ScopeMode::kScope,
+          "power-on scope_mode is kScope");
+    Tap(it, Control::kOut);  // kScope -> kCycle
+    Check(it.Nav().scope_mode == ScopeMode::kCycle, "OUT cycles scope -> cycle");
+    Tap(it, Control::kOut);  // kCycle -> kSpectrum
+    Check(it.Nav().scope_mode == ScopeMode::kSpectrum,
+          "OUT cycles cycle -> spectrum");
+    Tap(it, Control::kOut);  // kSpectrum -> kOff
+    Check(it.Nav().scope_mode == ScopeMode::kOff, "OUT cycles spectrum -> off");
 
     // 1. A turn on the cutoff column writes cutoff and no other parameter.
     {
@@ -191,7 +200,7 @@ int main() {
     // 7. CONF feel editing: an encoder turn over a CONF feel column edits the
     //    runtime feel; a long press reverts the control to its default.
     {
-        for (int i = 0; i < 6; ++i) Turn(it, Control::kNav1, 1);  // kMod -> kConf
+        for (int i = 0; i < 3; ++i) Turn(it, Control::kNav1, 1);  // kMod -> kConf
         Check(it.Nav().subject == SubjectId::kConf,
               "NAV1 reaches the CONF page");
 
@@ -274,7 +283,7 @@ int main() {
             before[c] = ResolveBinding(it.Nav(), Enc(c));
 
         // Edit every CONF feel field through the dispatcher, then return.
-        for (int i = 0; i < 14; ++i) Turn(it, Control::kNav1, 1);  // kFilt -> kConf
+        for (int i = 0; i < 11; ++i) Turn(it, Control::kNav1, 1);  // kFilt -> kConf
         Check(it.Nav().subject == SubjectId::kConf,
               "NAV1 reaches the CONF page");
         for (int c = 0; c < geom::kColumns; ++c) Turn(it, Enc(c), 1);
@@ -291,8 +300,8 @@ int main() {
         Check(same, "feel editing leaves bindings unchanged (invariant 12)");
     }
 
-    // 10. OUT round-trip: OUT pressed twice restores subject/group/focus_col
-    //     (§11 acceptance criterion).
+    // 10. OUT tap cycles scope_mode (off -> scope -> cycle -> spectrum -> off),
+    //     leaving subject/group/focus_col unchanged.
     {
         // Focus column 0 in MOD view so focus_col is non-default.
         Tap(it, Control::kMod);  // kEdit -> kModView
@@ -303,12 +312,21 @@ int main() {
         const SubjectId subj = it.Nav().subject;
         const std::uint8_t group = it.Nav().group;
         const std::int8_t focus = it.Nav().focus_col;
-        Tap(it, Control::kOut);
-        Check(it.Nav().subject == SubjectId::kOutScope, "OUT jumps to scope");
-        Tap(it, Control::kOut);
+
+        Tap(it, Control::kOut);  // kOff -> kScope
+        Check(it.Nav().scope_mode == ScopeMode::kScope, "OUT cycles off -> scope");
+        Tap(it, Control::kOut);  // kScope -> kCycle
+        Check(it.Nav().scope_mode == ScopeMode::kCycle, "OUT cycles scope -> cycle");
+        Tap(it, Control::kOut);  // kCycle -> kSpectrum
+        Check(it.Nav().scope_mode == ScopeMode::kSpectrum,
+              "OUT cycles cycle -> spectrum");
+        Tap(it, Control::kOut);  // kSpectrum -> kOff
+        Check(it.Nav().scope_mode == ScopeMode::kOff,
+              "OUT cycles spectrum -> off");
+
         Check(it.Nav().subject == subj && it.Nav().group == group &&
                   it.Nav().focus_col == focus,
-              "OUT round-trip restores subject/group/focus_col");
+              "OUT cycling leaves subject/group/focus_col unchanged");
     }
 
     // 11. Invariant 13: one event causes bounded work. A turn on a column
