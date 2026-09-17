@@ -1301,7 +1301,8 @@ void DrawEditChrome(FrameBuffer &fb, Panel &p) {
 
   char name[24];
   std::snprintf(name, sizeof(name), "%s%s", ModePrefix(nav.mode),
-                page.long_name);
+                nav.mode == ViewMode::kOutView ? ScopeModeName(nav.scope_mode)
+                                               : page.long_name);
   TextLeft(fb, name, geom::kTitleNameX, geom::kTitleY + 2, kPrimaryFont,
            kBright);
 
