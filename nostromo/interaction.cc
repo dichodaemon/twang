@@ -348,8 +348,18 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
         // changes even though only the active slots repaint.
         nav.scope_mode = NextScopeMode(nav.scope_mode);
         MarkAll();
+      } else if (g == Gesture::kPressLong) {
+        // Toggle the full-screen output view. Entering from kOff forces kScope
+        // so the first tap after entry visibly advances (Design Decision 2).
+        if (nav.mode == ViewMode::kOutView) {
+          nav.mode = ViewMode::kEdit;
+        } else {
+          nav.mode = ViewMode::kOutView;
+          if (nav.scope_mode == ScopeMode::kOff)
+            nav.scope_mode = ScopeMode::kScope;
+        }
+        MarkAll();
       }
-      // kPressLong toggles kOutView (phase 3).
       break;
     }
     case BindKind::kRouteField: {
