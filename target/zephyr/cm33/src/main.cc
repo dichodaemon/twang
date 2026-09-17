@@ -42,11 +42,11 @@ int main(void) {
 
     // The Panel is placement-new'd into SDRAM by PanelCreate (TWANG_UI_SDRAM).
     nostromo::Panel *panel = nostromo::PanelCreate();
-    nostromo::PanelSetEngine(panel, &control);
 
-    // The panel reads navigation state (Nav()) and output/feel settings
-    // through the interaction layer; without it PanelDraw dereferences a null
-    // interaction pointer. Same wiring as the desktop host (host/main.cc).
+    // Bind the interaction layer + control engine through Interaction::Init —
+    // the single wiring point shared with the desktop host (host/main.cc). The
+    // panel reads navigation/output state through the interaction layer, so a
+    // panel drawn without it null-dereferences on the first frame.
     nostromo::Interaction interaction;
     interaction.Init(panel, nostromo::Surface(), &control);
 

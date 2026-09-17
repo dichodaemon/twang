@@ -13,6 +13,7 @@
 #include "feel.h"
 #include "pages.h"
 #include "panel.h"
+#include "panel_internal.h"
 #include "params.h"
 #include "surface.h"
 

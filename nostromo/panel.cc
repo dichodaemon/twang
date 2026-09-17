@@ -19,6 +19,7 @@
 // frame, not the assumption.
 
 #include "panel.h"
+#include "panel_internal.h"
 
 #include "palette.h"
 

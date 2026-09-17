@@ -69,27 +69,6 @@ enum SlotIdx : int;
 /// @return The panel context (owned by the caller; never freed in practice).
 Panel *PanelCreate();
 
-/// @brief Bind the interaction layer to the panel (control thread, once).
-///
-/// The panel reads navigation state through this back-pointer to render the
-/// pane/header chrome and DYN plots; the interaction layer sets it in
-/// Interaction::Init.
-///
-/// @param p Panel context.
-/// @param it Interaction context (owned by the caller).
-void PanelSetInteraction(Panel *p, const Interaction *it);
-
-/// @brief Bind the control-core engine to the panel (control thread, once).
-///
-/// The panel drives notes and parameters through this back-pointer (keyboard,
-/// filter/env drag, and the per-frame engine sync). The interaction layer sets
-/// it in Interaction::Init; a host without an interaction (the cm33 smoke) sets
-/// it directly.
-///
-/// @param p Panel context.
-/// @param control Control-core engine (owned by the caller).
-void PanelSetEngine(Panel *p, engine::EngineControl *control);
-
 /// @brief Marks a slot dirty, repainting it into both buffers.
 ///
 /// The single invalidation entry point: the slot's plot and its readout band
