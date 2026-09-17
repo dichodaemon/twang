@@ -206,15 +206,24 @@ void TextRight(FrameBuffer &fb, const char *s, int xr, int y, const Font &f, Col
 
 // ---- cursor (used by the filter and envelope DYN hooks) ----
 
+// Four L-shaped corners framing a rect: the filter/envelope cursor (7 px arms)
+// and the plot-region frame (kPlotBracketLeg at kDim). `leg` is the arm length
+// along each edge; `th` the arm thickness.
+void Bracket(FrameBuffer &fb, int x, int y, int w, int h, int leg, int th,
+             Color c) {
+  FillRect(fb, x, y, leg, th, c);
+  FillRect(fb, x + w - leg, y, leg, th, c);
+  FillRect(fb, x, y + h - th, leg, th, c);
+  FillRect(fb, x + w - leg, y + h - th, leg, th, c);
+  FillRect(fb, x, y, th, leg, c);
+  FillRect(fb, x + w - th, y, th, leg, c);
+  FillRect(fb, x, y + h - leg, th, leg, c);
+  FillRect(fb, x + w - th, y + h - leg, th, leg, c);
+}
+
+// The filter and envelope cursor: a 7 px bracket.
 void Cursor(FrameBuffer &fb, int x, int y, int w, int h, Color c) {
-  FillRect(fb, x, y, 7, 2, c);
-  FillRect(fb, x + w - 7, y, 7, 2, c);
-  FillRect(fb, x, y + h - 2, 7, 2, c);
-  FillRect(fb, x + w - 7, y + h - 2, 7, 2, c);
-  FillRect(fb, x, y, 2, 7, c);
-  FillRect(fb, x + w - 2, y, 2, 7, c);
-  FillRect(fb, x, y + h - 7, 2, 7, c);
-  FillRect(fb, x + w - 2, y + h - 7, 2, 7, c);
+  Bracket(fb, x, y, w, h, 7, 2, c);
 }
 
 // ---- column-update traces ----
@@ -822,6 +831,8 @@ void PlotOsc(FrameBuffer &fb, const Rect &r, void *state) {
   FillRect(fb, r.x, r.y, r.w, r.h, kBg);
   std::memset(&p->traces[0][p->fb_index], 0xFF, sizeof(TraceState));
   DrawOscPlot(fb, r.x, r.y, r.w, r.h, *p);
+  Bracket(fb, r.x, r.y, r.w, r.h, geom::kPlotBracketLeg, geom::kPlotBracketTh,
+          kDim);
   fb.clip = saved;
 }
 
@@ -833,6 +844,8 @@ void PlotFilter(FrameBuffer &fb, const Rect &r, void *state) {
   FillRect(fb, r.x, r.y, r.w, r.h, kBg);
   std::memset(&p->traces[1][p->fb_index], 0xFF, sizeof(TraceState));
   DrawFilterPlot(fb, r.x, r.y, r.w, r.h, *p);
+  Bracket(fb, r.x, r.y, r.w, r.h, geom::kPlotBracketLeg, geom::kPlotBracketTh,
+          kDim);
   fb.clip = saved;
 }
 
@@ -844,6 +857,8 @@ void PlotEnv(FrameBuffer &fb, const Rect &r, void *state) {
   FillRect(fb, r.x, r.y, r.w, r.h, kBg);
   std::memset(&p->traces[2][p->fb_index], 0xFF, sizeof(TraceState));
   DrawEnvPlot(fb, r.x, r.y, r.w, r.h, *p);
+  Bracket(fb, r.x, r.y, r.w, r.h, geom::kPlotBracketLeg, geom::kPlotBracketTh,
+          kDim);
   fb.clip = saved;
 }
 
@@ -855,6 +870,8 @@ void PlotOut(FrameBuffer &fb, const Rect &r, void *state) {
   FillRect(fb, r.x, r.y, r.w, r.h, kBg);
   std::memset(&p->traces[3][p->fb_index], 0xFF, sizeof(TraceState));
   DrawOutPlot(fb, r.x, r.y, r.w, r.h, *p);
+  Bracket(fb, r.x, r.y, r.w, r.h, geom::kPlotBracketLeg, geom::kPlotBracketTh,
+          kDim);
   fb.clip = saved;
 }
 

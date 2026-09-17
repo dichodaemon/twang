@@ -92,6 +92,11 @@ inline constexpr int kEmbedX(int half) {
   return kPlotX + half * (kEmbedW + kEmbedGap);                        // 108 / 568
 }
 
+// Corner brackets that frame each plot region (and separate the two embedded
+// halves). The filter/envelope cursor reuses the same shape at 7 px legs.
+inline constexpr int kPlotBracketLeg = 12;  // arm length
+inline constexpr int kPlotBracketTh  = 2;   // arm thickness
+
 inline constexpr int kListY    = kValueY;                           //  90
 inline constexpr int kListH    = kBottom - kListY;                  // 494
 inline constexpr int kListRows = kListH / kRowPitch;                //  19
