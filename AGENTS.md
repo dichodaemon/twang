@@ -54,6 +54,32 @@ all C++ work in this repo and outlive any single task or epic.
 
 - Constants are `k`-prefixed. Mutable state never uses the `g_` prefix.
 
+## Target builds (Zephyr, EK-RA8D2)
+
+Two Zephyr applications under `target/zephyr/` — `cm85/` (audio core) and
+`cm33/` (control core, the UI). Both cross-compile for the EK-RA8D2 with the
+Zephyr SDK; no desktop deps. Run from the app dir, `-d` is an out-of-tree build
+dir under `/tmp`:
+
+    export ZEPHYR_BASE=/workspace/zephyrproject/zephyr
+    export ZEPHYR_SDK_INSTALL_DIR=/workspace/zephyr-sdk/zephyr-sdk-1.0.1
+
+    cd target/zephyr/cm33
+    west build -b ek_ra8d2/r7ka8d2kflcac/cm33 -d /tmp/twang-cm33-build -p always
+
+    cd target/zephyr/cm85
+    west build -b ek_ra8d2/r7ka8d2kflcac/cm85 -d /tmp/twang-cm85-build -p always
+
+The linker prints a size table at the end of each build ("Memory region / Used
+Size / Region Size / %age Used"). Section detail via
+`arm-zephyr-eabi-size <build>/zephyr/zephyr.elf` (toolchain at
+`/workspace/zephyr-sdk/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin`).
+
+Flash budget (the split is in the Zephyr tree's
+`dts/arm/renesas/ra/ra8/r7ka8d2kflcac.dtsi`): cm33 gets **256 KB** code MRAM +
+640 KB SRAM; cm85 gets 768 KB MRAM + 1 MB SRAM. The control core (cm33) is the
+constrained one — ~70 KB flash (27%) as of 2026-09-17.
+
 ## Beads and commits
 
 - Work is tracked in beads (`bd`, with `BEADS_DB` routed to the workspace where
