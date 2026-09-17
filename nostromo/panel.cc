@@ -95,7 +95,8 @@ struct Panel {
   // Double buffering: the buffer we draw into this frame, set by the backend
   // via PanelDraw's buffer_index argument (the backend owns the swap — no
   // independent toggle to desync). chrome_drawn[k] records whether static
-  // chrome (titlebar, frames, graticule, keyboard, tabs) is in buffer k.
+  // chrome (titlebar, frames, keyboard, tabs) is in buffer k. The plot
+  // graticule is not static chrome — each plot draws its own (DrawGraticule).
   int fb_index = 0;
   bool chrome_drawn[2] = {false, false};
 

@@ -112,6 +112,34 @@ int main() {
         Check(seam_clear, "split seam is cleared after full-band -> split");
     }
 
+    // Graticule presence: the output plot's graticule lines are drawn
+    // explicitly (DrawGraticule). The golden hash detects change, not
+    // correctness — a line that is never drawn still passes the hash — so
+    // assert the embedded scope half holds >= 3 full-width kDim runs (the
+    // +0.5/-0.5/-1.0 lines; the mid line is covered by the flat zero-curve at
+    // power-on).
+    {
+        int runs = 0;
+        for (int y = geom::kPlotY; y < geom::kPlotY + geom::kPlotH; ++y) {
+            int run = 0;
+            for (int x = geom::kEmbedX(1);
+                 x < geom::kEmbedX(1) + geom::kEmbedW; ++x)
+                if (buf0[y * kW + x] == kDim) ++run;
+            if (run >= (geom::kEmbedW * 9) / 10) ++runs;
+        }
+        Check(runs >= 3, "output graticule: >= 3 full-width kDim lines present");
+    }
+
+    // Mode label presence: the output region's top-left corner carries the
+    // active mode's name ("SCOPE" at power-on), drawn as text over the plot.
+    {
+        int ink = 0;
+        for (int y = geom::kPlotY + 4; y < geom::kPlotY + 4 + 16; ++y)
+            for (int x = geom::kEmbedX(1) + 6; x < geom::kEmbedX(1) + 6 + 48; ++x)
+                if (buf0[y * kW + x] != kBg) ++ink;
+        Check(ink > 0, "output mode label present in the corner region");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;
