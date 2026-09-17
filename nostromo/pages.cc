@@ -8,6 +8,8 @@
 
 #include "pages.h"
 
+#include "params.h"
+
 namespace nostromo {
 
 namespace {
@@ -107,30 +109,6 @@ constexpr ColumnSpec kColsMod[] = {
     {ColumnKind::kPending, "ENABLE", {}},
 };
 
-constexpr ColumnSpec kColsOutScope[] = {
-    {ColumnKind::kPending, "SOURCE", {}},
-    {ColumnKind::kPending, "TIMEBASE", {}},
-    {ColumnKind::kPending, "SCALE", {}},
-    {ColumnKind::kPending, "TRIGGER", {}},
-    {ColumnKind::kPending, "HOLD", {}},
-};
-
-constexpr ColumnSpec kColsOutCycle[] = {
-    {ColumnKind::kPending, "SOURCE", {}},
-    {ColumnKind::kPending, "CYCLES", {}},
-    {ColumnKind::kPending, "SCALE", {}},
-    {ColumnKind::kPending, "ALIGN", {}},
-    {ColumnKind::kPending, "HOLD", {}},
-};
-
-constexpr ColumnSpec kColsOutSpec[] = {
-    {ColumnKind::kPending, "SOURCE", {}},
-    {ColumnKind::kPending, "RANGE", {}},
-    {ColumnKind::kPending, "SCALE", {}},
-    {ColumnKind::kPending, "AVERAGE", {}},
-    {ColumnKind::kPending, "WINDOW", {}},
-};
-
 constexpr ColumnSpec kColsPatch[] = {
     {ColumnKind::kViewCtl, "CATEGORY", {.ctl = ViewCtl::kCategory}},
     {ColumnKind::kViewCtl, "SORT", {.ctl = ViewCtl::kSort}},
@@ -146,6 +124,20 @@ constexpr ColumnSpec kColsConf[] = {
     {ColumnKind::kViewCtl, "FINE", {.ctl = ViewCtl::kFineDiv}},
     {ColumnKind::kViewCtl, "REFRESH", {.ctl = ViewCtl::kScopeRefresh}},
 };
+
+// Whether the page has at least one modulatable parameter column — the MOD
+// applicability gate (arch-design §7.7). Membership is a descriptor flag
+// (k_params[].modulatable), not an enum split, so this reads the table.
+bool HasModulatableColumn(SubjectId s) {
+  const PageDesc &page = k_pages[static_cast<int>(s)];
+  for (std::uint8_t i = 0; i < page.n_cols; ++i) {
+    if (page.cols[i].kind == ColumnKind::kParam &&
+        engine::k_params[static_cast<std::size_t>(page.cols[i].param)]
+            .modulatable)
+      return true;
+  }
+  return false;
+}
 
 }  // namespace
 
@@ -192,15 +184,6 @@ const PageDesc k_pages[static_cast<int>(SubjectId::kCount)] = {
     [static_cast<int>(SubjectId::kMod)] =
         {SubjectId::kMod, "MOD", "MODULATION", kColsMod, ColCount(kColsMod),
          ItemAxis::kSlots, -1},
-    [static_cast<int>(SubjectId::kOutScope)] =
-        {SubjectId::kOutScope, "SCOPE", "SCOPE", kColsOutScope, ColCount(kColsOutScope),
-         ItemAxis::kNone, static_cast<std::int8_t>(kSlotOut)},
-    [static_cast<int>(SubjectId::kOutCycle)] =
-        {SubjectId::kOutCycle, "CYCLE", "CYCLE", kColsOutCycle, ColCount(kColsOutCycle),
-         ItemAxis::kNone, static_cast<std::int8_t>(kSlotOut)},
-    [static_cast<int>(SubjectId::kOutSpec)] =
-        {SubjectId::kOutSpec, "SPECTRUM", "SPECTRUM", kColsOutSpec, ColCount(kColsOutSpec),
-         ItemAxis::kNone, static_cast<std::int8_t>(kSlotOut)},
     [static_cast<int>(SubjectId::kFx)] =
         {SubjectId::kFx, "FX", "EFFECTS", nullptr, 0, ItemAxis::kNone, -1},
     [static_cast<int>(SubjectId::kPatch)] =
@@ -285,14 +268,21 @@ Binding ResolveBinding(const NavState &nav, Control c) {
       b.kind = BindKind::kPartSelect;
       break;
     case Control::kMod:
-      b.kind = BindKind::kModeToggle;
+      // MOD acts only where a route can land: a page with no modulatable
+      // parameter column (the MOD page itself, PART/AMP/FX/PATCH/CONF) keeps
+      // arming inert.
+      b.kind = HasModulatableColumn(nav.subject) ? BindKind::kModeToggle
+                                                 : BindKind::kNone;
       break;
     case Control::kGroup:
       b.kind = BindKind::kGroupCycle;
       break;
-    case Control::kOut:
-      b.kind = BindKind::kOutToggle;
+    case Control::kOut: {
+      // OUT acts only where there is a plot to embed the output into.
+      const PageDesc &page = k_pages[static_cast<int>(nav.subject)];
+      b.kind = (page.dyn_slot >= 0) ? BindKind::kOutToggle : BindKind::kNone;
       break;
+    }
     case Control::kPerf:  // reserved (§2 non-goals)
     default:
       b.kind = BindKind::kNone;

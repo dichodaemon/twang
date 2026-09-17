@@ -114,8 +114,8 @@ struct Binding {
 /// The page table, indexed by SubjectId, in pane order.
 extern const PageDesc k_pages[static_cast<int>(SubjectId::kCount)];
 
-/// Pure (NavState, Control) → Binding. No side effects, no engine reads,
-/// no globals beyond k_pages.
+/// Pure (NavState, Control) → Binding. No side effects; reads only const
+/// tables (k_pages and the engine parameter-descriptor table).
 Binding ResolveBinding(const NavState &nav, Control c);
 
 /// SubjectId must enumerate exactly the subjects the pane renders.
