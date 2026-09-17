@@ -149,6 +149,17 @@ int main() {
         nav.subject = SubjectId::kPatch;  // item_axis kPatches
         Check(ResolveBinding(nav, Control::kNav2).kind == BindKind::kNavItem,
               "nav2 on a patches page");
+
+        // OUT applicability: kNone on a page with no plot (kPart has none).
+        nav.subject = SubjectId::kPart;
+        Check(ResolveBinding(nav, Control::kOut).kind == BindKind::kNone,
+              "out on a no-plot page -> kNone");
+
+        // MOD applicability: kNone on a page with no modulatable column
+        // (the MOD page's columns are route fields, not parameters).
+        nav.subject = SubjectId::kMod;
+        Check(ResolveBinding(nav, Control::kMod).kind == BindKind::kNone,
+              "mod on the MOD page -> kNone");
     }
 
     // 5. A kRouteField binding carries the slot from item[subject].
