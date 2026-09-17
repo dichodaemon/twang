@@ -109,6 +109,29 @@ constexpr ColumnSpec kColsMod[] = {
     {ColumnKind::kPending, "ENABLE", {}},
 };
 
+// The kOutView settings, one four-column table per scope_mode (arch-design
+// §7.4). No SOURCE column — the output view always monitors the current part.
+constexpr ColumnSpec kColsOutScope[] = {
+    {ColumnKind::kViewCtl, "TIMEBASE", {.ctl = ViewCtl::kTimebase}},
+    {ColumnKind::kViewCtl, "SCALE", {.ctl = ViewCtl::kScale}},
+    {ColumnKind::kViewCtl, "TRIGGER", {.ctl = ViewCtl::kTrigger}},
+    {ColumnKind::kViewCtl, "HOLD", {.ctl = ViewCtl::kHold}},
+};
+
+constexpr ColumnSpec kColsOutCycle[] = {
+    {ColumnKind::kViewCtl, "CYCLES", {.ctl = ViewCtl::kCycles}},
+    {ColumnKind::kViewCtl, "SCALE", {.ctl = ViewCtl::kScale}},
+    {ColumnKind::kViewCtl, "ALIGN", {.ctl = ViewCtl::kAlign}},
+    {ColumnKind::kViewCtl, "HOLD", {.ctl = ViewCtl::kHold}},
+};
+
+constexpr ColumnSpec kColsOutSpec[] = {
+    {ColumnKind::kViewCtl, "RANGE", {.ctl = ViewCtl::kRange}},
+    {ColumnKind::kViewCtl, "SCALE", {.ctl = ViewCtl::kScale}},
+    {ColumnKind::kViewCtl, "AVERAGE", {.ctl = ViewCtl::kAverage}},
+    {ColumnKind::kViewCtl, "WINDOW", {.ctl = ViewCtl::kWindow}},
+};
+
 constexpr ColumnSpec kColsPatch[] = {
     {ColumnKind::kViewCtl, "CATEGORY", {.ctl = ViewCtl::kCategory}},
     {ColumnKind::kViewCtl, "SORT", {.ctl = ViewCtl::kSort}},
@@ -140,6 +163,16 @@ bool HasModulatableColumn(SubjectId s) {
 }
 
 }  // namespace
+
+// The kOutView column set per scope_mode (indexed by ScopeMode; kOff shares
+// scope's table — it never coexists with kOutView after the kOff->kScope
+// entry fix, but the slot is filled so the index is total).
+const ColumnSpec *kOutColumns[4] = {
+    kColsOutScope,  // kOff
+    kColsOutScope,  // kScope
+    kColsOutCycle,  // kCycle
+    kColsOutSpec,   // kSpectrum
+};
 
 const PageDesc k_pages[static_cast<int>(SubjectId::kCount)] = {
     [static_cast<int>(SubjectId::kPart)] =
@@ -204,6 +237,17 @@ Binding ResolveBinding(const NavState &nav, Control c) {
   if (c >= Control::kEnc0 && c <= Control::kEncLast) {
     const int n = static_cast<int>(c) - static_cast<int>(Control::kEnc0);
     b.column = static_cast<std::int8_t>(n);
+
+    // kOutView: encoders address the per-mode output settings, not the page.
+    if (nav.mode == ViewMode::kOutView) {
+      if (n >= 4) return b;  // kNone: the output view has exactly four settings
+      const ColumnSpec col =
+          kOutColumns[static_cast<int>(nav.scope_mode)][n];
+      b.kind = BindKind::kViewCtl;
+      b.ctl = col.ctl;
+      return b;
+    }
+
     const PageDesc &page = k_pages[static_cast<int>(nav.subject)];
     const ColumnSpec col = Column<>(page, nav.group, n);
 

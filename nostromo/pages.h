@@ -118,6 +118,10 @@ struct Binding {
 /// The page table, indexed by SubjectId, in pane order.
 extern const PageDesc k_pages[static_cast<int>(SubjectId::kCount)];
 
+/// The kOutView settings column set per ScopeMode (four columns each; kOff
+/// shares kScope's table). Indexed by static_cast<int>(scope_mode).
+extern const ColumnSpec *kOutColumns[4];
+
 /// Pure (NavState, Control) → Binding. No side effects; reads only const
 /// tables (k_pages and the engine parameter-descriptor table).
 Binding ResolveBinding(const NavState &nav, Control c);
