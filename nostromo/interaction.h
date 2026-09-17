@@ -156,6 +156,19 @@ inline constexpr float kRouteAmountAccel = 3.0f;
 inline constexpr int kModSourceCount =
     static_cast<int>(engine::ModSourceId::kConstant) + 1;
 
+/// Output-view display settings — the two knobs that change what the output
+/// plot shows rather than what it sounds like (display state, not engine
+/// params; arch-design §7.10, beside FeelProfile). Edited from the kOutView
+/// columns; the panel reads them through `Interaction::out`.
+struct OutputSettings {
+  std::uint32_t timebase_ms;  ///< total scope window in ms (size-invariant)
+  std::uint8_t  cycles;       ///< single-cycle count
+};
+
+/// The tuned starting values (341 ms, 3 cycles), edited at runtime into the
+/// interaction layer's own copy.
+inline OutputSettings DefaultOut() { return {341, 3}; }
+
 /// The interaction layer's complete runtime state — a singleton owned by the
 /// caller (host/target main) and passed by pointer to whatever drives input or
 /// reads navigation. All mutable layer state lives here; there are no globals.
@@ -167,6 +180,7 @@ struct Interaction {
   bool arm_used = false;    ///< a route was armed this MOD press
   bool mod_from_view = false;  ///< MOD was in kModView at kDown
   FeelProfile feel = DefaultFeel();  ///< runtime-tunable feel (CONF page)
+  OutputSettings out = DefaultOut();  ///< output-view display settings (kOutView)
   const SurfaceProfile *surface = nullptr;  ///< active physical map
   engine::EngineControl *control = nullptr;  ///< control-core engine (set in Init)
 
