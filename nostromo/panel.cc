@@ -121,6 +121,12 @@ struct Panel {
   // synchronization orders the samples; this flag is only a redraw hint.
   std::atomic<bool> scope_dirty{false};
 
+  // Output-refresh throttle: PanelDraw latches scope_dirty and services it at
+  // most once per scope_interval_ms. The latch survives exchange()'s clear, so
+  // a tap arriving inside the interval is remembered, not dropped.
+  std::uint32_t last_scope_ms = 0;
+  bool scope_pending = false;
+
   // Column-update scratch: per-column lower/upper span (one entry per plot
   // column, <= kPlotW). lo == -1 marks an empty column.
   int col_lo[geom::kPlotW];
@@ -1425,9 +1431,19 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   SyncFromEngine(p);
 
   // Drain the audio thread's scope-dirty flag into the output plot's
-  // invalidation — the scope animates in steady state.
+  // invalidation — the scope animates in steady state, throttled to
+  // scope_interval_ms. A tap inside the interval is latched, not dropped
+  // (exchange() cleared the flag, so scope_pending carries it forward).
   if (p->scope_dirty.exchange(false, std::memory_order_relaxed))
-    MarkDirty(p, kSlotOut);
+    p->scope_pending = true;
+  if (p->scope_pending) {
+    const std::uint32_t now = NowMs();
+    if (now - p->last_scope_ms >= p->interaction->feel.scope_interval_ms) {
+      p->scope_pending = false;
+      p->last_scope_ms = now;
+      MarkDirty(p, kSlotOut);
+    }
+  }
 
   // The envelope playhead traces the ADSR while a note is held or releasing;
   // invalidate the env plot each frame so it animates (the scope does the same
