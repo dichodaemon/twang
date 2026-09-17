@@ -91,6 +91,11 @@ flowchart LR
     gain -. "peak" .-> meter["meter"]
 ```
 
+The output view (scope / cycle / spectrum) taps the current part **post-amp** — after the
+per-voice level stage and before the bus sum — so it shows the voice's final enveloped output
+(`nostromo-interaction_arch-design.md` §7.6). For a multi-voice part the tap is the part's
+voice sum, taken before it joins the master bus.
+
 The shaper is a memoryless non-linearity plus a two-float ADAA state; the bus stage is memoryless. The meter is the first M85→M33 signal: a single `std::atomic<float>` in the shared IPC region (audio core writes, control core reads-and-clears), not a file-scope `float` — the audio core's `.bss` is invisible to the control core. It shares the cache-coherent mapping of the event ring and double-buffered params; the M85's L1 D-cache coherence against the M33's access is a target-side item to validate on hardware, not settleable on the host. Relaxed ordering is a plain 32-bit load/store on ARM, so no lock is introduced.
 
 ## 6. Architecture

@@ -177,8 +177,10 @@ groups are $\lceil n/E \rceil$ slices of it. Order carries meaning — the head 
 the page's hot set and stays the first group at any $E$ — which expresses the study's
 "declared hot set" in the type rather than in a comment.
 
-**The pane renders hierarchically and navigates flat.** `OSC`, `ENV`, `LFO` and `OUT` appear
-as labels owning a horizontal strip of cells, so the pane is 11 rows rather than 20. But the
+**The pane renders hierarchically and navigates flat.** `OSC`, `ENV` and `LFO` appear
+as labels owning a horizontal strip of cells, so the pane is 10 rows rather than 17. `OUT`
+is gone entirely — the output view is no longer a subject; it is an embedded plot and a
+latched full-screen mode (§7.3), so the pane has nothing to select. But the
 labels are *presentation*: they are not selectable, and NAV1 walks every subject in reading
 order — rows and cells alike, one detent per subject. §4.1's Option 3 therefore still holds;
 what was rejected there was a second navigation *axis* requiring a second control, not a
@@ -187,15 +189,19 @@ what is a one-dimensional walk.
 
 What the grouped rendering buys is the growth case the flat list failed. A flat 18-row pane
 needed 513 px of 526 — zero headroom, and a second filter failed the build. Rows plus strips
-need 415, and an added instance costs a cell rather than a row.
+need 359, and an added instance costs a cell rather than a row.
 
-**`kOut` is three subjects, not one with a view setting.** §7.6 originally gave OUT a `VIEW`
-column toggling scope, cycle and spectrum. Rendering it showed that only `SOURCE` is shared
-across the three: `SCALE` means full-scale amplitude in scope and a dB floor in spectrum, and
-the remaining three columns have no counterpart at all. One page with a value-dependent column
-set is a shape `PageDesc` cannot express; three subjects sharing a class label is a shape it
-already has. A selector below the columns it governs also inverted the visual hierarchy —
-every other selector is in the pane, to the left of what it controls.
+**The output view is not a subject at all.** The three OUT subjects existed because the output
+views differ in every column but `SOURCE` — `SCALE` means full-scale amplitude in scope and a
+dB floor in spectrum, and the remaining columns have no counterpart at all. Choosing a view
+therefore meant choosing a column set, and one page with a value-dependent column set is a
+shape `PageDesc` cannot express. The embedded output plot (§7.6) removes the premise entirely:
+the output view becomes an embedded plot (no columns, monitoring `nav.part`) plus a latched
+full-screen `kOutView` mode that hosts the mode-specific settings, so there is no output
+subject to select and no `SOURCE` column — the output is always the current part. This is a
+change of circumstance, not a corrected mistake: three subjects was right for a full-page
+output view with mode-specific settings; it is wrong for a view that is now a global mode with
+per-mode column tables (§7.4).
 
 **Focus and widening are separate mechanisms.** Study §4.8 describes a short press in
 `kModView` as focusing a column *and* widening it to the full content width. Rendering the two
@@ -243,19 +249,20 @@ The layer is a singleton initialised once and never destroyed.
 
 1. **Init** — `InteractionInit(Panel *panel, const SurfaceProfile &surface)`.
    Binds the panel (the `MarkDirty` target) and the surface, loads `g_feel` from persisted
-   settings or its defaults, zeroes `NavState` to part 0, subject `kOutScope`,
-   `prev` `{kFilt, 0, -1}`, group 0, mode `kEdit`, and marks all slots dirty. `kOutScope` is
-   the power-on page for the same reason the OUT button targets it: it is what the instrument
-   shows when nobody is editing. Reports once if `surface.n_encoders < geom::kColumns`.
+   settings or its defaults, zeroes `NavState` to part 0, subject `kFilt`, `scope_mode`
+   `kScope`, group 0, mode `kEdit`, and marks all slots dirty. Power-on
+   at `kFilt` with `scope_mode = kScope` shows the filter curve plus the embedded scope — the
+   output view is what the instrument shows when nobody is editing, without needing an output
+   subject. Reports once if `surface.n_encoders < geom::kColumns`.
 
    *Deviation from the plan (§4):* the signature takes `Panel *`, not a slot array — the layer
    needs the panel for `MarkDirty`, and the slot array is redundant with
    `InteractionNavState()`, which the DYN hooks already read (§4).
 2. **Steady state** — events arrive, gestures are recognised, bindings resolve, the engine is
    written, slots are marked. No allocation, no blocking.
-3. **Mode transitions** — entering `kModArm` (MOD pressed) or `kModView` (MOD tapped) calls
-   `MarkDirty` for the pane and every column slot, because both change what those regions
-   display. Leaving does the same.
+3. **Mode transitions** — entering `kModArm` (MOD pressed), `kModView` (MOD tapped) or
+   `kOutView` (OUT held) calls `MarkDirty` for the pane and every column slot, because each
+   changes what those regions display. Leaving does the same.
 4. **Part change** — writes `NavState::part` and calls `MarkDirty` for the value slots only.
    The layout is untouched: header, columns, cursor and group are identical across parts
    (study §4.11), so chrome is never re-interpreted on a part change.
@@ -332,6 +339,16 @@ inline constexpr int kPlotH = kBottom - kPlotY;                        // 404
 inline constexpr int kPlotW = kColumns * kColW;                        // 900
 inline constexpr int kPlotX = kMargin + kPaneW;                        // 108
 
+// Embedded output plot. When scope_mode != kOff (§7.3), the plot area splits
+// vertically into the page's own plot and the output view — two square-ish
+// halves. kEmbedW is derived so the halves tile kPlotW exactly; kEmbedGap is
+// the shared gap. kAspect keeps each half near-square: 440 px ≈ 419 px after
+// aspect correction, against kPlotH = 404. Half 0 (left) is the page's own
+// plot; half 1 (right) is the output view.
+inline constexpr int kEmbedGap = 20;
+inline constexpr int kEmbedW   = (kPlotW - kEmbedGap) / 2;             // 440
+inline constexpr int kEmbedX(int half) { return kPlotX + half * (kEmbedW + kEmbedGap); }
+
 // List pages (MOD, PATCH) have no value row: rows start under the headers.
 inline constexpr int kListY = kValueY;                                 //  90
 inline constexpr int kListH = kBottom - kListY;                        // 494
@@ -346,11 +363,11 @@ inline constexpr int kPaneY = kContentY;                               //  58
 inline constexpr int kPaneH = kBottom - kPaneY;                        // 526
 // The pane renders hierarchically: class labels own instance strips, so its
 // height requirement is rows plus strips, not a row count.
-inline constexpr int kPaneRowsN   = 11;  // labels and singletons
-inline constexpr int kPaneStripsN = 4;   // OSC ENV LFO OUT
+inline constexpr int kPaneRowsN   = 10;  // labels and singletons
+inline constexpr int kPaneStripsN = 3;   // OSC ENV LFO (OUT removed entirely)
 inline constexpr int kPaneNeedH   = kPaneRowsN * kPanePitch +
                                     kPaneStripsN * (kStripH + 8) +
-                                    kPaneRule + 6;                     // 415
+                                    kPaneRule + 6;                     // 359
 
 // Strip cells have a fixed pitch so digits align between classes; padding
 // shrinks as the token grows.
@@ -380,6 +397,8 @@ static_assert(kPaneH >= kPaneNeedH,
               "strips without scrolling");
 static_assert(StripW(4, 1) <= kStripAvail, "digit strip overflows the pane");
 static_assert(StripW(3, 2) <= kStripAvail, "view strip overflows the pane");
+static_assert(kEmbedW * 2 + kEmbedGap == kPlotW,
+              "embedded plot halves must tile the plot width exactly");
 }  // namespace nostromo::geom
 ```
 
@@ -397,12 +416,11 @@ and well past the point where §4.7's reflow takes over.
 
 **The summary band is not dead space.** `kSumY`/`kSumH` hold two lines of inbound-route
 summary per column in *edit* mode (§4.8), so "what modulates this" needs no mode change.
-Pages whose columns are not modulatable — MOD, PATCH, CONF, the OUT views — have no summary,
-and the band would read as a gap; the OUT views fill it with their own content rather than
-letting the plot claim it, because band registration across pages is what makes switching
-cheap to read.
+Pages whose columns are not modulatable — PART, AMP, MOD, FX, PATCH, CONF — have no summary,
+and the band reads as a gap; the plot claims it, because band registration across pages is
+what makes switching cheap to read.
 
-**The pane has headroom now.** 415 px of 526, against the 513 px a flat 18-row list needed.
+**The pane has headroom now.** 359 px of 526, against the 513 px a flat 18-row list needed.
 The instance strips are what bought it: a fifth oscillator is a cell, not a row, so the pane
 scales with instance count for free. That headroom is why a second filter — the growth case
 that failed the flat layout — now costs 26 px rather than failing the build.
@@ -419,7 +437,7 @@ enum class Control : std::uint8_t {
   kMod,               ///< momentary (arm) and tap (view)
   kPerf,              ///< latching, reserved
   kGroup,             ///< momentary, column-group cycle
-  kOut,               ///< momentary, jump to kOutScope and back
+  kOut,               ///< momentary: tap cycles scope_mode, hold toggles kOutView
   kCount,
 };
 
@@ -452,24 +470,25 @@ enum class SubjectId : std::uint8_t {
   kEnv1, kEnv2, kEnv3,
   kLfo1, kLfo2, kLfo3,
   kMod,
-  kOutScope, kOutCycle, kOutSpec,  ///< globals, below the pane rule
   kFx,
   kPatch, kConf,
-  kCount,                          ///< 20
+  kCount,                          ///< 17
 };
 
 enum class ViewMode : std::uint8_t {
   kEdit = 0,   ///< default
   kModArm,     ///< MOD held — momentary
   kModView,    ///< MOD tapped — latched, LED lit
+  kOutView,    ///< OUT held — latched, full-screen output + settings
   kPerform,    ///< PERF — latched, LED lit
 };
 
-/// A navigation position: everything the OUT button must restore.
-struct NavPos {
-  SubjectId    subject;
-  std::uint8_t group;
-  std::int8_t  focus_col;
+/// The embedded output view. One global value, cycled by the OUT button's tap.
+enum class ScopeMode : std::uint8_t {
+  kOff = 0,    ///< pages show their own full plot; no embedded output (kOutView always shows an output view)
+  kScope,      ///< embedded output = scope trace
+  kCycle,      ///< embedded output = single cycle
+  kSpectrum,   ///< embedded output = spectrum
 };
 
 struct NavState {
@@ -479,8 +498,8 @@ struct NavState {
   std::uint8_t item[static_cast<int>(SubjectId::kCount)];  ///< per-page item cursor
   std::int8_t  focus_col;             ///< focused column, -1 = none
   ViewMode     mode;
+  ScopeMode    scope_mode;            ///< embedded output view; global, not per-subject
   ModSourceId  armed_source;          ///< persists between kModArm entries
-  NavPos       prev;                  ///< return position for the OUT button only
 };
 ```
 
@@ -490,7 +509,8 @@ strip. §7.6 wins because `g_pages` is indexed by `SubjectId`.
 
 `subject` and `group` are deliberately *not* per-part: a part change alters values only
 (study §4.11). `item` is per-subject because a page's item cursor is a property of that page,
-not of the navigation as a whole.
+not of the navigation as a whole. `scope_mode` is global, not per-subject and not per-part:
+there is one output view, and its mode is a property of the instrument, not of the page.
 
 ### 7.4. Pages
 
@@ -511,6 +531,37 @@ enum class RouteField : std::uint8_t { kSource, kDest, kAmount };
 enum class ViewCtl    : std::uint8_t {
   kCategory, kSort, kFavourite, kAction,        // PATCH
   kDetents, kAccelMax, kAccelThresh, kLongPress, kFineDiv,  // CONF
+  kTimebase, kCycles, kRange,                   // kOutView tail col 1, per mode
+  kScale,                                        // kOutView tail col 2, shared
+  kTrigger, kAlign, kAverage,                   // kOutView tail col 3, per mode
+  kHold, kWindow,                               // kOutView tail col 4, per mode
+};
+
+// The kOutView mode's columns, one table per scope_mode. Three distinct tables,
+// not a superset: scope_mode selects the whole table, and the header label is
+// the ColumnSpec's own, so no mode-keyed gating or label derivation is needed.
+constexpr ColumnSpec kColsOutScope[] = {
+    {ColumnKind::kViewCtl, "TIMEBASE", {.ctl = ViewCtl::kTimebase}},
+    {ColumnKind::kViewCtl, "SCALE",    {.ctl = ViewCtl::kScale}},
+    {ColumnKind::kViewCtl, "TRIGGER",  {.ctl = ViewCtl::kTrigger}},
+    {ColumnKind::kViewCtl, "HOLD",     {.ctl = ViewCtl::kHold}},
+};
+constexpr ColumnSpec kColsOutCycle[] = {
+    {ColumnKind::kViewCtl, "CYCLES",   {.ctl = ViewCtl::kCycles}},
+    {ColumnKind::kViewCtl, "SCALE",    {.ctl = ViewCtl::kScale}},
+    {ColumnKind::kViewCtl, "ALIGN",    {.ctl = ViewCtl::kAlign}},
+    {ColumnKind::kViewCtl, "HOLD",     {.ctl = ViewCtl::kHold}},
+};
+constexpr ColumnSpec kColsOutSpec[] = {
+    {ColumnKind::kViewCtl, "RANGE",    {.ctl = ViewCtl::kRange}},
+    {ColumnKind::kViewCtl, "SCALE",    {.ctl = ViewCtl::kScale}},
+    {ColumnKind::kViewCtl, "AVERAGE",  {.ctl = ViewCtl::kAverage}},
+    {ColumnKind::kViewCtl, "WINDOW",   {.ctl = ViewCtl::kWindow}},
+};
+
+// Indexed by scope_mode; kOff shares scope's table.
+constexpr const ColumnSpec *kOutColumns[4] = {
+  kColsOutScope, kColsOutScope, kColsOutCycle, kColsOutSpec,
 };
 
 /// A column *declares a kind*. `param` is a `ParamId`, not a `ParamRef` — the
@@ -604,39 +655,59 @@ except where the acronym is the established term (`LFO`). Group boundaries are d
 | `kEnv1..3` | `ENV`/`1`..`3` | A∗, D∗, S∗, R∗, curve ‖ velo sens | — | envelope |
 | `kLfo1..3` | `LFO`/`1`..`3` | rate, shape, depth, sync, fade ‖ phase, retrig | — | shape |
 | `kMod` | `MOD` | source, dest, amount, curve†, enable† | slots | — |
-| `kOutScope` | `OUT`/`SC` | source∗, timebase, scale, trigger, hold | — | scope |
-| `kOutCycle` | `OUT`/`CY` | source∗, cycles, scale, align, hold | — | single cycle |
-| `kOutSpec` | `OUT`/`SP` | source∗, range, scale, average, window | — | spectrum |
 | `kFx` | `FX` | *pending* | — | — |
 | `kPatch` | `PATCH` | category, sort, favourite, action | patches | — |
 | `kConf` | `CONF` | detents/rev, accel max, accel thresh, long press, fine div | — | — |
 
-Three pages are the natural first screens: `kFilt`, `kEnv1..3` and the OUT views, the last
-because their machinery — `PlotOut`, the FFT, `TraceState`, `ColumnUpdate` and the
-scope/cycle/spectrum toggle — is the most complete in `panel.cc`.
+Two page families are the natural first screens: `kFilt` and `kEnv1..3`, because their
+machinery — `PlotOut`, the FFT, `TraceState`, `ColumnUpdate` and the scope/cycle/spectrum
+toggle — is the most complete in `panel.cc`, and is exactly what the embedded plot and the
+full-screen `kOutView` mode reuse.
 
 **"Buildable today" is narrower than the ∗ marks suggest.** The four existing filter columns
 and four existing envelope columns are all *continuous*. Filter mode and envelope curve are
 discrete, and `engine-parameter-surface_arch-design.md` marks parameters modulatable — so
 discrete parameters are outside the modulatable subset by definition, not merely absent from it. They render as
 `kPending` until `ParamId` covers non-modulatable parameters — the enum growth of §13.3. The same applies to every discrete
-column in §7.6: wave select, LFO shape and sync, mono/poly, and the OUT views' window and
-trigger settings.
+column in §7.6: wave select, LFO shape and sync, mono/poly, and the output view's window and
+trigger settings (the `kOutView` mode's `kViewCtl` columns, §7.4).
 
-**The OUT views are the visual keystone, and they are global.** The output section is where the
-user sees what the engine is actually doing, so it is the section the instrument is left
-sitting on and the one glanced at mid-edit. It monitors the master bus
-(`output-stage_arch-design.md`), but its first column — shared across the three views —
-selects the source, master or one part, so scoping a single part while dialling it needs no
-mode and no second page.
+**The output view is the visual keystone, and it is global — embedded and zoomable.** The
+output section is where the user sees what the engine is actually doing, so it is what the
+instrument is left sitting on and what is glanced at mid-edit. Two surfaces expose it, neither
+of which is a pane subject:
 
-Its plot is 900 × 404 like every other page's. The keystone quality comes from availability,
-not size: a larger plot would break the band registration that makes switching pages cheap to
-read.
+- **Embedded plot** (§7.1) — when `scope_mode` is not `kOff`, the page's plot area splits into
+  the page's own plot and the output view at half width. A read-only glance: it monitors the
+  current part (`nav.part`), has no columns, and its tap point is post-amp (after the per-voice
+  level stage, before the bus sum — `output-stage_arch-design.md`).
+- **Full-screen `kOutView` mode** (§7.3) — OUT held latches the output view to the full
+  900 × 404 plot, and the column band becomes the output view's settings. This is where the
+  output view is configured and scrutinised.
+
+There is no `SOURCE` column anywhere — the output is always the current part — and no output
+subject in the pane. The `kOutView` mode's columns are the mode-specific settings, one table
+per `scope_mode` (§7.4, `kOutColumns`):
+
+| col | scope | cycle | spectrum |
+|---|---|---|---|
+| 1 | TIMEBASE | CYCLES | RANGE |
+| 2 | SCALE | SCALE | SCALE |
+| 3 | TRIGGER | ALIGN | AVERAGE |
+| 4 | HOLD | HOLD | WINDOW |
+
+Nine settings in all; `SCALE` is shared across the three modes, `HOLD` by scope and cycle. The
+tables are three distinct `ColumnSpec` arrays — not a superset with gating — selected by
+`scope_mode` (with `kOff` sharing scope's table).
+
+The output plot is 900 × 404 like every other page's — but no longer exclusively: availability
+now comes from the embedded split, not from a page the user must navigate to. The keystone
+quality comes from availability, not size; the embedded half is the same 404 px tall at half
+the width, enough for a glance and never crowding out the page's own plot.
 
 Being global has a visible consequence. A global subject is not owned by a part, so the title
 bar's part indicator says so rather than naming a part that has nothing to do with what is on
-screen: the four swatches go to outline and `P<n>` becomes `GL`. Without that, `SOURCE MASTER`
+screen: the four swatches go to outline and `P<n>` becomes `GL`. Without that, a global page
 and `P1` sit on one screen contradicting each other, and pressing a part button appears to do
 nothing.
 
@@ -695,6 +766,12 @@ non-parameter kinds:
 
 `kRouteField` is the one kind whose operand is not addressed by the column alone: it needs
 `item[subject]` for the slot, which is why `Binding::slot` is populated for it.
+
+**Applicability.** A control whose effect is undefined on the current page resolves to
+`BindKind::kNone`, and the dispatcher does nothing. Two controls are gated this way: `kOut`
+(tap and hold) resolves to `kNone` when the page has no plot (`dyn_slot == -1`, §7.6), and
+`kMod` (arm and view) resolves to `kNone` when the page has no modulatable `kParam` column —
+which is what keeps arming a route inert on the MOD page, whose columns are route fields.
 ```
 
 ### 7.8. Changes required in the engine
@@ -835,6 +912,7 @@ Resolution by mode, for a column encoder $n$ in group $g$:
 | `kEdit` | set `cols[n]` | descend, if the page marks the column descendable | revert to default | fine adjust ×⅒ |
 | `kModArm` | write route `armed_source → cols[n]`, amount from the turn | — | — | fine adjust of the amount |
 | `kModView` | set `cols[n]` | focus column $n$ — a row cursor, no relayout; NAV2 walks its routes and encoder $n$ sets the selected amount | revert to default | fine adjust |
+| `kOutView` | set `kOutColumns[scope_mode][n]` | — | revert to default | fine adjust |
 | `kPerform` | reserved | reserved | reserved | reserved |
 
 ### Navigation contracts
@@ -848,15 +926,19 @@ Resolution by mode, for a column encoder $n$ in group $g$:
   browser, the modulation view and modals.
 - **Part button** — sets `part`. Leaves `subject`, `group`, `item` and `mode` untouched.
 - **MOD down** — enters `kModArm`. **MOD up within `kLongPressMs` with no other input** —
-  toggles `kModView` instead. **MOD up otherwise** — returns to the prior mode.
+  toggles `kModView` instead. **MOD up otherwise** — returns to the prior mode. Inert on a
+  page with no modulatable `kParam` column (§7.7): resolves to `kNone`.
 - **Group button** — cycles `group` over `[0, n_groups)`.
-- **OUT button** — if `subject` is not one of `kOutScope`/`kOutCycle`/`kOutSpec`, writes
-  `{subject, group, focus_col}` into `NavState::prev` and jumps to `kOutScope`; otherwise
-  restores all three from `prev`. Self-inverse, so it needs no LED and cannot strand the user
-  on a page they did not choose. `item` is per-subject and survives on its own. The round trip
-  is **lossless**: a glance at the output mid-edit returns to the exact column group and
-  focused column that was left, because a glance that costs you your place is not a glance.
-  `kOutScope`'s group is always 0 — it has one group — so nothing needs saving on that side.
+- **OUT button** — tap (short press) cycles `scope_mode` off → scope → cycle → spectrum → off,
+  marking the plot slot dirty on the current page (and, because the mode is global, on every
+  page that renders the embedded plot). Hold (long press) toggles `kOutView` — the latched
+  full-screen output mode, where the output fills the plot and the column band shows its
+  settings; a second hold returns to the prior mode. Inert on a page with no plot
+  (`dyn_slot == -1`, §7.7): resolves to `kNone`. The mode is visible in the plot itself, so
+  the cycle needs no LED and no hidden state; `off` returns the page's full 900 × 404 when the
+  page's own plot needs the room. In `kOutView`, `off` is treated as `kScope` — the mode's own
+  plot *is* the output view, so there is nothing for `off` to restore. `item` is per-subject
+  and survives on its own.
 
 ### Route creation
 
@@ -889,11 +971,12 @@ here, mirroring `Binding::param` (§7.7).
    $\lfloor (\text{kPaneW} - \text{bracket} - 2\cdot\text{pad}) / \text{advance} \rfloor$
    characters. The give is the pane slack and the left margin, never the column pitch (study
    §4.4).
-4. **No latched mode without a physical indicator.** `kModView` and `kPerform` are latched and
-   each drives an LED. `kModArm` is momentary. No mode is signalled by screen state alone.
+4. **No latched mode without an indicator.** `kModView` and `kPerform` are latched and each
+   drives an LED; `kModArm` is momentary. `kOutView` is latched but self-evident — its
+   full-screen output is its own indicator (invariant 14), so it needs no LED.
    *(Unimplemented: the mode-LED driving is not yet scheduled — deferred feedback work — so
    until it lands the latched modes are signalled by screen state only.)*
-5. **At most one latched mode.** `kModView` and `kPerform` are mutually exclusive.
+5. **At most one latched mode.** `kModView`, `kOutView` and `kPerform` are mutually exclusive.
 6. **A part change alters values only.** `subject`, `group`, `item`, `focus_col` and `mode`
    are invariant across a part button press, so chrome is never re-interpreted.
 7. **One inverse-video element per screen.** Inverse marks the selected subject — a pane row
@@ -913,6 +996,15 @@ here, mirroring `Binding::param` (§7.7).
     long a press must be held. A tunable that changes a binding is a design parameter and
     belongs in `geom` or `PageDesc`.
 13. **Bounded work per event.** No allocation, no unbounded loop; resolution is a table lookup.
+14. **The output view is self-evident and timer-free.** `scope_mode` is global and its value is
+    visible in the plot itself (a scope trace, a single cycle, or a spectrum); `kOutView` is
+    visible as the full-screen output plus its settings columns. `off` is reached from the same
+    cycle — there is no hidden mode and no separate indicator. The output view's repaint rides
+    the existing `scope_dirty` → `MarkDirty` path; no timer is introduced
+    (`engine-recommendations.md` §5.7).
+15. **A control acts only where its effect is defined.** A control that resolves against an
+    undefined surface returns `BindKind::kNone` and the dispatcher does nothing. `kOut` requires
+    a plot (`dyn_slot != -1`); `kMod` requires a modulatable `kParam` column (§7.7).
 
 ## 10. Test Architecture
 
@@ -971,8 +1063,16 @@ is a property of the layout rather than of the encoder, so it validates $E$ with
       encoder drives the parameter in the active group.
 - [ ] Given a column marked `kPending`, a turn of that encoder changes no engine state.
 - [ ] Given a `kRouteField` column, its binding carries the slot from `item[subject]`.
-- [ ] Given the OUT button pressed twice from any page, `subject`, `group` and `focus_col`
-      are identical to their values before the first press.
+- [ ] Given the OUT button tapped on a plot page, `scope_mode` advances off → scope → cycle →
+      spectrum → off and `subject`, `group` and `focus_col` are unchanged.
+- [ ] Given the OUT button tapped or held on a page with no plot, `ResolveBinding` returns
+      `kNone` and nothing changes.
+- [ ] Given the OUT button held on a plot page, `mode` toggles into and out of `kOutView`, and
+      the column band shows `kOutColumns[scope_mode]`.
+- [ ] Given `kOutView`, a turn of encoder $n$ sets `kOutColumns[scope_mode][n]`, and cycling
+      `scope_mode` switches to that mode's table.
+- [ ] Given MOD pressed on a page with no modulatable column (e.g. the MOD page), `ResolveBinding`
+      returns `kNone` and no `kModArm` entry occurs.
 - [ ] Every `PageDesc` satisfies `n_cols <= geom::kColumns` for all groups, checked at build
       time.
 - [ ] Changing `geom::kColumns` and rebuilding produces a coherent layout or a compile error;
@@ -1008,7 +1108,7 @@ is a property of the layout rather than of the encoder, so it validates $E$ with
 | `tests/test_bindings.cc` | Exhaustive resolution and page-table validation |
 | `tests/test_gestures.cc` | Gesture recognition boundaries |
 | `tests/test_surface.cc` | ControlMap injectivity and encoder-decode round-trips |
-| `tests/test_interaction.cc` | End-to-end dispatch, MarkDirty discipline, OUT round-trip |
+| `tests/test_interaction.cc` | End-to-end dispatch, MarkDirty discipline, OUT cycle + `kOutView` toggle, applicability |
 
 ## 13. Open Questions
 
@@ -1046,9 +1146,9 @@ Draft-only. Each must close or move before `approved`.
    constant. Resolve by completing §13.3 and re-running the count. If most pages still need
    two groups at six, that is a new design study, not an edit to this one.
 
-   **First count, from the page table (§7.6).** At $E = 5$, thirteen of eighteen pages carry
+   **First count, from the page table (§7.6).** At $E = 5$, thirteen of seventeen pages carry
    two column groups: `kPart`, the four oscillators, `kFilt`, the three envelopes, the three
-   LFOs, and `kFx`. At $E = 6$ only the oscillators and LFOs do — seven of eighteen. At
+   LFOs, and `kFx`. At $E = 6$ only the oscillators and LFOs do — seven of seventeen. At
    $E = 7$ every page fits in one, but pitch falls to 19.4 mm, below the ergonomic floor the
    `static_assert` enforces. So the real choice is five against six, at 27.1 mm and 22.6 mm
    pitch respectively, and the study's claim that five covers the common case does not
