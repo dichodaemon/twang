@@ -10,6 +10,13 @@
 // redraw. Plots redraw only when their invalidation flag is set — never on a
 // global timer — and update only changed columns, erasing the old vertical
 // span graticule-aware.
+//
+// The panel has no external visual reference: mockup_pages.cc (the render
+// target the panel was meant to converge on) was deleted in c6db240 before
+// convergence was verified. The golden-image tests and the property
+// assertions (graticule, labels, seam) are the guard against silent
+// divergence — when a visual element is claimed to already exist, check the
+// frame, not the assumption.
 
 #include "panel.h"
 

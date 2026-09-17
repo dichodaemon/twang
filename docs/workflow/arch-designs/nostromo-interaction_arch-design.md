@@ -540,23 +540,26 @@ enum class ViewCtl    : std::uint8_t {
 // The kOutView mode's columns, one table per scope_mode. Three distinct tables,
 // not a superset: scope_mode selects the whole table, and the header label is
 // the ColumnSpec's own, so no mode-keyed gating or label derivation is needed.
+// TIMEBASE and CYCLES are implemented (kViewCtl, backing OutputSettings §7.10);
+// the other seven settings are display features not yet built, so they render
+// kPending rather than as live-but-inert controls.
 constexpr ColumnSpec kColsOutScope[] = {
     {ColumnKind::kViewCtl, "TIMEBASE", {.ctl = ViewCtl::kTimebase}},
-    {ColumnKind::kViewCtl, "SCALE",    {.ctl = ViewCtl::kScale}},
-    {ColumnKind::kViewCtl, "TRIGGER",  {.ctl = ViewCtl::kTrigger}},
-    {ColumnKind::kViewCtl, "HOLD",     {.ctl = ViewCtl::kHold}},
+    {ColumnKind::kPending, "SCALE",    {}},
+    {ColumnKind::kPending, "TRIGGER",  {}},
+    {ColumnKind::kPending, "HOLD",     {}},
 };
 constexpr ColumnSpec kColsOutCycle[] = {
     {ColumnKind::kViewCtl, "CYCLES",   {.ctl = ViewCtl::kCycles}},
-    {ColumnKind::kViewCtl, "SCALE",    {.ctl = ViewCtl::kScale}},
-    {ColumnKind::kViewCtl, "ALIGN",    {.ctl = ViewCtl::kAlign}},
-    {ColumnKind::kViewCtl, "HOLD",     {.ctl = ViewCtl::kHold}},
+    {ColumnKind::kPending, "SCALE",    {}},
+    {ColumnKind::kPending, "ALIGN",    {}},
+    {ColumnKind::kPending, "HOLD",     {}},
 };
 constexpr ColumnSpec kColsOutSpec[] = {
-    {ColumnKind::kViewCtl, "RANGE",    {.ctl = ViewCtl::kRange}},
-    {ColumnKind::kViewCtl, "SCALE",    {.ctl = ViewCtl::kScale}},
-    {ColumnKind::kViewCtl, "AVERAGE",  {.ctl = ViewCtl::kAverage}},
-    {ColumnKind::kViewCtl, "WINDOW",   {.ctl = ViewCtl::kWindow}},
+    {ColumnKind::kPending, "RANGE",    {}},
+    {ColumnKind::kPending, "SCALE",    {}},
+    {ColumnKind::kPending, "AVERAGE",  {}},
+    {ColumnKind::kPending, "WINDOW",   {}},
 };
 
 // Indexed by scope_mode; kOff shares scope's table.
@@ -669,8 +672,12 @@ and four existing envelope columns are all *continuous*. Filter mode and envelop
 discrete, and `engine-parameter-surface_arch-design.md` marks parameters modulatable — so
 discrete parameters are outside the modulatable subset by definition, not merely absent from it. They render as
 `kPending` until `ParamId` covers non-modulatable parameters — the enum growth of §13.3. The same applies to every discrete
-column in §7.6: wave select, LFO shape and sync, mono/poly, and the output view's window and
-trigger settings (the `kOutView` mode's `kViewCtl` columns, §7.4).
+column in §7.6: wave select, LFO shape and sync, mono/poly.
+
+The output view's settings are the exception that does not belong in that list: they are
+*display* state, not engine parameters, so they never wait on `ParamId`. TIMEBASE and CYCLES
+are implemented as `OutputSettings` (§7.10); the remaining seven (§7.4) are declared but
+unbuilt and render `kPending`.
 
 **The output view is the visual keystone, and it is global — embedded and zoomable.** The
 output section is where the user sees what the engine is actually doing, so it is what the
@@ -872,6 +879,19 @@ struct FeelProfile {
 };
 
 extern FeelProfile g_feel;   ///< mutable; edited from the CONF page
+```
+
+The output view's two *implemented* settings are the same shape of state as `FeelProfile` —
+runtime, tunable, carried in the interaction layer rather than the engine — but they are
+display state, not input feel, and they live on `Interaction` beside `feel` (not as a shared
+global):
+
+```cpp
+/// Output-view display settings: what the plot shows, not what it sounds like.
+struct OutputSettings {
+  std::uint32_t timebase_ms;  ///< total scope window in ms (size-invariant)
+  std::uint8_t  cycles;       ///< single-cycle count
+};
 ```
 
 These are the values judged by hand, so they are runtime state rather than constants. Each is
