@@ -1106,8 +1106,13 @@ void DrawColumns(FrameBuffer &fb, const NavState &nav, const PageDesc &page,
   // per-column text origins.
   FillRect(fb, geom::kPlotX, geom::kValueY, geom::kPlotW,
            geom::kPlotY - geom::kValueY, kBg);
+  const bool out_view = (nav.mode == ViewMode::kOutView);
   for (int c = 0; c < geom::kColumns; ++c) {
-    const ColumnSpec cs = Column<>(page, nav.group, c);
+    const ColumnSpec cs =
+        out_view
+            ? (c < 4 ? kOutColumns[static_cast<int>(nav.scope_mode)][c]
+                     : ColumnSpec{ColumnKind::kNone, "", {}})
+            : Column<>(page, nav.group, c);
     const int x = geom::kColX(c);
     // Clear the header row per column: a label change (TIMEBASE → CYCLES) or a
     // kNone column past a partial final group leaves no stale glyphs behind.
@@ -1256,6 +1261,7 @@ const char *ModePrefix(ViewMode m) {
   switch (m) {
     case ViewMode::kModArm: return "MOD ARM ";
     case ViewMode::kModView: return "MOD VIEW ";
+    case ViewMode::kOutView: return "OUT ";
     case ViewMode::kPerform: return "PERFORM ";
     default: return "";
   }
@@ -1381,22 +1387,54 @@ void MarkDirty(Panel *p, SlotIdx idx) {
   p->damage.Add(p->dyn[idx].rect);
 }
 
-// The plot slot the current state shows, or -1 for none. The four slots share
-// one band; only the active slot's plot may paint into it. In MOD view the
-// route lists replace everything below the headers, so the plot is suppressed.
-// When scope_mode != kOff, the output view owns the band (phase 3 splits the
-// band into page + output halves instead of replacing).
-int ActivePlotSlot(const Panel &p) {
+// The active plot slots: the page's own plot and the output view, each a slot
+// index or -1 (none). They occupy disjoint rects (page half 0 / output half 1
+// in the embedded split, one full band otherwise), so the two invalidate
+// independently and the draw loop paints both rect-driven.
+struct ActivePlotSlots {
+  std::int8_t page;  ///< page's plot slot, or -1
+  std::int8_t out;   ///< output slot, or -1
+};
+
+ActivePlotSlots ActivePlotSlotsOf(const Panel &p) {
   const NavState &nav = p.interaction->Nav();
-  if (nav.mode == ViewMode::kModView) return -1;
-  if (nav.scope_mode != ScopeMode::kOff) return kSlotOut;
-  return k_pages[static_cast<int>(nav.subject)].dyn_slot;
+  ActivePlotSlots s{-1, -1};
+  if (nav.mode == ViewMode::kModView) return s;  // route lists replace the plot
+  if (nav.mode == ViewMode::kOutView) {
+    s.out = static_cast<std::int8_t>(kSlotOut);  // output fills the band
+    return s;
+  }
+  s.page = k_pages[static_cast<int>(nav.subject)].dyn_slot;
+  if (nav.scope_mode != ScopeMode::kOff)
+    s.out = static_cast<std::int8_t>(kSlotOut);  // embedded output
+  return s;
+}
+
+// Set each active slot's rect from the mode. Called at the top of PanelDraw so
+// MarkDirty (which adds the slot's rect to damage) and the draw loop agree on
+// geometry. Inactive slots keep the full band, so a MarkAll on a mode change
+// still covers the whole band in damage.
+void SetSlotRects(Panel &p) {
+  const ActivePlotSlots a = ActivePlotSlotsOf(p);
+  for (int i = 0; i < 4; ++i)
+    p.dyn[i].rect =
+        Rect{geom::kPlotX, geom::kPlotY, geom::kPlotW, geom::kPlotH};
+  if (a.page >= 0 && a.out >= 0) {
+    p.dyn[a.page].rect =
+        Rect{geom::kEmbedX(0), geom::kPlotY, geom::kEmbedW, geom::kPlotH};
+    p.dyn[a.out].rect =
+        Rect{geom::kEmbedX(1), geom::kPlotY, geom::kEmbedW, geom::kPlotH};
+  }
 }
 
 void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   // Record which buffer we draw into; the backend owns the swap and passes it
   // in, so there is no independent toggle to desync.
   p->fb_index = buffer_index;
+
+  // Tile the active plot slots from the mode before any MarkDirty, so damage
+  // and the draw loop agree on geometry.
+  SetSlotRects(*p);
 
   // Poll the engine for parameter changes (MIDI CC, encoders) and invalidate
   // the affected plots before drawing.
@@ -1433,11 +1471,11 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
     // column-update skip does not elide a curve over the wiped background.
     for (int i = 0; i < 4; ++i)
       std::memset(&p->traces[i][b], 0xFF, sizeof(TraceState));
-    // Only the active page's plot paints into the shared band; the other three
-    // slots are different pages and must not paint over it.
-    const int active = ActivePlotSlot(*p);
+    // Only the active slots paint; the others are different pages and must not
+    // paint over the shared band.
+    const ActivePlotSlots active = ActivePlotSlotsOf(*p);
     for (int i = 0; i < 4; ++i) {
-      if (i != active) continue;
+      if (i != active.page && i != active.out) continue;
       p->dyn[i].draw(fb, p->dyn[i].rect, p->dyn[i].state);
       p->pending[i] = 0;
       p->dyn[i].dirty = false;
@@ -1456,9 +1494,9 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   // says *a buffer is still owed* — and they coincide because MarkDirty is the
   // sole writer of both.
   const int n = p->damage.Repaint();
-  const int active = ActivePlotSlot(*p);
+  const ActivePlotSlots active = ActivePlotSlotsOf(*p);
   for (int k = 0; k < 4; ++k) {
-    if (k != active) continue;  // only the active page's plot paints
+    if (k != active.page && k != active.out) continue;
     if (!p->dyn[k].dirty || p->pending[k] <= 0) continue;
     const Rect &pr = p->dyn[k].rect;
     bool hit = false;
@@ -1473,10 +1511,9 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
       p->dyn[k].dirty = p->pending[k] > 0;
     }
   }
-  if (active < 0) {
-    // A page with no plot (dyn_slot = -1) must not leave the previous page's
-    // plot in the shared band: MarkPage marks nothing for such pages, so the
-    // band would otherwise keep whatever the last plotted page drew.
+  if (active.page < 0 && active.out < 0) {
+    // No plot at all (MOD view, or a page with no plot and kOff): must not
+    // leave the previous page's plot in the band.
     FillRect(fb, geom::kPlotX, geom::kPlotY, geom::kPlotW, geom::kPlotH, kBg);
   }
   DrawEditChrome(fb, *p);
