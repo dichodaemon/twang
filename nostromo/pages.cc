@@ -111,25 +111,28 @@ constexpr ColumnSpec kColsMod[] = {
 
 // The kOutView settings, one four-column table per scope_mode (arch-design
 // §7.4). No SOURCE column — the output view always monitors the current part.
+// TIMEBASE and CYCLES are implemented (kViewCtl, backing OutputSettings); the
+// remaining seven are display features not yet built, so they render kPending
+// rather than as live-but-inert controls.
 constexpr ColumnSpec kColsOutScope[] = {
     {ColumnKind::kViewCtl, "TIMEBASE", {.ctl = ViewCtl::kTimebase}},
-    {ColumnKind::kViewCtl, "SCALE", {.ctl = ViewCtl::kScale}},
-    {ColumnKind::kViewCtl, "TRIGGER", {.ctl = ViewCtl::kTrigger}},
-    {ColumnKind::kViewCtl, "HOLD", {.ctl = ViewCtl::kHold}},
+    {ColumnKind::kPending, "SCALE", {}},
+    {ColumnKind::kPending, "TRIGGER", {}},
+    {ColumnKind::kPending, "HOLD", {}},
 };
 
 constexpr ColumnSpec kColsOutCycle[] = {
     {ColumnKind::kViewCtl, "CYCLES", {.ctl = ViewCtl::kCycles}},
-    {ColumnKind::kViewCtl, "SCALE", {.ctl = ViewCtl::kScale}},
-    {ColumnKind::kViewCtl, "ALIGN", {.ctl = ViewCtl::kAlign}},
-    {ColumnKind::kViewCtl, "HOLD", {.ctl = ViewCtl::kHold}},
+    {ColumnKind::kPending, "SCALE", {}},
+    {ColumnKind::kPending, "ALIGN", {}},
+    {ColumnKind::kPending, "HOLD", {}},
 };
 
 constexpr ColumnSpec kColsOutSpec[] = {
-    {ColumnKind::kViewCtl, "RANGE", {.ctl = ViewCtl::kRange}},
-    {ColumnKind::kViewCtl, "SCALE", {.ctl = ViewCtl::kScale}},
-    {ColumnKind::kViewCtl, "AVERAGE", {.ctl = ViewCtl::kAverage}},
-    {ColumnKind::kViewCtl, "WINDOW", {.ctl = ViewCtl::kWindow}},
+    {ColumnKind::kPending, "RANGE", {}},
+    {ColumnKind::kPending, "SCALE", {}},
+    {ColumnKind::kPending, "AVERAGE", {}},
+    {ColumnKind::kPending, "WINDOW", {}},
 };
 
 constexpr ColumnSpec kColsPatch[] = {
