@@ -557,13 +557,16 @@ void DrawScopePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const int mid = h / 2;
   const int amp = static_cast<int>(h * 0.42f);
 
-  // One ring window across the plot: ReadLast requires count * stride <=
-  // kCapacity, so stride = kCapacity / w (full ring at any drawn width). At
-  // the full 900 px band that is 16384 / 900 = 18; at the embedded 440 px
-  // half it is 37 (440 * 37 = 16280 <= 16384). A constant derived from
-  // kPlotW would read the ring at stride 18 regardless, cropping the signal
-  // to 440 * 18 = 7920 of 16384 samples when the plot narrows.
-  const int kStride = ScopeRing::kCapacity / w;
+  // The window is the user's TIMEBASE (total ms) at the ring rate, clamped to
+  // [w, kCapacity] so the stride is at least 1 (one sample per column minimum)
+  // and ReadLast's count * stride never exceeds the ring. At the default
+  // 341 ms the window is ~16k samples — the same stride as the old full-ring
+  // read, so the power-on render is unchanged; a shorter window zooms in.
+  const int window_samples = std::clamp(
+      static_cast<int>(p.interaction->out.timebase_ms) * engine::kSampleRate /
+          1000,
+      w, ScopeRing::kCapacity);
+  const int kStride = window_samples / w;
   float buf[geom::kPlotW];
   p.scope_ring.ReadLast(buf, w, kStride);
 
@@ -595,8 +598,15 @@ void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const int amp = static_cast<int>(h * 0.42f);
 
   const int period = static_cast<int>(engine::kSampleRate / p.freq);
-  const int count = 3 * period;
-  if (period >= 8 && count <= kCycleBufSize) {
+  // The user's cycle count, clamped to what the 4096-sample buffer holds for
+  // this period. n_eff == 0 (period > 4096, f < ~11.7 Hz) means even one full
+  // cycle overflows the buffer — out of musical range.
+  const int n_eff = std::min(static_cast<int>(p.interaction->out.cycles),
+                             kCycleBufSize / period);
+  if (period >= 8 && n_eff >= 1) {
+    // n_eff cycles plus one period of trigger margin (the first rising
+    // zero-crossing sits somewhere inside the first period).
+    const int count = std::min((n_eff + 1) * period, kCycleBufSize);
     p.scope_ring.ReadLast(p.cycle_buf, count, 1);
 
     int trigger = -1;
@@ -606,10 +616,14 @@ void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
         break;
       }
     }
-    if (trigger >= 0 && trigger + period <= count) {
+    // Full cycles drawable after the trigger. == n_eff except when the buffer
+    // is exactly full and the trigger costs the first period a fraction of a
+    // cycle; never exceeds n_eff, so the read never overruns.
+    const int drawn = trigger >= 0 ? (count - trigger) / period : 0;
+    if (drawn >= 1) {
       int prev = 0;
       for (int x = 0; x < w; ++x) {
-        const int idx = trigger + x * period / w;
+        const int idx = trigger + x * (drawn * period) / w;
         const int y = std::clamp(mid - static_cast<int>(std::lround(p.cycle_buf[idx] * amp)), 0, h - 1);
         if (x == 0) {
           p.col_lo[x] = y;
@@ -625,7 +639,7 @@ void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
       for (int x = 0; x < w; ++x) p.col_lo[x] = -1;
     }
   } else {
-    // Period out of range: empty curve.
+    // Out of range: empty curve (period < 8, or n_eff == 0 below).
     for (int x = 0; x < w; ++x) p.col_lo[x] = -1;
   }
 
@@ -633,6 +647,11 @@ void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
       {(h * 17) / 100, kFaint}, {h / 2, kDim}, {(h * 83) / 100, kFaint}};
   ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[3][p.fb_index],
                grat, 3, kBright);
+
+  // n_eff == 0 (f < ~11.7 Hz): a dim flat line at mid marks the out-of-range
+  // state instead of a silent blank — the cycle analog of the MOD page's "--".
+  if (period >= 8 && n_eff == 0)
+    DrawHLine(fb, ox, oy + mid, w, kFaint);
 }
 
 void DrawSpectrumPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
