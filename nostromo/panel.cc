@@ -689,6 +689,17 @@ void DrawSpectrumPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
                grat, 4, kBright);
 }
 
+// Scope-mode name for the kOutView title and the output-region label. kOff is
+// unreachable here (kOutView entry forces kScope) but falls through to SCOPE.
+const char *ScopeModeName(ScopeMode m) {
+  switch (m) {
+    case ScopeMode::kCycle: return "CYCLE";
+    case ScopeMode::kSpectrum: return "SPECTRUM";
+    case ScopeMode::kScope:
+    default: return "SCOPE";
+  }
+}
+
 void DrawOutPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   // The output view is global (nav.scope_mode), not per-subject. kOff is
   // forced to kScope on kOutView entry (Design Decision 2), so DrawOutPlot
