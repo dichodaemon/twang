@@ -15,6 +15,7 @@ FeelProfile DefaultFeel() {
         8,    // accel_threshold_dps
         500,  // long_press_ms
         10,   // fine_divisor
+        33,   // scope_interval_ms (≈30 Hz output refresh)
     };
 }
 

@@ -18,6 +18,9 @@ struct FeelProfile {
   std::uint16_t accel_threshold_dps;  ///< detents/second above which accel engages
   std::uint32_t long_press_ms;        ///< press-and-hold threshold
   std::uint8_t  fine_divisor;         ///< hold-and-turn divisor (10 = x1/10)
+  std::uint32_t scope_interval_ms;    ///< min ms between output-view redraws.
+                                      ///< The one display-timing field here —
+                                      ///< a refresh throttle, not an input feel.
 };
 
 /// The tuned starting values (edited at runtime from the CONF page into the
