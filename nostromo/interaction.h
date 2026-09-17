@@ -35,7 +35,7 @@ enum class Control : std::uint8_t {
   kMod,            ///< momentary (arm) and tap (view)
   kPerf,           ///< latching, reserved
   kGroup,          ///< momentary, column-group cycle
-  kOut,            ///< momentary, jump to kOutScope and back
+  kOut,            ///< momentary: tap cycles scope_mode, hold toggles kOutView
   kCount,
 };
 
@@ -91,10 +91,9 @@ enum class SubjectId : std::uint8_t {
   kEnv1, kEnv2, kEnv3,
   kLfo1, kLfo2, kLfo3,
   kMod,
-  kOutScope, kOutCycle, kOutSpec,  ///< globals, below the pane rule
   kFx,
   kPatch, kConf,
-  kCount,        ///< 20; asserted == geom::kSubjectCount in pages.h
+  kCount,        ///< 17; asserted == geom::kSubjectCount in pages.h
 };
 
 /// Latched / momentary navigation modes.
@@ -102,14 +101,16 @@ enum class ViewMode : std::uint8_t {
   kEdit = 0,     ///< default
   kModArm,       ///< MOD held — momentary
   kModView,      ///< MOD tapped — latched, LED lit
+  kOutView,      ///< OUT held — latched, full-screen output + settings
   kPerform,      ///< PERF — latched, LED lit
 };
 
-/// A navigation position: everything the OUT button must restore.
-struct NavPos {
-  SubjectId    subject;
-  std::uint8_t group;
-  std::int8_t  focus_col;
+/// The embedded output view. One global value, cycled by the OUT tap.
+enum class ScopeMode : std::uint8_t {
+  kOff = 0,    ///< pages show their own full plot; no embedded output
+  kScope,      ///< embedded output = scope trace
+  kCycle,      ///< embedded output = single cycle
+  kSpectrum,   ///< embedded output = spectrum
 };
 
 /// The complete navigation state (arch-design §7.3). Plain value type,
@@ -121,8 +122,8 @@ struct NavState {
   std::uint8_t item[static_cast<int>(SubjectId::kCount)];  ///< per-page item cursor
   std::int8_t  focus_col;             ///< focused column, -1 = none
   ViewMode     mode;
+  ScopeMode    scope_mode;            ///< embedded output view; global, not per-subject
   engine::ModSourceId armed_source;  ///< persists between kModArm entries
-  NavPos       prev;                  ///< return position for the OUT button
   bool         route_full;            ///< a route write was dropped (table full)
 };
 
@@ -160,7 +161,7 @@ inline constexpr int kModSourceCount =
 /// reads navigation. All mutable layer state lives here; there are no globals.
 struct Interaction {
   Panel *panel = nullptr;   ///< MarkDirty target (panel.h)
-  NavState nav{};           ///< navigation + armed source + prev position
+  NavState nav{};           ///< navigation + armed source + scope_mode
   PressState press[static_cast<int>(Control::kCount)]{};  ///< per-control press
   std::uint32_t last_turn_ms[static_cast<int>(Control::kCount)]{};  ///< turn rate
   bool arm_used = false;    ///< a route was armed this MOD press

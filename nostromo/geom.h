@@ -42,11 +42,12 @@ inline constexpr int kPaneRule  = 3;
 inline constexpr int kPrimaryH  = 20;   // ter-u20n cell height
 inline constexpr int kPlotMinH  = 120;
 
-// Selectable subjects in the pane. Class labels (OSC, ENV, LFO) are
-// presentation, not subjects: NAV1 skips them. 17 = PART, FILT, AMP, MOD,
-// OSC1-4, ENV1-3, LFO1-3, FX, PATCH, CONF. OUT is gone — the output view is
-// an embedded plot plus a latched full-screen mode, not a subject.
-// pages.h static_asserts SubjectId::kCount against this.
+// Selectable subjects in the pane, in pane order (NAV1 walks index order;
+// matches SubjectId in interaction.h, arch-design §7.6). Class labels
+// (OSC, ENV, LFO) are presentation, not subjects: NAV1 skips them.
+// 17 = PART, OSC1-4, FILT, AMP, ENV1-3, LFO1-3, MOD, FX, PATCH, CONF. OUT is
+// gone — the output view is an embedded plot plus a latched full-screen
+// mode, not a subject. pages.h static_asserts SubjectId::kCount against this.
 inline constexpr int kSubjectCount = 17;
 
 // ---- derived -----------------------------------------------------------
