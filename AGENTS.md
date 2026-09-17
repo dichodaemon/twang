@@ -78,7 +78,8 @@ Size / Region Size / %age Used"). Section detail via
 Flash budget (the split is in the Zephyr tree's
 `dts/arm/renesas/ra/ra8/r7ka8d2kflcac.dtsi`): cm33 gets **256 KB** code MRAM +
 640 KB SRAM; cm85 gets 768 KB MRAM + 1 MB SRAM. The control core (cm33) is the
-constrained one — ~70 KB flash (27%) as of 2026-09-17.
+constrained one. Tracked sizes live in `docs/references/memory-budget_reference.md`
+— after each target build, append one size row there.
 
 ## Beads and commits
 

@@ -1,0 +1,27 @@
+# Memory Budget — twang target (EK-RA8D2)
+
+Living record of flash/SRAM utilization for the two Zephyr target images
+(`target/zephyr/cm33` and `target/zephyr/cm85`). Append one history row per
+target build; the last row is current.
+
+## Budget
+
+The split is fixed by the RA8D2 memory map (`r7ka8d2kflcac.dtsi` in the Zephyr
+tree) and does not change across builds.
+
+| Core | Flash (code MRAM) | SRAM |
+|---|---|---|
+| cm33 (control) | 256 KB | 640 KB |
+| cm85 (audio) | 768 KB | 1 MB |
+
+The control core (cm33) is the constrained one — the entire panel UI ships
+against a 256 KB flash ceiling, while the audio core has 768 KB.
+
+## History
+
+Percentages are of the budget above. Reproduce a build per AGENTS.md
+"Target builds"; the linker prints the size table at the end of each build.
+
+| Date | Commit | cm33 flash | cm33 RAM | cm85 flash | cm85 RAM | cm85 DTCM |
+|---|---|---|---|---|---|---|
+| 2026-09-17 | 81da9f4 | 71,852 B (27.4%) | 50,044 B (7.6%) | 48,284 B (6.1%) | 9,296 B (0.9%) | 3,516 B (5.4%) |
