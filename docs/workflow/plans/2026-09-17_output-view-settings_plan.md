@@ -1,6 +1,6 @@
 ---
 title: Output-View Settings and Visual Refinements -- Implementation Plan
-status: approved
+status: issued
 date: 2026-09-17
 author: Dizan Vasquez
 arch-design: ../arch-designs/nostromo-interaction_arch-design.md
