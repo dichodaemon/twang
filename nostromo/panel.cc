@@ -226,6 +226,16 @@ struct GratLine {
   Color c;
 };
 
+// Draws the graticule lines explicitly. ColumnUpdate only *restores* a line's
+// colour when a moving column span erases over it (the graticule-aware erase);
+// nothing ever painted the lines onto a full render, so without this the plot
+// shows the curve on a bare background.
+void DrawGraticule(FrameBuffer &fb, int ox, int oy, int w, const GratLine *grat,
+                   int n) {
+  for (int g = 0; g < n; ++g)
+    DrawHLine(fb, ox, oy + grat[g].y, w, grat[g].c);
+}
+
 // Updates a single-valued plot column-by-column against its per-buffer trace.
 //
 // For each column x the curve occupies plot-local rows [lo[x], hi[x]]
@@ -588,16 +598,17 @@ void DrawScopePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   p.scope_peak = peak;
 
   const GratLine grat[] = {
-      {mid - amp / 2, kFaint}, {mid, kDim}, {mid + amp / 2, kFaint},
-      {mid + amp, kFaint}};
+      {mid - amp / 2, kDim}, {mid, kDim}, {mid + amp / 2, kDim},
+      {mid + amp, kDim}};
+  DrawGraticule(fb, ox, oy, w, grat, 4);
   ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[3][p.fb_index],
                grat, 4, kBright);
 
   // Axis labels: vertical ±0.5 on their graticule lines, horizontal window.
   TextLeft(fb, "+0.5", ox + 2, oy + (mid - amp / 2) - kSecondaryFont.h / 2,
-           kSecondaryFont, kFaint);
+           kSecondaryFont, kMid);
   TextLeft(fb, "-0.5", ox + 2, oy + (mid + amp / 2) - kSecondaryFont.h / 2,
-           kSecondaryFont, kFaint);
+           kSecondaryFont, kMid);
   TextLeft(fb, "0ms", ox + 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
            kDim);
   char win[16];
@@ -658,8 +669,9 @@ void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   }
 
   const GratLine grat[] = {
-      {mid - amp / 2, kFaint}, {mid, kDim}, {mid + amp / 2, kFaint},
-      {mid + amp, kFaint}};
+      {mid - amp / 2, kDim}, {mid, kDim}, {mid + amp / 2, kDim},
+      {mid + amp, kDim}};
+  DrawGraticule(fb, ox, oy, w, grat, 4);
   ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[3][p.fb_index],
                grat, 4, kBright);
 
@@ -671,9 +683,9 @@ void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   // Axis labels: vertical ±0.5 on their graticule lines, horizontal cycle
   // count (the effective n_eff, not the stored CYCLES).
   TextLeft(fb, "+0.5", ox + 2, oy + (mid - amp / 2) - kSecondaryFont.h / 2,
-           kSecondaryFont, kFaint);
+           kSecondaryFont, kMid);
   TextLeft(fb, "-0.5", ox + 2, oy + (mid + amp / 2) - kSecondaryFont.h / 2,
-           kSecondaryFont, kFaint);
+           kSecondaryFont, kMid);
   TextLeft(fb, "0", ox + 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
            kDim);
   char cyc[16];
@@ -736,19 +748,20 @@ void DrawSpectrumPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   const int dB60 = B - (B - T) / 3;
   const int dB75 = B - (B - T) / 6;
   const GratLine grat[] = {
-      {dB15, kFaint}, {dB30, kFaint}, {dB45, kFaint},
-      {dB60, kFaint}, {dB75, kFaint}, {B, kDim}};
+      {dB15, kDim}, {dB30, kDim}, {dB45, kDim},
+      {dB60, kDim}, {dB75, kDim}, {B, kDim}};
+  DrawGraticule(fb, ox, oy, w, grat, 6);
   ColumnUpdate(fb, ox, oy, w, p.col_lo, p.col_hi, p.traces[3][p.fb_index],
                grat, 6, kBright);
 
   // Axis labels: dB on every other line (0 dB at the top is the full-scale
   // rail), horizontal frequency range.
   TextLeft(fb, "-30", ox + 2, oy + dB30 - kSecondaryFont.h / 2, kSecondaryFont,
-           kFaint);
+           kMid);
   TextLeft(fb, "-60", ox + 2, oy + dB60 - kSecondaryFont.h / 2, kSecondaryFont,
-           kFaint);
+           kMid);
   TextLeft(fb, "-90", ox + 2, oy + B - kSecondaryFont.h / 2, kSecondaryFont,
-           kFaint);
+           kMid);
   TextLeft(fb, "20Hz", ox + 2, oy + h - kSecondaryFont.h - 2, kSecondaryFont,
            kDim);
   TextRight(fb, "20kHz", ox + w - 2, oy + h - kSecondaryFont.h - 2,

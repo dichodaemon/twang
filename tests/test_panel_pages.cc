@@ -37,23 +37,23 @@ static std::uint32_t Hash(const std::uint16_t *px, int n) {
 // Golden hash per subject, indexed by SubjectId (pane order). Baked from the
 // offscreen render at power-on state (no notes, no audio tap).
 static constexpr std::uint32_t kGolden[static_cast<int>(SubjectId::kCount)] = {
-    0xB953B0A3u,  // 0 PART
-    0xED8712DEu,  // 1 OSC1
-    0xFBD3B62Au,  // 2 OSC2
-    0x0620DD56u,  // 3 OSC3
-    0x4DB5A2E2u,  // 4 OSC4
-    0xE5C05FEBu,  // 5 FILT
-    0x0881FF5Cu,  // 6 AMP
-    0xFDCD26EFu,  // 7 ENV1
-    0x49530F18u,  // 8 ENV2
-    0x61A1C8ECu,  // 9 ENV3
-    0x6B3E0BB8u,  // 10 LFO1
-    0x0F8F84E0u,  // 11 LFO2
-    0x640A2818u,  // 12 LFO3
-    0x50F19D17u,  // 13 MOD
-    0x2F7C7A0Bu,  // 14 FX
-    0x6E025529u,  // 15 PATCH
-    0x4C7B124Du,  // 16 CONF
+    0x38326A95u,  // 0 PART
+    0x6E36BF58u,  // 1 OSC1
+    0x32D5B4A4u,  // 2 OSC2
+    0x0E2ACCC0u,  // 3 OSC3
+    0xE9B073ACu,  // 4 OSC4
+    0x87F52279u,  // 5 FILT
+    0x8BA4E60Au,  // 6 AMP
+    0xBD8B1B19u,  // 7 ENV1
+    0x23AA97E2u,  // 8 ENV2
+    0x5CF40B16u,  // 9 ENV3
+    0xD7F53542u,  // 10 LFO1
+    0xEDAC3EDAu,  // 11 LFO2
+    0x915118E2u,  // 12 LFO3
+    0xAB7C7BC9u,  // 13 MOD
+    0x013F6CFDu,  // 14 FX
+    0x0AF4C243u,  // 15 PATCH
+    0xC6A7302Fu,  // 16 CONF
 };
 
 // The AMP page in MOD view: route lists replace the plot, LEVEL shows its two
@@ -62,7 +62,7 @@ static constexpr std::uint32_t kModViewGolden = 0xCC027CF9u;
 
 // The AMP page in MOD arm: the pane shows the source list, the columns the
 // arm overlay. Locks the source-pane + arm-overlay render.
-static constexpr std::uint32_t kModArmGolden = 0x043FF4E7u;
+static constexpr std::uint32_t kModArmGolden = 0x59267AB5u;
 
 int main() {
     engine::SharedIpc ipc;
