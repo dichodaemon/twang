@@ -162,6 +162,42 @@ void RevertFeel(ViewCtl ctl, FeelProfile &feel) {
   }
 }
 
+// Advance one kOutView output setting by `detents` detents (clamped).
+// TIMEBASE steps the 1-2-5 window sequence {20, 50, 100, 200, 341} ms; CYCLES
+// steps 1..8. The remaining kOutView columns are kPending and never dispatch
+// here. `fine` refines nothing — both fields are coarse counts.
+void TurnOut(ViewCtl ctl, std::int8_t detents, bool fine, OutputSettings &out) {
+  (void)fine;
+  switch (ctl) {
+    case ViewCtl::kTimebase: {
+      static constexpr std::uint32_t kSteps[] = {20, 50, 100, 200, 341};
+      int idx = 4;  // the default (341 ms); an unknown value lands here
+      for (int i = 0; i < 5; ++i)
+        if (out.timebase_ms == kSteps[i]) { idx = i; break; }
+      idx += static_cast<int>(detents);
+      if (idx < 0) idx = 0;
+      if (idx > 4) idx = 4;
+      out.timebase_ms = kSteps[idx];
+      break;
+    }
+    case ViewCtl::kCycles:
+      out.cycles = static_cast<std::uint8_t>(
+          StepInt(out.cycles, detents, 1, 8, 1));
+      break;
+    default: break;  // other kOutView columns are kPending; inert
+  }
+}
+
+// Revert one kOutView output setting to its default.
+void RevertOut(ViewCtl ctl, OutputSettings &out) {
+  const OutputSettings def = DefaultOut();
+  switch (ctl) {
+    case ViewCtl::kTimebase: out.timebase_ms = def.timebase_ms; break;
+    case ViewCtl::kCycles: out.cycles = def.cycles; break;
+    default: break;
+  }
+}
+
 }  // namespace
 
 // ---- private methods ----
@@ -423,15 +459,28 @@ void Interaction::Dispatcher(const InputEvent &ev, Gesture g,
       break;
     }
     case BindKind::kViewCtl: {
+      // kTimebase/kCycles edit the output settings (and repaint the output
+      // plot); the CONF controls edit the runtime feel; PATCH controls are
+      // inert until patch storage lands (twang-9d7z).
+      const bool out_ctl = b.ctl == ViewCtl::kTimebase ||
+                           b.ctl == ViewCtl::kCycles;
       if (g == Gesture::kTurn || g == Gesture::kHoldTurn) {
-        // CONF controls edit the runtime feel; PATCH controls are inert until
-        // patch storage lands (twang-9d7z).
-        TurnFeel(b.ctl, ev.detents, g == Gesture::kHoldTurn, feel);
-        MarkPage();
+        if (out_ctl) {
+          TurnOut(b.ctl, ev.detents, g == Gesture::kHoldTurn, out);
+          MarkPlot(kSlotOut);
+        } else {
+          TurnFeel(b.ctl, ev.detents, g == Gesture::kHoldTurn, feel);
+          MarkPage();
+        }
       } else if (g == Gesture::kPressLong) {
         // Revert the control to its default exactly once.
-        RevertFeel(b.ctl, feel);
-        MarkPage();
+        if (out_ctl) {
+          RevertOut(b.ctl, out);
+          MarkPlot(kSlotOut);
+        } else {
+          RevertFeel(b.ctl, feel);
+          MarkPage();
+        }
       }
       // kPressShort: nothing to descend into (kAction executes once PATCH
       // dispatch lands).
