@@ -1,6 +1,6 @@
 ---
 title: Nostromo Interaction Layer -- Implementation Plan
-status: issued
+status: archived
 date: 2026-09-14
 author: Dizan Vasquez
 arch-design: ../arch-designs/nostromo-interaction_arch-design.md
