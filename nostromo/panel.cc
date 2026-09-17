@@ -716,6 +716,11 @@ void DrawOutPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
       DrawScopePlot(fb, ox, oy, w, h, p);
       break;
   }
+
+  // Mode label: the active mode's name in the output region's top-left corner,
+  // drawn after the plot content so it sits on top of any curve pixels.
+  TextLeft(fb, ScopeModeName(p.interaction->Nav().scope_mode), ox + 6, oy + 4,
+           kSecondaryFont, kDim);
 }
 
 // ---- readouts ----
