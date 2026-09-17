@@ -246,6 +246,11 @@ int main() {
               "kOutView spectrum col 1 -> range");
         Check(ResolveBinding(nav, Enc(3)).ctl == ViewCtl::kWindow,
               "kOutView spectrum col 4 -> window");
+
+        // The GROUP button is inert: the four settings form one group, so
+        // there is nothing to cycle.
+        Check(ResolveBinding(nav, Control::kGroup).kind == BindKind::kNone,
+              "kOutView group button inert");
     }
 
     if (g_failures) {

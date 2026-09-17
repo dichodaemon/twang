@@ -1310,7 +1310,10 @@ void DrawEditChrome(FrameBuffer &fb, Panel &p) {
     TextLeft(fb, msg, rx - mw + 6, geom::kTitleY + 2, kPrimaryFont, kBg);
   } else {
     TextRight(fb, "A007", rx, geom::kTitleY + 2, kPrimaryFont, kMid);
-    const int gc = GroupCount<>(page);
+    // kOutView hosts the four output settings (a single group), so it shows
+    // no group indicator; other modes cycle the underlying page's groups.
+    const int gc =
+        (nav.mode == ViewMode::kOutView) ? 1 : GroupCount<>(page);
     if (gc > 1) {
       char gs[24];
       std::snprintf(gs, sizeof(gs), "GROUP %d/%d", nav.group + 1, gc);

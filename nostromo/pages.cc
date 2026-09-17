@@ -319,7 +319,10 @@ Binding ResolveBinding(const NavState &nav, Control c) {
                                                  : BindKind::kNone;
       break;
     case Control::kGroup:
-      b.kind = BindKind::kGroupCycle;
+      // kOutView replaces the columns with the four output settings (one
+      // group), so there is nothing to cycle.
+      b.kind = (nav.mode == ViewMode::kOutView) ? BindKind::kNone
+                                                 : BindKind::kGroupCycle;
       break;
     case Control::kOut: {
       // OUT acts only where there is a plot to embed the output into.
