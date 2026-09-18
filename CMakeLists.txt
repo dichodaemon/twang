@@ -185,3 +185,7 @@ add_test(NAME surface COMMAND test_surface)
 add_executable(test_interaction tests/test_interaction.cc)
 target_link_libraries(test_interaction PRIVATE nostromo)
 add_test(NAME interaction COMMAND test_interaction)
+
+add_executable(test_midi_ring tests/test_midi_ring.cc)
+target_link_libraries(test_midi_ring PRIVATE scope)
+add_test(NAME midi_ring COMMAND test_midi_ring)
