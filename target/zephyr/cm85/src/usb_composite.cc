@@ -221,7 +221,8 @@ const struct uac2_ops kUac2Ops = {
 
 // MIDI 2.0 rx: forward each packet's first UMP word to the control core over
 // the shared MIDI ring. Single-word UMP (MIDI 1.0 channel voice) is the
-// X-Touch's only traffic; the cm33 downconverts to MIDI 1.0 before MidiMessage.
+// X-Touch's only traffic; the cm33 downconverts to MIDI 1.0 and feeds the
+// interaction layer (surface map).
 void MidiRxCb(const struct device *dev, const struct midi_ump ump)
 {
     ARG_UNUSED(dev);

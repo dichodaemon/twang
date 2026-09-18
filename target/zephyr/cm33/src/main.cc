@@ -17,7 +17,7 @@
 #include "engine_control.h"
 #include "glcdc_backend.h"
 #include "interaction.h"
-#include "midi.h"       // engine::MidiMessage + kXtouchCompact
+#include "midi.h"       // engine::MidiNoteToFreq
 #include "midi_ring.h"
 #include "panel.h"
 #include "surface.h"
@@ -37,10 +37,15 @@ void EngineEventsPending() {
 
 namespace {
 
-/// Drain the cross-core MIDI ring (USB MIDI rx on the audio core) and dispatch
-/// each MIDI 1.0 channel-voice message into the engine's control side.
-void DrainMidi(engine::EngineControl &control, MidiRing *ring)
+/// Drain the cross-core MIDI ring and feed the interaction layer exactly as the
+/// desktop host does (host/midi_io.cc Poll): CCs map through the surface
+/// profile to logical controls (Interaction::OnInput); notes route through
+/// PanelNoteOn/Off. This is the normative path — engine::MidiMessage and
+/// engine::kXtouchCompact are the stale pre-surface mapping and are not used.
+void DrainMidi(nostromo::Panel *panel, nostromo::Interaction *interaction,
+               MidiRing *ring)
 {
+    const nostromo::SurfaceProfile &surface = nostromo::Surface();
     uint32_t word;
     while (ring->Pop(&word)) {
         struct midi_ump ump = {};
@@ -51,7 +56,43 @@ void DrainMidi(engine::EngineControl &control, MidiRing *ring)
         const uint8_t status = UMP_MIDI_STATUS(ump);
         const uint8_t d1 = UMP_MIDI1_P1(ump);
         const uint8_t d2 = UMP_MIDI1_P2(ump);
-        engine::MidiMessage(control, engine::kXtouchCompact, 0, status, d1, d2);
+        if ((status & 0x0F) != 0) {
+            continue;  // wrong channel (X-Touch speaks on channel 1)
+        }
+        switch (status & 0xF0) {
+        case 0xB0: {  // Control Change → logical control via the surface map
+            const nostromo::ControlMap *m = nostromo::FindControl(surface, d1);
+            if (!m) {
+                break;  // unmapped CC (faders and surplus controls)
+            }
+            nostromo::InputEvent ev{};
+            ev.control = m->logical;
+            ev.t_ms = static_cast<std::uint32_t>(k_uptime_get());
+            if (m->turn) {
+                ev.detents = static_cast<std::int8_t>(
+                    nostromo::DecodeEnc(d2, m->enc));
+                ev.edge = nostromo::Edge::kNone;
+            } else {
+                ev.detents = 0;
+                ev.edge = (d2 > 0) ? nostromo::Edge::kDown
+                                   : nostromo::Edge::kUp;
+            }
+            interaction->OnInput(ev);
+            break;
+        }
+        case 0x90:  // Note On (velocity 0 = note off)
+            if (d2 == 0) {
+                nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(d1));
+            } else {
+                nostromo::PanelNoteOn(panel, engine::MidiNoteToFreq(d1), d2);
+            }
+            break;
+        case 0x80:  // Note Off
+            nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(d1));
+            break;
+        default:
+            break;
+        }
     }
 }
 
@@ -82,12 +123,8 @@ int main(void) {
     nostromo::Interaction interaction;
     interaction.Init(panel, nostromo::Surface(), &control);
 
-    // Smoke: a held A4 note drives the envelope playhead so the panel has
-    // something to draw (the audio core renders it from the shared ring).
-    nostromo::PanelNoteOn(panel, 440.0f, 127);
-
     for (;;) {
-        DrainMidi(control, midi_ring);  // USB MIDI -> engine notes/params
+        DrainMidi(panel, &interaction, midi_ring);  // USB MIDI -> surface map
 
         backend.PollTouch(panel);
         nostromo::PanelDraw(panel, backend.fb, backend.back_);

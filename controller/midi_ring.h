@@ -3,7 +3,7 @@
 ///
 /// The audio core (M85) receives UMP packets on the composite MIDI 2.0
 /// endpoint and pushes their first word into this ring; the control core (M33)
-/// drains it and downconverts to MIDI 1.0 before the engine's MidiMessage.
+/// drains it, downconverts to MIDI 1.0, and feeds the interaction layer.
 /// Single-word UMP (MIDI 1.0 channel voice) covers the X-Touch Compact;
 /// multi-word UMPs (SysEx / MIDI 2.0) are a later extension.
 ///

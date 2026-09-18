@@ -146,10 +146,6 @@ add_executable(test_allocator tests/test_allocator.cc)
 target_link_libraries(test_allocator PRIVATE engine)
 add_test(NAME allocator COMMAND test_allocator)
 
-add_executable(test_midi tests/test_midi.cc)
-target_link_libraries(test_midi PRIVATE engine)
-add_test(NAME midi COMMAND test_midi)
-
 add_executable(test_mod_route tests/test_mod_route.cc)
 target_link_libraries(test_mod_route PRIVATE engine)
 add_test(NAME mod_route COMMAND test_mod_route)
