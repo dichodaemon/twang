@@ -52,6 +52,11 @@ class Allocator {
     /// @return The released voice, or -1 if no matching note is held.
     int NoteOff(int part, float freq_hz);
 
+    /// @brief Release every active voice in `part` (CC 123 All Notes Off).
+    /// @param part Part index in [0, kNumParts).
+    /// @return Bitmask of released voices (bit i set -> voice i was released).
+    std::uint32_t AllNotesOff(int part);
+
     /// @brief Number of held notes in `part` (control-side view).
     /// @param part Part index in [0, kNumParts).
     /// @return Held-note count.

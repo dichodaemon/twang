@@ -39,6 +39,17 @@ int Allocator::NoteOff(int part, float freq_hz) {
     return -1;
 }
 
+std::uint32_t Allocator::AllNotesOff(int part) {
+    std::uint32_t released = 0;
+    for (int i = 0; i < kNumVoices; ++i) {
+        if (owner_[i].active && owner_[i].part == part) {
+            owner_[i].active = false;
+            released |= (1u << i);
+        }
+    }
+    return released;
+}
+
 int Allocator::ActiveCount(int part) const {
     int n = 0;
     for (int i = 0; i < kNumVoices; ++i)
