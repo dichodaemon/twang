@@ -81,6 +81,27 @@ Flash budget (the split is in the Zephyr tree's
 constrained one. Tracked sizes live in `docs/references/memory-budget_reference.md`
 — after each target build, append one size row there.
 
+## Hardware debugging (J-Link)
+
+- **No-reset attach.** A plain J-Link connect halts or resets the core, which
+  kills the running firmware (and drops a live USB device). To inspect a
+  running board without disturbing it: `set_tif(SWD)`,
+  `JLINKARM_SetResetType(9)` (no reset / no halt),
+  `exec_command('Device = R7KA8D2KF_CPU0' | '_CPU1')`, then
+  `JLINKARM_Connect()` if not already connected. `_CPU0` = cm85 (boot core),
+  `_CPU1` = cm33. After a `close()`, re-issue `Device=` before reconnecting — a
+  bare `JLINKARM_Connect()` returns -273 "No CPU core selected".
+- **Step-marker debugging (no console UART).** To pin a firmware failure
+  without a console, keep a `volatile uint32_t g_step` marker (plus `g_rc` for
+  an errno), set it at each stage of `main()`, and read it over the no-reset
+  attach. Get the address with `arm-zephyr-eabi-nm <elf> | grep g_step`. Write
+  only to real `.bss` variables — an arbitrary RAM address (e.g. `0x22008000`)
+  is outside the MPU-mapped region and faults instead of storing.
+- **USB enumeration is port-sensitive.** The EK-RA8D2 has two USB-C device
+  ports (USB-FS and USB-HS) plus the separate J-Link debug USB. The firmware's
+  `zephyr_udc0` lives on USB-HS; a cable in USB-FS enumerates nothing. The
+  debugger does *not* block enumeration — the port choice does.
+
 ## Beads and commits
 
 - Work is tracked in beads (`bd`, with `BEADS_DB` routed to the workspace where

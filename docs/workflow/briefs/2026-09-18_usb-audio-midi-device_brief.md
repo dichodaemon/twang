@@ -63,7 +63,7 @@ Passed all three. `2fe3:000f "twang composite spike"` enumerates as one device; 
 
 One correction to record: the first bring-up attempts returned `-EINVAL` from `usbd_init`, which was *not* a Zephyr bug — `uac2_init()` hard-requires `usbd_uac2_set_ops()` and the spike app had omitted it. Fixed in-app (~5 lines); no Zephyr change.
 
-Follow-up (out of spike scope): the UAC2 audio streaming interfaces enumerate, but snd-usb-audio did not expose a PCM device — likely the sample's full-headset implicit-feedback topology. That is Stage-1 audio work, not an enumeration concern.
+Follow-up (confirmed root cause, 2026-09-18): the UAC2 audio streaming interfaces enumerate, but snd-usb-audio exposes no PCM device. Not the topology — a Zephyr bug. `FIRST_INTERFACE_NUMBER 0x00` is hardcoded in `usbd_uac2_macros.h` (line 36), so the AC header's `baInterfaceNr` and the interface numbering assume UAC2 owns interfaces 0..N-1, which breaks when composed with MIDI (the AudioStreaming lands at interface 3 while `baInterfaceNr` stays 1). The IAD `bFirstInterface` half is already fixed in 4.4.2 (commit `9006780`, "Update IAD first interface on init"); the `baInterfaceNr` half is not. Registration order is already UAC2-first (`uac2_0` precedes `midi_0` in the class section), so that workaround does not apply. The fix is a runtime patch of the interface numbers, mirroring the IAD fix.
 
 ## 5. Constraints
 
