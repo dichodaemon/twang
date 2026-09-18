@@ -174,6 +174,26 @@ int main() {
         Check(ok, "steal+enable: finite bounded output");
     }
 
+    /* AllNotesOff: one kNoteOff per released voice. */
+    {
+        Rig rig;
+        rig.control.NoteOn(0, 100.0f, 100);
+        rig.control.NoteOn(0, 200.0f, 100);
+        rig.control.NoteOn(0, 300.0f, 100);
+
+        rig.control.AllNotesOff(0);
+
+        int note_offs = 0;
+        int note_ons = 0;
+        Event e;
+        while (rig.ipc.events.Pop(&e)) {
+            if (e.type == Event::Type::kNoteOff) ++note_offs;
+            if (e.type == Event::Type::kNoteOn) ++note_ons;
+        }
+        Check(note_ons == 3 && note_offs == 3,
+              "AllNotesOff pushes one kNoteOff per released voice");
+    }
+
     if (g_fail) {
         std::printf("%d failure(s)\n", g_fail);
         return 1;

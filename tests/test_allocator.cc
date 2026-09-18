@@ -88,6 +88,26 @@ int main() {
         Check(a.ActiveCount(1) == 2, "part 1 gained a note (still below 3)");
     }
 
+    // AllNotesOff releases every active voice in the part and returns the
+    // released-voice bitmask.
+    {
+        Allocator a;
+        Fill(&a, 0, 3, 100.0f);  // part 0 -> voices 0,1,2
+        Fill(&a, 1, 2, 200.0f);  // part 1 -> voices 3,4
+        Check(a.ActiveCount(0) == 3 && a.ActiveCount(1) == 2,
+              "voices spread across two parts");
+
+        const std::uint32_t mask = a.AllNotesOff(0);
+        Check(a.ActiveCount(0) == 0, "AllNotesOff(0) releases part 0's voices");
+        Check(a.ActiveCount(1) == 2, "AllNotesOff(0) leaves part 1 untouched");
+        Check(mask == 0b111, "mask names exactly the three released voices");
+        Check(!a.VoiceActive(0) && !a.VoiceActive(1) && !a.VoiceActive(2),
+              "released voices are inactive");
+        Check(a.VoiceActive(3) && a.VoiceActive(4),
+              "part 1's voices stay active");
+        Check(a.AllNotesOff(3) == 0, "AllNotesOff on an empty part returns 0");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;
