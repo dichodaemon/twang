@@ -36,6 +36,10 @@ class EngineControl {
     /// @brief Queue a note-off (control thread).
     void NoteOff(int part, float freq_hz);
 
+    /// @brief Release every active voice in `part` and queue one note-off per
+    /// released voice (control thread; CC 123 All Notes Off).
+    void AllNotesOff(int part);
+
     /// @brief Set a parameter's normalized value (control thread).
     void SetParam(int part, ParamRef ref, float norm);
 

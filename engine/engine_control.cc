@@ -80,6 +80,22 @@ void EngineControl::NoteOff(int part, float freq_hz) {
     EngineEventsPending();
 }
 
+void EngineControl::AllNotesOff(int part) {
+    const std::uint32_t released = alloc_.AllNotesOff(part);
+    for (int v = 0; v < kNumVoices; ++v) {
+        if (released & (1u << v)) {
+            if (!ipc_->events.Push({Event::Type::kNoteOff,
+                                    static_cast<std::uint8_t>(part),
+                                    static_cast<std::uint8_t>(v), 0, 0.0f})) {
+                CountEventDrop();
+            }
+        }
+    }
+    if (released) {
+        EngineEventsPending();
+    }
+}
+
 void EngineControl::SetParam(int part, ParamRef ref, float norm) {
     if (part < 0 || part >= kNumParts) return;
     ipc_->params.Set(part, ref, norm);
