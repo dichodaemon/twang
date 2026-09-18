@@ -43,66 +43,77 @@ void EngineEventsPending() {
 
 namespace {
 
-/// Drain the cross-core MIDI ring and feed the interaction layer exactly as the
-/// desktop host does (host/midi_io.cc Poll): CCs map through the surface
-/// profile to logical controls (Interaction::OnInput); notes route through
-/// PanelNoteOn/Off. This is the normative path — engine::MidiMessage and
-/// engine::kXtouchCompact are the stale pre-surface mapping and are not used.
+/// Process one UMP word exactly as the desktop host does (host/midi_io.cc
+/// Poll): CCs map through the surface profile to logical controls
+/// (Interaction::OnInput); notes route through PanelNoteOn/Off. This is the
+/// normative path — engine::MidiMessage and engine::kXtouchCompact are the
+/// stale pre-surface mapping and are not used.
+void HandleMidiWord(nostromo::Panel *panel, nostromo::Interaction *interaction,
+                    const nostromo::SurfaceProfile &surface, uint32_t word)
+{
+    struct midi_ump ump = {};
+    ump.data[0] = word;
+    if (UMP_MT(ump) != UMP_MT_MIDI1_CHANNEL_VOICE) {
+        reinterpret_cast<LossCounters *>(kLossCountersAddr)
+            ->mt_reject.fetch_add(1, std::memory_order_relaxed);
+        return;  // SysEx / MIDI 2.0 (multi-word) not handled yet
+    }
+    const uint8_t status = UMP_MIDI_STATUS(ump);
+    const uint8_t d1 = UMP_MIDI1_P1(ump);
+    const uint8_t d2 = UMP_MIDI1_P2(ump);
+    if ((status & 0x0F) != 0) {
+        reinterpret_cast<LossCounters *>(kLossCountersAddr)
+            ->channel_reject.fetch_add(1, std::memory_order_relaxed);
+        return;  // wrong channel (X-Touch speaks on channel 1)
+    }
+    switch (status & 0xF0) {
+    case 0xB0: {  // Control Change → logical control via the surface map
+        const nostromo::ControlMap *m = nostromo::FindControl(surface, d1);
+        if (!m) {
+            return;  // unmapped CC (faders and surplus controls)
+        }
+        nostromo::InputEvent ev{};
+        ev.control = m->logical;
+        ev.t_ms = static_cast<std::uint32_t>(k_uptime_get());
+        if (m->turn) {
+            ev.detents = static_cast<std::int8_t>(
+                nostromo::DecodeEnc(d2, m->enc));
+            ev.edge = nostromo::Edge::kNone;
+        } else {
+            ev.detents = 0;
+            ev.edge = (d2 > 0) ? nostromo::Edge::kDown
+                               : nostromo::Edge::kUp;
+        }
+        interaction->OnInput(ev);
+        return;
+    }
+    case 0x90:  // Note On (velocity 0 = note off)
+        if (d2 == 0) {
+            nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(d1));
+        } else {
+            nostromo::PanelNoteOn(panel, engine::MidiNoteToFreq(d1), d2);
+        }
+        return;
+    case 0x80:  // Note Off
+        nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(d1));
+        return;
+    default:
+        return;
+    }
+}
+
+/// Drain the two cross-core MIDI rings, note ring first — a held note's off
+/// must not wait behind a fader sweep in the CC ring.
 void DrainMidi(nostromo::Panel *panel, nostromo::Interaction *interaction,
-               MidiRing *ring)
+               NoteRing *note, CcRing *cc)
 {
     const nostromo::SurfaceProfile &surface = nostromo::Surface();
     uint32_t word;
-    while (ring->Pop(&word)) {
-        struct midi_ump ump = {};
-        ump.data[0] = word;
-        if (UMP_MT(ump) != UMP_MT_MIDI1_CHANNEL_VOICE) {
-            reinterpret_cast<LossCounters *>(kLossCountersAddr)
-                ->mt_reject.fetch_add(1, std::memory_order_relaxed);
-            continue;  // SysEx / MIDI 2.0 (multi-word) not handled yet
-        }
-        const uint8_t status = UMP_MIDI_STATUS(ump);
-        const uint8_t d1 = UMP_MIDI1_P1(ump);
-        const uint8_t d2 = UMP_MIDI1_P2(ump);
-        if ((status & 0x0F) != 0) {
-            reinterpret_cast<LossCounters *>(kLossCountersAddr)
-                ->channel_reject.fetch_add(1, std::memory_order_relaxed);
-            continue;  // wrong channel (X-Touch speaks on channel 1)
-        }
-        switch (status & 0xF0) {
-        case 0xB0: {  // Control Change → logical control via the surface map
-            const nostromo::ControlMap *m = nostromo::FindControl(surface, d1);
-            if (!m) {
-                break;  // unmapped CC (faders and surplus controls)
-            }
-            nostromo::InputEvent ev{};
-            ev.control = m->logical;
-            ev.t_ms = static_cast<std::uint32_t>(k_uptime_get());
-            if (m->turn) {
-                ev.detents = static_cast<std::int8_t>(
-                    nostromo::DecodeEnc(d2, m->enc));
-                ev.edge = nostromo::Edge::kNone;
-            } else {
-                ev.detents = 0;
-                ev.edge = (d2 > 0) ? nostromo::Edge::kDown
-                                   : nostromo::Edge::kUp;
-            }
-            interaction->OnInput(ev);
-            break;
-        }
-        case 0x90:  // Note On (velocity 0 = note off)
-            if (d2 == 0) {
-                nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(d1));
-            } else {
-                nostromo::PanelNoteOn(panel, engine::MidiNoteToFreq(d1), d2);
-            }
-            break;
-        case 0x80:  // Note Off
-            nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(d1));
-            break;
-        default:
-            break;
-        }
+    while (note->Pop(&word)) {
+        HandleMidiWord(panel, interaction, surface, word);
+    }
+    while (cc->Pop(&word)) {
+        HandleMidiWord(panel, interaction, surface, word);
     }
 }
 
@@ -110,7 +121,8 @@ void DrainMidi(nostromo::Panel *panel, nostromo::Interaction *interaction,
 struct ControlCtx {
     nostromo::Panel *panel;
     nostromo::Interaction *interaction;
-    MidiRing *midi_ring;
+    NoteRing *note_ring;
+    CcRing *cc_ring;
     struct k_msgq *touch_events;
 };
 
@@ -126,7 +138,7 @@ constexpr int kControlPrio = -1;
 void ControlThread(void *arg1, void *, void *) {
     auto *ctx = static_cast<ControlCtx *>(arg1);
     for (;;) {
-        DrainMidi(ctx->panel, ctx->interaction, ctx->midi_ring);
+        DrainMidi(ctx->panel, ctx->interaction, ctx->note_ring, ctx->cc_ring);
         nostromo::PointerEvent e;
         while (k_msgq_get(ctx->touch_events, &e, K_NO_WAIT) == 0) {
             nostromo::PanelPointer(ctx->panel, e);
@@ -141,10 +153,12 @@ int main(void) {
     engine::EngineControl control;
     control.Init(*reinterpret_cast<engine::SharedIpc *>(engine::kSharedIpcAddr));
 
-    // MIDI input ring: reset before any traffic (the SDRAM backing is
-    // uninitialized; the audio core also resets it, idempotently).
-    MidiRing *midi_ring = reinterpret_cast<MidiRing *>(kMidiRingAddr);
-    midi_ring->Reset();
+    // MIDI input rings: reset before any traffic (the SDRAM backing is
+    // uninitialized; the audio core also resets them, idempotently).
+    NoteRing *note_ring = reinterpret_cast<NoteRing *>(kNoteRingAddr);
+    CcRing *cc_ring = reinterpret_cast<CcRing *>(kCcRingAddr);
+    note_ring->Reset();
+    cc_ring->Reset();
     reinterpret_cast<LossCounters *>(kLossCountersAddr)->Reset();
 
     spike::GlcdcBackend backend;
@@ -164,7 +178,7 @@ int main(void) {
     interaction.Init(panel, nostromo::Surface(), &control);
 
     // Start the control thread (the sole IPC producer) after the setup above.
-    static ControlCtx cctx{panel, &interaction, midi_ring, &touch_events};
+    static ControlCtx cctx{panel, &interaction, note_ring, cc_ring, &touch_events};
     static K_THREAD_STACK_DEFINE(control_stack, kControlStackBytes);
     static struct k_thread control_thread;
     k_thread_create(&control_thread, control_stack,
