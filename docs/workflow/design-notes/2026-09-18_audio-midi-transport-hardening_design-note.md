@@ -30,7 +30,8 @@ The transport spans two cores over shared SDRAM rings:
   `buf_release_cb` (one `k_work_submit` per completed packet into a single
   `struct k_work`); `SendPacket` zero-pads underruns; `MidiRxCb` forwards
   `ump.data[0]` into the ring and discards `Push`'s return.
-- `controller/midi_ring.h` — the 256-word SPSC ring (`kMidiRingAddr`).
+- `controller/midi_ring.h` — the 256-word SPSC MIDI ring at `kMidiRingAddr`
+  (split into note + CC rings in Decision 6).
 
 The ring was already relocated out of `Panel::fft_im` (commit `f3ab05f`) and the
 render is now DMA-clocked off the SSIE (commit `86ccebc`), which removed the
@@ -262,7 +263,7 @@ lookup.
 
 - [ ] Given a note-off for a held note, the voice transitions to release and falls silent — no stuck note.
 - [ ] Given sustained encoder/fader traffic during a long spectrum draw, no note-off is dropped (`note_ring_drops` stays 0 under load).
-- [ ] Given a note-on sent while capturing the UAC2 stream, the first non-zero sample appears within 5 ms (budget: control-thread wakeup + one render block + FIFO depth + USB).
+- [ ] Given a note-on timestamped in `MidiRxCb` and the first non-silent frame timestamped on FIFO push, the device-side delta is within ~3 ms (read over RTT; budget: control-thread wakeup + one render block + FIFO depth — excludes host ALSA buffering).
 - [ ] Given a UAC2 underrun, the device sends a short packet (no zero-padded splice, no audible click).
 - [ ] Given the host pauses and resumes the stream, the send chain recovers (`k_mem_slab_num_used_get(&send_slab)` returns to 2).
 - [ ] Given `arecord -D hw:N,0 -f S16_LE -c 2 -r 48000 -d 60`, the capture returns in ~60.0 s (regression-tests the SSIE render clock; the prior k_timer clock measured 61.10 s ≈ 47,136 Hz).

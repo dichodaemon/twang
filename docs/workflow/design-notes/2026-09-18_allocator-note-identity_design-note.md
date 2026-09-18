@@ -82,9 +82,13 @@ event to cm85 still carries `freq_hz`.
 
 ## 5. Acceptance Criteria
 
-- [ ] Given a note-off for a held note, the voice transitions to release and falls silent.
-- [ ] Given two overlapping notes of the same pitch, two note-offs release two voices (which is indistinguishable by construction).
-- [ ] Given `test_allocator.cc` and `test_engine.cc`, `NoteOff` matches by note number, not by frequency.
+- [ ] Given `test_allocator.cc`, `NoteOff(part, note)` releases the voice by note number; matching no longer reads the stored frequency.
+- [ ] Given two overlapping notes of the same pitch, two note-offs release two voices (parity with current behaviour).
+- [ ] Given the host sim, note-on/note-off behaviour is unchanged (the change is structural today, not behavioural).
+
+The end-to-end case this change exists for — a global tune/transpose offset
+between note-on and note-off — becomes testable only when tuning/transpose lands;
+the contract criterion above is the executable check until then.
 
 ## 6. Approach
 
