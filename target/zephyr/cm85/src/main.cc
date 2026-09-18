@@ -1,10 +1,13 @@
-// twang cm85 — engine bring-up with I2S audio output.
+// twang cm85 — engine bring-up with USB audio output.
 //
-// Renders the engine to the EK-RA8D2's on-board codec through SSIE1 (i2s1).
-// A GPT PWM (pwm2) synthesizes the codec MCLK (3.072 MHz = 48 kHz x 64),
-// matching engine::kSampleRate. Mono engine output is duplicated to both I2S
-// channels and converted float -> int16. This core owns the audio engine only;
-// the control core (cm33) queues notes/params into the shared SDRAM ring.
+// Renders the engine (48 kHz, block-oriented) and streams it to the host over
+// the UAC2 capture endpoint. The render clock is a kernel timer, NOT the SSIE
+// I2S DMA: the SSIE's MCLK (GPT PWM 3.072 MHz) does not complete transfers on
+// this board, so a DMA-pull loop deadlocks after the 4 slab blocks are
+// consumed (verified: slab num_used=4, render stuck on k_mem_slab_alloc). See
+// the Stage-1 brief §7 deviation. The SSIE/I2S path is left configured but
+// best-effort; it is not the clock. The on-board codec's J38 analog output is
+// unfitted anyway. The scope tap stays as the engine-vs-USB discriminator.
 
 #include <errno.h>
 #include <zephyr/device.h>
@@ -37,16 +40,34 @@ K_MEM_SLAB_DEFINE(tx_slab, WB_UP(kBlockBytes), kNumBlocks, 4);
 /// Zero-initialized by the C runtime (NOLOAD section).
 engine::EngineAudio audio __attribute__((section(".dtcm_bss")));
 
+/// Render clock: a periodic kernel timer signals the render loop at the engine
+/// block rate (~1333 us). The render is decoupled from both the (broken) SSIE
+/// DMA and the USB SOF, so the synth keeps rendering even with no host.
+constexpr uint32_t kBlockUs =
+    1000000u * engine::kBlockSize / engine::kSampleRate;  // ~1333 us
+
+K_SEM_DEFINE(render_sem, 0, 1);
+
+void RenderTimerHandler(struct k_timer *t)
+{
+    ARG_UNUSED(t);
+    k_sem_give(&render_sem);
+}
+
+K_TIMER_DEFINE(render_timer, RenderTimerHandler, NULL);
+
 /// Render one engine block into `buf` and tap the samples into the shared
 /// scope ring so the UI core (cm33) can draw the scope.
-void RenderTap(float *buf, ScopeTap *tap) {
+void RenderTap(float *buf, ScopeTap *tap)
+{
     engine::Render(audio, buf, engine::kBlockSize);
     tap->ring.Write(buf, engine::kBlockSize);
     tap->dirty.store(true, std::memory_order_relaxed);
 }
 
-/// Convert a mono float block into an interleaved 16-bit stereo I2S block.
-void ConvertToI16(const float *buf, int16_t *out) {
+/// Convert a mono float block into an interleaved 16-bit stereo block.
+void ConvertToI16(const float *buf, int16_t *out)
+{
     for (int i = 0; i < engine::kBlockSize; ++i) {
         float s = buf[i];
         if (s > 1.0f) s = 1.0f;
@@ -59,32 +80,36 @@ void ConvertToI16(const float *buf, int16_t *out) {
 
 }  // namespace
 
-int main(void) {
+int main(void)
+{
     // Bring up the composite USB device (UAC2 audio + MIDI 2.0). Best-effort:
-    // the I2S audio path and scope continue even if USB fails to enumerate.
+    // the render + scope continue even if USB fails to enumerate.
     if (usb::Init() != 0) {
         printk("usb: composite init failed\n");
     }
 
     const struct device *i2s = DEVICE_DT_GET(DT_ALIAS(i2s_tx));
-    if (!device_is_ready(i2s)) {
+    if (device_is_ready(i2s)) {
+        struct i2s_config cfg = {};
+        cfg.word_size = 16U;
+        cfg.channels = 2U;
+        cfg.format = I2S_FMT_DATA_FORMAT_I2S;
+        cfg.frame_clk_freq = engine::kSampleRate;  // 48000 Hz
+        cfg.block_size = kBlockBytes;
+        cfg.timeout = 1000;  // ms, not a k_timeout_t
+        cfg.options = I2S_OPT_FRAME_CLK_CONTROLLER | I2S_OPT_BIT_CLK_CONTROLLER;
+        cfg.mem_slab = &tx_slab;
+
+        // Best-effort only: the SSIE MCLK does not complete transfers on this
+        // board, so the I2S output is dead until the MCLK is fixed. It is NOT
+        // the render clock. Left configured so the MCLK fix can land without
+        // touching this path.
+        if (i2s_configure(i2s, I2S_DIR_TX, &cfg) < 0) {
+            printk("i2s: configure failed\n");
+        }
+        (void)i2s_trigger(i2s, I2S_DIR_TX, I2S_TRIGGER_START);
+    } else {
         printk("i2s: device not ready\n");
-        return -ENODEV;
-    }
-
-    struct i2s_config cfg = {};
-    cfg.word_size = 16U;
-    cfg.channels = 2U;
-    cfg.format = I2S_FMT_DATA_FORMAT_I2S;
-    cfg.frame_clk_freq = engine::kSampleRate;  // 48000 Hz
-    cfg.block_size = kBlockBytes;
-    cfg.timeout = 1000;  // ms, not a k_timeout_t
-    cfg.options = I2S_OPT_FRAME_CLK_CONTROLLER | I2S_OPT_BIT_CLK_CONTROLLER;
-    cfg.mem_slab = &tx_slab;
-
-    if (i2s_configure(i2s, I2S_DIR_TX, &cfg) < 0) {
-        printk("i2s: configure failed\n");
-        return -EIO;
     }
 
     // Point the audio engine at the shared IPC block (fixed SDRAM address).
@@ -106,26 +131,14 @@ int main(void) {
     ScopeTap *tap = reinterpret_cast<ScopeTap *>(kScopeTapAddr);
     tap->Reset();
 
-    // Start the I2S stream (best-effort). The codec MCLK (GPT PWM) is not yet
-    // verified on hardware, so the DMA may stall; audio output is best-effort
-    // and the scope is clocked independently below.
-    (void)i2s_trigger(i2s, I2S_DIR_TX, I2S_TRIGGER_START);
-
-    // Render + tap at the engine block rate, decoupled from the I2S
-    // backpressure so the scope animates even when the I2S DMA stalls. The
-    // I2S output is best-effort: convert + queue only if a DMA block is free.
-    constexpr uint32_t kBlockUs =
-        1000000u * engine::kBlockSize / engine::kSampleRate;  // ~1333 us
+    // Render at the engine block rate, clocked by the kernel timer. The scope
+    // tap is written in the same loop, so it animates at the render rate.
+    k_timer_start(&render_timer, K_USEC(kBlockUs), K_USEC(kBlockUs));
     for (;;) {
+        k_sem_take(&render_sem, K_FOREVER);
+
         float buf[engine::kBlockSize];
         RenderTap(buf, tap);
-
-        void *blk;
-        if (k_mem_slab_alloc(&tx_slab, &blk, K_NO_WAIT) == 0) {
-            ConvertToI16(buf, static_cast<int16_t *>(blk));
-            (void)i2s_write(i2s, blk, kBlockBytes);
-        }
-        k_busy_wait(kBlockUs);
     }
     return 0;
 }

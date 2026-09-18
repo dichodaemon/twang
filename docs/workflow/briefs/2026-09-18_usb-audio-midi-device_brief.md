@@ -101,15 +101,20 @@ Stages:
    MIDI 2.0 overlay and setup into `target/zephyr/cm85`, with the class-order
    fix (`uac2_0` before `midi_0`) and the runtime guard. Both classes enumerate
    on the real app.
-2. **Render clock onto SSIE DMA** (alone) — replace the `k_busy_wait` block
-   timer with SSIE DMA-pull. Verify on the scope tap: identical sound, now
-   DMA-clocked. No UAC2 yet — one behavioural change at a time.
-3. **UAC2 audio out** — elastic FIFO between SSIE and UAC2: the SSIE DMA
-   callback writes rendered samples in; `sof_cb` drains into
-   `usbd_uac2_send()`. `usbd_uac2_send()` is driven from the SOF callback, not
-   the SSIE cadence — async IN absorbs host/device clock drift by varying
-   packet size per frame (HS: 125 µs microframes, nominal 6 samples / 24 B
-   each; the FIFO absorbs the ±1-sample drift).
+2. **Render clock onto a kernel timer** (alone) — replace the `k_busy_wait`
+   block timer with a `k_timer`-driven render loop. Verify on the scope tap:
+   identical sound, now timer-clocked. No UAC2 yet — one behavioural change at
+   a time. *Deviation (2026-09-18): the SSIE MCLK (GPT PWM 3.072 MHz) does not
+   complete transfers on this board — a DMA-pull loop deadlocks after the 4
+   slab blocks are consumed (`num_used=4`, stuck on `k_mem_slab_alloc`). The
+   SSIE cannot serve as the render clock; the `k_timer` replaces it. The MCLK
+   fix is tracked separately.*
+3. **UAC2 audio out** — elastic FIFO between the render loop and UAC2: the
+   `k_timer` render loop writes int16-stereo blocks into a FIFO; `sof_cb`
+   drains into `usbd_uac2_send()`. `usbd_uac2_send()` is driven from the SOF
+   callback, not the render cadence — async IN absorbs host/device clock drift
+   by varying packet size per frame (HS: 125 µs microframes, nominal 6 samples
+   / 24 B each; the FIFO absorbs the ±1-sample drift).
 4. **MIDI in** — reverse cm85→cm33 channel carrying **UMP 32-bit words** (no
    downconvert on cm85); cm33 downconverts to MIDI 1.0 immediately before
    `MidiMessage(control, kXtouchCompact, …)`, preserving MIDI 2.0 resolution
