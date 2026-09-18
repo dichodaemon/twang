@@ -512,6 +512,14 @@ strip. §7.6 wins because `g_pages` is indexed by `SubjectId`.
 not of the navigation as a whole. `scope_mode` is global, not per-subject and not per-part:
 there is one output view, and its mode is a property of the instrument, not of the page.
 
+**Runtime access is through a double-buffered snapshot.** `NavState` is a multi-field struct;
+the render thread reads it while the control thread mutates it, and a raw cross-thread read
+can mix an old `part` with a new `item[]` (indexing out of range). `Interaction::Nav()` returns
+a const reference to a published snapshot — `nav_snap_[2]` with an atomic index flip — that
+`Interaction::PublishNav()` fills (copy `nav` into the back slot, then flip the index).
+`Init` and `OnInput` publish; the render thread only ever reads the snapshot, never `nav`
+directly.
+
 ### 7.4. Pages
 
 A column does not always drive an engine parameter. The MOD page's columns are fields of a
@@ -917,7 +925,9 @@ void InteractionOnInput(const InputEvent &ev);
 - **Detent absorption**: if a detent arrives while a control is pressed, the gesture is
   `kHoldTurn` and the subsequent release emits nothing. This is what prevents an accidental
   micro-turn during a press from being read as a short press.
-- **Thread safety**: single-threaded, called from the M33 input task only.
+- **Thread safety**: single producer. The interaction layer and the engine are owned by one
+  dedicated control thread (the target's sole IPC producer); the render thread never calls
+  `OnInput`, and reads navigation through the published snapshot (§7.3), not `nav` directly.
 
 ### ResolveBinding
 
