@@ -110,11 +110,17 @@ Stages:
    SSIE cannot serve as the render clock; the `k_timer` replaces it. The MCLK
    fix is tracked separately.*
 3. **UAC2 audio out** — elastic FIFO between the render loop and UAC2: the
-   `k_timer` render loop writes int16-stereo blocks into a FIFO; `sof_cb`
-   drains into `usbd_uac2_send()`. `usbd_uac2_send()` is driven from the SOF
-   callback, not the render cadence — async IN absorbs host/device clock drift
-   by varying packet size per frame (HS: 125 µs microframes, nominal 6 samples
-   / 24 B each; the FIFO absorbs the ±1-sample drift).
+   `k_timer` render loop writes int16-stereo blocks into a FIFO; the send is
+   driven by `buf_release_cb` (fires once per packet the host reads), **not** by
+   SOF. *Finding (2026-09-18): the FSP SOF is a one-shot resume detector —
+   `SOFE` is armed only while suspended and self-disables after the first SOF
+   (`r_usb_device.c` `process_sof_event`), so `USBD_EVENT_SOF` never arrives in
+   normal operation; there is no periodic SOF to clock from.* The async IN
+   packet size floats ±1 frame (5/6/7) around the 6-frame nominal to absorb the
+   render/host rate difference. Priming and re-send are deferred to work items:
+   the driver calls `terminal_update_cb` before setting `as_active`, and frees
+   the net_buf back to `uac2_pool` after `buf_release_cb`, so sending
+   synchronously from either callback recurses or hits `-ENOMEM`.
 4. **MIDI in** — reverse cm85→cm33 channel carrying **UMP 32-bit words** (no
    downconvert on cm85); cm33 downconverts to MIDI 1.0 immediately before
    `MidiMessage(control, kXtouchCompact, …)`, preserving MIDI 2.0 resolution

@@ -139,6 +139,13 @@ int main(void)
 
         float buf[engine::kBlockSize];
         RenderTap(buf, tap);
+
+        // Convert + feed the UAC2 capture stream (the SOF callback drains it
+        // to the host). A stack buffer is fine here: AudioPush copies into the
+        // FIFO, which is what usbd_uac2_send ultimately references.
+        int16_t stereo[engine::kBlockSize * 2];
+        ConvertToI16(buf, stereo);
+        usb::AudioPush(stereo, engine::kBlockSize);
     }
     return 0;
 }
