@@ -25,6 +25,3 @@ target_sources(app PRIVATE
 )
 
 target_include_directories(app PRIVATE ${ENGINE_DIR} ${CONTROLLER_DIR})
-
-# The engine's control/audio IPC lives in shared SDRAM (see ipc_shared.h).
-target_compile_definitions(app PRIVATE TWANG_SHARED_IPC)

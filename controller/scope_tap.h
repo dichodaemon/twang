@@ -7,11 +7,11 @@
 /// PanelAudioTap.
 ///
 /// On the target the tap is the Panel's first member, so it sits at the
-/// Panel's fixed SDRAM base (kScopeTapAddr) — a rendezvous both cores agree on
-/// without knowing the Panel's internal layout. The audio core accesses it by
-/// reinterpret-casting that address; the UI core uses the Panel's embedded
-/// copy. The two are the same object: the Panel is placement-new'd at
-/// kScopeTapAddr.
+/// Panel's SDRAM base — a rendezvous both cores agree on without knowing the
+/// Panel's internal layout (the fixed address lives in controller/sdram_map.h).
+/// The audio core accesses it by reinterpret-casting that address; the UI core
+/// uses the Panel's embedded copy. The two are the same object: the Panel is
+/// placement-new'd at that address.
 #pragma once
 
 #include <atomic>
@@ -31,9 +31,3 @@ struct ScopeTap {
     dirty.store(false, std::memory_order_relaxed);
   }
 };
-
-// Fixed SDRAM address of the tap (== the Panel base, 0x68500000). Both target
-// cores are linked separately, so a fixed address is the rendezvous, matching
-// engine::kSharedIpcAddr (see ipc_shared.h). Unused on the host, where the
-// tap is embedded in a heap-allocated Panel.
-inline constexpr std::uintptr_t kScopeTapAddr = 0x68500000UL;

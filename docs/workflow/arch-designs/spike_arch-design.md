@@ -184,6 +184,7 @@ void DrawDyn(DynRegion &d, FrameBuffer &fb);  // calls d.draw(fb, d.rect, d.stat
 
 ```cpp
 Panel *PanelCreate();                              // returns state; never freed in practice
+Panel *PanelCreateAt(void *storage);               // placement-new into caller storage; never freed in practice
 void PanelDraw(Panel *p, FrameBuffer &fb);         // repaint damage[n] ∪ damage[n−1]
 void PanelPointer(Panel *p, PointerEvent e);       // handle a touch/mouse event
 void PanelNoteOn(Panel *p, float freq_hz, std::uint8_t velocity);  // note-on: drive engine + envelope playhead

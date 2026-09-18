@@ -37,19 +37,4 @@ struct SharedIpc {
 // ldrex/strex on the ARM targets (output-stage arch-design §5).
 static_assert(std::atomic<float>::is_always_lock_free);
 
-#ifdef TWANG_SHARED_IPC
-
-/// Fixed SDRAM address of the shared block.
-///
-/// SDRAM spans 0x68000000..0x6c000000 (64 MiB). The GLCDC frame buffer (cm33
-/// only, double-buffered 1024x600 RGB565 = ~2.4 MB) occupies the first region;
-/// the shared block sits at +4 MB, clear of it and any .sdram static data.
-///
-/// Justified exception, not a pattern -- the two cores (M33/M85) are linked
-/// separately, so no linker section can give both the same address for one
-/// shared object; a fixed SDRAM address is the only rendezvous.
-inline constexpr std::uintptr_t kSharedIpcAddr = 0x68400000UL;
-
-#endif  // TWANG_SHARED_IPC
-
 }  // namespace engine

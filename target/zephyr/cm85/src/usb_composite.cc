@@ -28,6 +28,7 @@ extern "C" {
 
 #include "midi_ring.h"
 #include "loss_counters.h"
+#include "sdram_map.h"
 
 LOG_MODULE_REGISTER(usb_composite, LOG_LEVEL_INF);
 

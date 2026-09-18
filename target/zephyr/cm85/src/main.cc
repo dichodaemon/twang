@@ -17,6 +17,7 @@
 
 #include "engine_audio.h"
 #include "scope_tap.h"
+#include "sdram_map.h"
 #include "usb_composite.h"
 
 namespace {
@@ -111,7 +112,7 @@ int main(void)
     // Point the audio engine at the shared IPC block (fixed SDRAM address).
     // The control core (cm33) owns EngineControl: it has seeded the default
     // routes and queued the A4 test note; this core only renders.
-    audio.ipc = reinterpret_cast<engine::SharedIpc *>(engine::kSharedIpcAddr);
+    audio.ipc = reinterpret_cast<engine::SharedIpc *>(kSharedIpcAddr);
 
     // Reset the shared events + params before the render loop. This core's
     // render loop starts before the cm33 has run EngineControl::Init, so

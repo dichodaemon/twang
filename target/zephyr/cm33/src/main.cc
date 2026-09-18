@@ -14,6 +14,7 @@
 
 #include <cstdint>
 
+#include "clock.h"
 #include "engine_control.h"
 #include "glcdc_backend.h"
 #include "interaction.h"
@@ -21,6 +22,7 @@
 #include "midi_ring.h"
 #include "loss_counters.h"
 #include "panel.h"
+#include "sdram_map.h"
 #include "surface.h"
 
 // Touch event queue: PollTouch (UI loop) posts PointerEvents; the control
@@ -28,18 +30,14 @@
 // plain kernel msgq suffices (no fixed SDRAM address).
 K_MSGQ_DEFINE(touch_events, sizeof(nostromo::PointerEvent), 8, 4);
 
-namespace engine {
-
-// Override the engine's weak notification hook: ping the audio core (M85) on
-// mbox0 after a note-on/note-off is queued into the shared SDRAM ring.
-void EngineEventsPending() {
+// Signal the audio core (M85) on mbox0 after a note event is queued into the
+// shared SDRAM ring. Passed to EngineControl::Init as the EventNotify notifier.
+static void SignalAudioCore() {
     const struct device *mbox = DEVICE_DT_GET(DT_NODELABEL(mbox0));
     if (mbox && device_is_ready(mbox)) {
         mbox_send(mbox, 0, NULL);  // signal channel 0 (msg == NULL)
     }
 }
-
-}  // namespace engine
 
 namespace {
 
@@ -78,7 +76,7 @@ void HandleMidiWord(nostromo::Panel *panel, nostromo::Interaction *interaction,
         }
         nostromo::InputEvent ev{};
         ev.control = m->logical;
-        ev.t_ms = static_cast<std::uint32_t>(k_uptime_get());
+        ev.t_ms = nostromo::NowMs();
         if (m->turn) {
             ev.detents = static_cast<std::int8_t>(
                 nostromo::DecodeEnc(d2, m->enc));
@@ -155,7 +153,8 @@ void ControlThread(void *arg1, void *, void *) {
 
 int main(void) {
     engine::EngineControl control;
-    control.Init(*reinterpret_cast<engine::SharedIpc *>(engine::kSharedIpcAddr));
+    control.Init(*reinterpret_cast<engine::SharedIpc *>(kSharedIpcAddr),
+                 SignalAudioCore);
 
     // MIDI input rings: reset before any traffic (the SDRAM backing is
     // uninitialized; the audio core also resets them, idempotently).
@@ -171,8 +170,10 @@ int main(void) {
         return -1;
     }
 
-    // The Panel is placement-new'd into SDRAM by PanelCreate (TWANG_UI_SDRAM).
-    nostromo::Panel *panel = nostromo::PanelCreate();
+    // The Panel is placement-new'd into SDRAM at the scope-tap base, so the
+    // audio core reaches its scope ring at the fixed address it also uses.
+    nostromo::Panel *panel =
+        nostromo::PanelCreateAt(reinterpret_cast<void *>(kScopeTapAddr));
 
     // Bind the interaction layer + control engine through Interaction::Init —
     // the single wiring point shared with the desktop host (host/main.cc). The

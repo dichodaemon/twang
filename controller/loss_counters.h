@@ -1,13 +1,16 @@
 /// @file loss_counters.h
-/// @brief Cross-core transport loss counters at a fixed SDRAM address.
+/// @brief Cross-core transport loss counters.
 ///
 /// The transport has silent-drop paths — note/CC ring full, channel filter,
-/// MT filter, UAC2 FIFO overflow, IPC event-ring full — any of which can drop
-/// a note-off and stick a note. These counters make each drop observable over
-/// J-Link without perturbing the high-rate paths the way logging would. Both
-/// cores increment their own counters through this shared block; it lives at a
-/// fixed SDRAM address (like the scope tap and MIDI ring) so both separately-
-/// linked cores agree on it without a linker section.
+/// MT filter, UAC2 FIFO overflow — any of which can drop a note-off and stick
+/// a note. These counters make each drop observable over J-Link without
+/// perturbing the high-rate paths the way logging would. Both cores increment
+/// their own counters through this shared block, which lives at a fixed SDRAM
+/// address (see controller/sdram_map.h) so both separately-linked cores agree
+/// on it without a linker section.
+///
+/// The IPC event-ring-full drop is counted in SharedIpc::event_drops (the
+/// transport the engine observes), not here.
 
 #pragma once
 
@@ -34,12 +37,3 @@ struct LossCounters {
         fifo_overflow_frames.store(0, std::memory_order_relaxed);
     }
 };
-
-/// Fixed SDRAM address of the loss counters.
-///
-/// 0x68530000 sits in the clear gap after the Panel's ~160 KiB draw scratch
-/// (base kScopeTapAddr = 0x68500000, ending ~0x68528000) and before the MIDI
-/// note ring at 0x68580000 (and the GLCDC framebuffer at 0x68600000). The old
-/// 0x68520000 was inside the Panel's fft_im and got clobbered; 0x68530000 is
-/// comfortably clear of it on both sides.
-inline constexpr std::uintptr_t kLossCountersAddr = 0x68530000UL;

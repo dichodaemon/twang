@@ -26,6 +26,7 @@ target_sources(app PRIVATE
     ${NOSTROMO_DIR}/pages.cc
     ${NOSTROMO_DIR}/feel.cc
     ${NOSTROMO_DIR}/surface.cc
+    ${NOSTROMO_DIR}/clock_zephyr.cc
     ${CONTROLLER_DIR}/fft.cc
     ${CONTROLLER_DIR}/scope_ring.cc
     ${ENGINE_DIR}/allocator.cc
@@ -36,8 +37,3 @@ target_sources(app PRIVATE
 )
 
 target_include_directories(app PRIVATE ${ENGINE_DIR} ${CONTROLLER_DIR} ${SPIKE_DIR} ${NOSTROMO_DIR})
-
-# The engine's control/audio IPC lives in shared SDRAM (see ipc_shared.h);
-# the panel's draw scratch is placement-new'd into SDRAM too (TWANG_UI_SDRAM,
-# see nostromo/panel.cc).
-target_compile_definitions(app PRIVATE TWANG_SHARED_IPC TWANG_UI_SDRAM)
