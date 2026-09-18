@@ -541,6 +541,7 @@ void Interaction::Init(Panel *panel, const SurfaceProfile &surface,
   for (auto &t : last_turn_ms) t = 0;
   arm_used = false;
   MarkAll();
+  PublishNav();  // publish the initial nav for the first frame
   // A shortfall below kColumns is reported once here; the surplus (an encoder
   // bank wider than the column count) is simply unmapped in the profile.
   (void)surface.n_encoders;
@@ -556,6 +557,13 @@ void Interaction::OnInput(const InputEvent &ev) {
       !(ev.edge == Edge::kDown && b.kind == BindKind::kModeToggle))
     return;
   Dispatcher(ev, g, b);
+  PublishNav();  // Dispatcher may have mutated nav; republish the snapshot
+}
+
+void Interaction::PublishNav() {
+  const std::uint32_t back = nav_snap_idx_.load(std::memory_order_relaxed) ^ 1;
+  nav_snap_[back] = nav;
+  nav_snap_idx_.store(back, std::memory_order_release);
 }
 
 bool Interaction::CreateRoute(std::uint8_t part, engine::ModSourceId src,

@@ -11,6 +11,7 @@
 /// touches no invalidation state.
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 #include "engine.h"
@@ -195,12 +196,26 @@ struct Interaction {
   /// Precondition: ev.control < Control::kCount, ev.t_ms monotonic.
   void OnInput(const InputEvent &ev);
 
+  /// @brief Publish the current nav into the renderer's snapshot.
+  /// Call after mutating nav (OnInput/Init publish automatically). Copies nav
+  /// into the back slot and flips the index, so a concurrent reader (the
+  /// target's render thread) never observes a torn NavState — a multi-field
+  /// struct whose raw read can mix an old `part` with a new `item[]`.
+  void PublishNav();
+
   /// @brief Read-only view of the navigation state for the renderer (pane/header
-  /// chrome and DYN hooks). Returns a const reference so the screen cannot write
-  /// back — the layer is the sole writer of NavState.
-  const NavState &Nav() const { return nav; }
+  /// chrome and DYN hooks). Returns a const reference to the published snapshot
+  /// so the screen cannot write back — the layer is the sole writer of NavState.
+  const NavState &Nav() const {
+    return nav_snap_[nav_snap_idx_.load(std::memory_order_acquire) & 1];
+  }
 
  private:
+  // Double-buffered renderer snapshot of nav (see Nav()/PublishNav()). The
+  // index selects the live slot; the writer fills the non-live slot, then flips.
+  NavState nav_snap_[2]{};                       ///< two slots, index selects live
+  std::atomic<std::uint32_t> nav_snap_idx_{0};   ///< published slot (0 or 1)
+
   // Invalidation: the panel's MarkDirty is the sole invalidation entry point.
   void MarkPlot(SlotIdx idx);
   void MarkPage();   ///< marks the current subject's plot slot
