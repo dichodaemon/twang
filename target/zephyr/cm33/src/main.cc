@@ -106,6 +106,35 @@ void DrainMidi(nostromo::Panel *panel, nostromo::Interaction *interaction,
     }
 }
 
+// Control-thread context: the objects the control thread drives.
+struct ControlCtx {
+    nostromo::Panel *panel;
+    nostromo::Interaction *interaction;
+    MidiRing *midi_ring;
+    struct k_msgq *touch_events;
+};
+
+constexpr int kControlStackBytes = 4096;
+// Cooperative priority: higher than the render loop (main thread, prio 0), so
+// the control thread preempts PanelDraw's spectrum FFT — MIDI is not gated by
+// the display frame rate.
+constexpr int kControlPrio = -1;
+
+// The control thread is the sole producer on the IPC rings: it drains the MIDI
+// ring (OnInput -> SetParam/SetRoute; PanelNoteOn/Off -> events.Push) and the
+// touch queue (PanelPointer -> SetParam).
+void ControlThread(void *arg1, void *, void *) {
+    auto *ctx = static_cast<ControlCtx *>(arg1);
+    for (;;) {
+        DrainMidi(ctx->panel, ctx->interaction, ctx->midi_ring);
+        nostromo::PointerEvent e;
+        while (k_msgq_get(ctx->touch_events, &e, K_NO_WAIT) == 0) {
+            nostromo::PanelPointer(ctx->panel, e);
+        }
+        k_msleep(1);  // 1 ms poll; the drain rate is far above the input rate
+    }
+}
+
 }  // namespace
 
 int main(void) {
@@ -134,10 +163,17 @@ int main(void) {
     nostromo::Interaction interaction;
     interaction.Init(panel, nostromo::Surface(), &control);
 
-    for (;;) {
-        DrainMidi(panel, &interaction, midi_ring);  // USB MIDI -> surface map
+    // Start the control thread (the sole IPC producer) after the setup above.
+    static ControlCtx cctx{panel, &interaction, midi_ring, &touch_events};
+    static K_THREAD_STACK_DEFINE(control_stack, kControlStackBytes);
+    static struct k_thread control_thread;
+    k_thread_create(&control_thread, control_stack,
+                    K_THREAD_STACK_SIZEOF(control_stack),
+                    ControlThread, &cctx, NULL, NULL, kControlPrio, 0,
+                    K_NO_WAIT);
 
-        backend.PollTouch(panel, &touch_events);
+    for (;;) {
+        backend.PollTouch(panel, &touch_events);  // post (control thread drains)
         nostromo::PanelDraw(panel, backend.fb, backend.back_);
         backend.Present();  // flip (blocks on vsync; double buffering)
     }
