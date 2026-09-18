@@ -1,15 +1,15 @@
 // twang cm85 — engine bring-up with USB audio output.
 //
 // Renders the engine (48 kHz, block-oriented) and streams it to the host over
-// the UAC2 capture endpoint. The render clock is a kernel timer, NOT the SSIE
-// I2S DMA: the SSIE's MCLK (GPT PWM 3.072 MHz) does not complete transfers on
-// this board, so a DMA-pull loop deadlocks after the 4 slab blocks are
-// consumed (verified: slab num_used=4, render stuck on k_mem_slab_alloc). See
-// the Stage-1 brief §7 deviation. The SSIE/I2S path is left configured but
-// best-effort; it is not the clock. The on-board codec's J38 analog output is
-// unfitted anyway. The scope tap stays as the engine-vs-USB discriminator.
+// the UAC2 capture endpoint. The render clock is the SSIE I2S DMA: each
+// completed transfer releases a tx_slab block, and the render loop refills it
+// — so the SSIE's BCLK/WCLK (derived from the GPT PWM MCLK) paces the synth
+// at exactly the 48 kHz the UAC2 descriptor claims. The on-board codec's J38
+// analog output is unfitted; the I2S is used as the clock, not the sound
+// output. The scope tap stays as the engine-vs-USB discriminator.
 
 #include <errno.h>
+#include <cstring>
 #include <zephyr/device.h>
 #include <zephyr/drivers/i2s.h>
 #include <zephyr/kernel.h>
@@ -39,22 +39,6 @@ K_MEM_SLAB_DEFINE(tx_slab, WB_UP(kBlockBytes), kNumBlocks, 4);
 /// ~3.5 KB struct off the small main-thread stack and off the shared SDRAM.
 /// Zero-initialized by the C runtime (NOLOAD section).
 engine::EngineAudio audio __attribute__((section(".dtcm_bss")));
-
-/// Render clock: a periodic kernel timer signals the render loop at the engine
-/// block rate (~1333 us). The render is decoupled from both the (broken) SSIE
-/// DMA and the USB SOF, so the synth keeps rendering even with no host.
-constexpr uint32_t kBlockUs =
-    1000000u * engine::kBlockSize / engine::kSampleRate;  // ~1333 us
-
-K_SEM_DEFINE(render_sem, 0, 1);
-
-void RenderTimerHandler(struct k_timer *t)
-{
-    ARG_UNUSED(t);
-    k_sem_give(&render_sem);
-}
-
-K_TIMER_DEFINE(render_timer, RenderTimerHandler, NULL);
 
 /// Render one engine block into `buf` and tap the samples into the shared
 /// scope ring so the UI core (cm33) can draw the scope.
@@ -100,14 +84,26 @@ int main(void)
         cfg.options = I2S_OPT_FRAME_CLK_CONTROLLER | I2S_OPT_BIT_CLK_CONTROLLER;
         cfg.mem_slab = &tx_slab;
 
-        // Best-effort only: the SSIE MCLK does not complete transfers on this
-        // board, so the I2S output is dead until the MCLK is fixed. It is NOT
-        // the render clock. Left configured so the MCLK fix can land without
-        // touching this path.
         if (i2s_configure(i2s, I2S_DIR_TX, &cfg) < 0) {
             printk("i2s: configure failed\n");
         }
-        (void)i2s_trigger(i2s, I2S_DIR_TX, I2S_TRIGGER_START);
+
+        // Prime the TX queue: START pulls one block with K_NO_WAIT and latches
+        // I2S_STATE_ERROR (-ENOMEM) if the queue is empty, after which every
+        // START returns -EIO until a PREPARE. Two silent blocks give the
+        // driver one to send and one queued for the ISR to pick up.
+        for (int i = 0; i < 2; ++i) {
+            void *blk;
+            if (k_mem_slab_alloc(&tx_slab, &blk, K_NO_WAIT) == 0) {
+                std::memset(blk, 0, kBlockBytes);
+                i2s_write(i2s, blk, kBlockBytes);
+            }
+        }
+
+        const int rc = i2s_trigger(i2s, I2S_DIR_TX, I2S_TRIGGER_START);
+        if (rc < 0) {
+            printk("i2s: start failed %d\n", rc);
+        }
     } else {
         printk("i2s: device not ready\n");
     }
@@ -131,21 +127,25 @@ int main(void)
     ScopeTap *tap = reinterpret_cast<ScopeTap *>(kScopeTapAddr);
     tap->Reset();
 
-    // Render at the engine block rate, clocked by the kernel timer. The scope
-    // tap is written in the same loop, so it animates at the render rate.
-    k_timer_start(&render_timer, K_USEC(kBlockUs), K_USEC(kBlockUs));
+    // Render at the engine block rate, clocked by the SSIE I2S DMA: each
+    // completed transfer returns a tx_slab block, and this loop refills it.
+    // The scope tap is written in the same loop, so it animates at the render
+    // rate. If the DMA never completes (clock fault), this loop blocks on
+    // k_mem_slab_alloc after 4 blocks and the scope tap freezes — the
+    // on-board diagnostic for the MCLK.
     for (;;) {
-        k_sem_take(&render_sem, K_FOREVER);
+        void *blk;
+        k_mem_slab_alloc(&tx_slab, &blk, K_FOREVER);
 
+        int16_t *stereo = static_cast<int16_t *>(blk);
         float buf[engine::kBlockSize];
         RenderTap(buf, tap);
-
-        // Convert + feed the UAC2 capture stream (the SOF callback drains it
-        // to the host). A stack buffer is fine here: AudioPush copies into the
-        // FIFO, which is what usbd_uac2_send ultimately references.
-        int16_t stereo[engine::kBlockSize * 2];
         ConvertToI16(buf, stereo);
+
+        // Feed the UAC2 capture stream (the SOF callback drains it to the
+        // host), then hand the block back to the SSIE DMA.
         usb::AudioPush(stereo, engine::kBlockSize);
+        i2s_write(i2s, blk, kBlockBytes);
     }
     return 0;
 }
