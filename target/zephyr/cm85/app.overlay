@@ -11,6 +11,7 @@
  */
 
 #include <zephyr/dt-bindings/pwm/pwm.h>
+#include <zephyr/dt-bindings/usb/audio.h>
 
 / {
 	aliases {
@@ -82,4 +83,65 @@
 &mbox0 {
 	status = "okay";
 	interrupts = <29 1>;
+};
+
+/*
+ * Composite USB device on the board's USB-HS UDC (zephyr_udc0): UAC2 audio
+ * (source-only instrument → host) + USB MIDI 2.0 (host → instrument).
+ */
+
+/ {
+	usb_midi: usb_midi {
+		compatible = "zephyr,midi2-device";
+		status = "okay";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		label = "twang MIDI";
+
+		midi_in_out@0 {
+			reg = <0 1>;
+			protocol = "midi1-up-to-128b";
+			label = "MIDI-IN-OUT";
+		};
+	};
+
+	uac2_synth: usb_audio2 {
+		compatible = "zephyr,uac2";
+		status = "okay";
+		full-speed;
+		high-speed;
+		audio-function = <AUDIO_FUNCTION_MUSICAL_INSTRUMENT>;
+
+		uac_aclk: aclk {
+			compatible = "zephyr,uac2-clock-source";
+			clock-type = "internal-fixed";
+			frequency-control = "read-only";
+			sampling-frequencies = <48000>;
+		};
+
+		/* The engine's audio output: the source entering the function. */
+		engine_input: engine_input {
+			compatible = "zephyr,uac2-input-terminal";
+			clock-source = <&uac_aclk>;
+			terminal-type = <INPUT_TERMINAL_UNDEFINED>;
+			front-left;
+			front-right;
+		};
+
+		/* Audio leaves the function to the host (device -> host capture). */
+		usb_out: usb_out {
+			compatible = "zephyr,uac2-output-terminal";
+			data-source = <&engine_input>;
+			clock-source = <&uac_aclk>;
+			terminal-type = <USB_TERMINAL_STREAMING>;
+		};
+
+		/* One async isochronous IN stream; no feedback (source only). */
+		as_iso_in: in_interface {
+			compatible = "zephyr,uac2-audio-streaming";
+			linked-terminal = <&usb_out>;
+			subslot-size = <2>;
+			bit-resolution = <16>;
+		};
+	};
 };

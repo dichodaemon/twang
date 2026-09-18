@@ -16,6 +16,7 @@ set(CONTROLLER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../controller)
 
 target_sources(app PRIVATE
     src/main.cc
+    src/usb_composite.cc
     ${ENGINE_DIR}/engine.cc
     ${ENGINE_DIR}/engine_audio.cc
     ${ENGINE_DIR}/ipc.cc

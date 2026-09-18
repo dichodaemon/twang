@@ -78,3 +78,42 @@ Follow-up (resolved, 2026-09-18): the PCM rejection was diagnosed via `snd_usb_a
 - Does `udc_renesas_ra` actually work on the RA8D2 (the driver is 2024 code, unproven on this part)? — *Answered: yes — the composite enumerates and MIDI works.*
 - Which core hosts the USB device, cm33 or cm85, given audio renders on cm85 and MIDI feeds control on cm33? — *Answered: cm85 — the board's `zephyr_udc0` sits under `&usbhs` in the cm85 devicetree.*
 - Will the Mac's MIDI stack negotiate alternate 1 (MIDI 2.0) rather than falling back to the mute stub? — *Answered: Linux 6.8 + ALSA UMP does (verified); macOS untested but expected (11+).*
+
+## 7. Appendix: Stage-1 execution plan (Audio + MIDI)
+
+Goal: play the synth end-to-end — X-Touch (MIDI) → Linux → (route) → Renesas
+MIDI 2.0 → engine → UAC2 → Linux → monitor — on one composite USB connection.
+Tracked under epic "Audio & Midi - Stage 1".
+
+Settled inputs:
+
+- **X-Touch connects direct to Linux**, no H2MIDI Pro (its config tool is
+  macOS/Windows/Android only). `aconnect` routes X-Touch → the Renesas MIDI 2.0
+  endpoint. Firmware-neutral.
+- **The on-board codec stays as clock + debug tap only.** SSIE keeps running
+  (it is the sample clock; J38 analog is unfitted so it costs nothing), and the
+  scope tap remains the engine-vs-USB discriminator. Audible output is UAC2 →
+  host → monitor.
+
+Stages:
+
+1. **Durable composite in cm85** — move the spike's UAC2 (capture-only) +
+   MIDI 2.0 overlay and setup into `target/zephyr/cm85`, with the class-order
+   fix (`uac2_0` before `midi_0`) and the runtime guard. Both classes enumerate
+   on the real app.
+2. **Render clock onto SSIE DMA** (alone) — replace the `k_busy_wait` block
+   timer with SSIE DMA-pull. Verify on the scope tap: identical sound, now
+   DMA-clocked. No UAC2 yet — one behavioural change at a time.
+3. **UAC2 audio out** — elastic FIFO between SSIE and UAC2: the SSIE DMA
+   callback writes rendered samples in; `sof_cb` drains into
+   `usbd_uac2_send()`. `usbd_uac2_send()` is driven from the SOF callback, not
+   the SSIE cadence — async IN absorbs host/device clock drift by varying
+   packet size per frame (HS: 125 µs microframes, nominal 6 samples / 24 B
+   each; the FIFO absorbs the ±1-sample drift).
+4. **MIDI in** — reverse cm85→cm33 channel carrying **UMP 32-bit words** (no
+   downconvert on cm85); cm33 downconverts to MIDI 1.0 immediately before
+   `MidiMessage(control, kXtouchCompact, …)`, preserving MIDI 2.0 resolution
+   for later.
+
+Order is audio-out before MIDI-in so there is a working output path to hear
+MIDI arrive on.

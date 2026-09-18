@@ -14,6 +14,7 @@
 
 #include "engine_audio.h"
 #include "scope_tap.h"
+#include "usb_composite.h"
 
 namespace {
 
@@ -59,6 +60,12 @@ void ConvertToI16(const float *buf, int16_t *out) {
 }  // namespace
 
 int main(void) {
+    // Bring up the composite USB device (UAC2 audio + MIDI 2.0). Best-effort:
+    // the I2S audio path and scope continue even if USB fails to enumerate.
+    if (usb::Init() != 0) {
+        printk("usb: composite init failed\n");
+    }
+
     const struct device *i2s = DEVICE_DT_GET(DT_ALIAS(i2s_tx));
     if (!device_is_ready(i2s)) {
         printk("i2s: device not ready\n");
