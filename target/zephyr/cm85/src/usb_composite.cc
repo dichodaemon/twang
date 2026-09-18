@@ -234,17 +234,26 @@ const struct uac2_ops kUac2Ops = {
     .buf_release_cb = Uac2BufReleaseCb,
 };
 
-// MIDI 2.0 rx: forward each packet's first UMP word to the control core over
-// the shared MIDI ring. Single-word UMP (MIDI 1.0 channel voice) is the
-// X-Touch's only traffic; the cm33 downconverts to MIDI 1.0 and feeds the
-// interaction layer (surface map).
+// MIDI 2.0 rx: classify each packet's first UMP word and push it to the note
+// ring (notes + CC 123) or the CC ring (everything else). Single-word UMP
+// (MIDI 1.0 channel voice) is the X-Touch's only traffic; the cm33 drains the
+// note ring first and feeds the interaction layer (surface map).
 void MidiRxCb(const struct device *dev, const struct midi_ump ump)
 {
     ARG_UNUSED(dev);
-    MidiRing *ring = reinterpret_cast<MidiRing *>(kMidiRingAddr);
-    if (!ring->Push(ump.data[0])) {
-        reinterpret_cast<LossCounters *>(kLossCountersAddr)
-            ->midi_ring_full.fetch_add(1, std::memory_order_relaxed);
+    const std::uint32_t word = ump.data[0];
+    if (IsNoteWord(word)) {
+        NoteRing *note = reinterpret_cast<NoteRing *>(kNoteRingAddr);
+        if (!note->Push(word)) {
+            reinterpret_cast<LossCounters *>(kLossCountersAddr)
+                ->note_ring_full.fetch_add(1, std::memory_order_relaxed);
+        }
+    } else {
+        CcRing *cc = reinterpret_cast<CcRing *>(kCcRingAddr);
+        if (!cc->Push(word)) {
+            reinterpret_cast<LossCounters *>(kLossCountersAddr)
+                ->cc_ring_full.fetch_add(1, std::memory_order_relaxed);
+        }
     }
 }
 
@@ -324,9 +333,10 @@ int Init()
     k_work_queue_start(&audio_queue, audio_queue_stack,
                        K_THREAD_STACK_SIZEOF(audio_queue_stack), 5, NULL);
 
-    // MIDI 2.0 rx -> control core over the shared ring. Reset before any
-    // traffic (the SDRAM backing is uninitialized).
-    reinterpret_cast<MidiRing *>(kMidiRingAddr)->Reset();
+    // MIDI 2.0 rx -> control core over the two shared rings. Reset both before
+    // any traffic (the SDRAM backing is uninitialized).
+    reinterpret_cast<NoteRing *>(kNoteRingAddr)->Reset();
+    reinterpret_cast<CcRing *>(kCcRingAddr)->Reset();
     reinterpret_cast<LossCounters *>(kLossCountersAddr)->Reset();
     usbd_midi_set_ops(midi, &kMidiOps);
 
