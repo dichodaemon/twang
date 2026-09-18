@@ -16,6 +16,7 @@
 extern "C" {
 #include <zephyr/usb/class/usbd_uac2.h>
 }
+#include <zephyr/usb/class/usbd_midi2.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/kernel.h>
@@ -24,6 +25,8 @@ extern "C" {
 
 #include <atomic>
 #include <cstdint>
+
+#include "midi_ring.h"
 
 LOG_MODULE_REGISTER(usb_composite, LOG_LEVEL_INF);
 
@@ -216,6 +219,20 @@ const struct uac2_ops kUac2Ops = {
     .buf_release_cb = Uac2BufReleaseCb,
 };
 
+// MIDI 2.0 rx: forward each packet's first UMP word to the control core over
+// the shared MIDI ring. Single-word UMP (MIDI 1.0 channel voice) is the
+// X-Touch's only traffic; the cm33 downconverts to MIDI 1.0 before MidiMessage.
+void MidiRxCb(const struct device *dev, const struct midi_ump ump)
+{
+    ARG_UNUSED(dev);
+    MidiRing *ring = reinterpret_cast<MidiRing *>(kMidiRingAddr);
+    ring->Push(ump.data[0]);
+}
+
+const struct usbd_midi_ops kMidiOps = {
+    .rx_packet_cb = MidiRxCb,
+};
+
 // The composite device context. VID/PID are the Zephyr sample values (the
 // prototype has no purchased vendor ID).
 USBD_DEVICE_DEFINE(twang_usbd, DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0)),
@@ -263,6 +280,7 @@ void AudioPush(const int16_t *stereo, int frames)
 int Init()
 {
     const struct device *uac2 = DEVICE_DT_GET(DT_NODELABEL(uac2_synth));
+    const struct device *midi = DEVICE_DT_GET(DT_NODELABEL(usb_midi));
     const struct device *udc = DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0));
     int err;
 
@@ -274,12 +292,21 @@ int Init()
         LOG_ERR("uac2 device not ready");
         return -ENODEV;
     }
+    if (!device_is_ready(midi)) {
+        LOG_ERR("midi device not ready");
+        return -ENODEV;
+    }
 
     // Mandatory: uac2_init() fails with -EINVAL if ops are unset.
     usbd_uac2_set_ops(uac2, &kUac2Ops, NULL);
     g_uac2_dev = uac2;
     k_work_init(&prime_work, PrimeHandler);
     k_work_init(&send_work, SendHandler);
+
+    // MIDI 2.0 rx -> control core over the shared ring. Reset before any
+    // traffic (the SDRAM backing is uninitialized).
+    reinterpret_cast<MidiRing *>(kMidiRingAddr)->Reset();
+    usbd_midi_set_ops(midi, &kMidiOps);
 
     err = usbd_add_descriptor(&twang_usbd, &twang_lang);
     if (err) {
