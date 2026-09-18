@@ -1,12 +1,12 @@
 #include "midi_io.h"
 
-#include <chrono>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <vector>
 
+#include "clock.h"
 #include "engine.h"
 #include "engine_control.h"
 #include "interaction.h"
@@ -36,13 +36,6 @@ int FindXtouch(rt::midi::RtMidi *midi, unsigned int count) {
 
 // The X-Touch Compact speaks on MIDI channel 1 (status low nibble 0).
 constexpr std::uint8_t kChannel = 0;
-
-// Monotonic milliseconds for InputEvent::t_ms (the gesture recognizer's clock).
-std::uint32_t NowMs() {
-    using namespace std::chrono;
-    return static_cast<std::uint32_t>(
-        duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
-}
 
 }  // namespace
 
@@ -111,7 +104,7 @@ void MidiIo::Poll(nostromo::Panel *panel, nostromo::Interaction *interaction) {
             if (!m) break;  // unmapped CC (faders and other surplus controls)
             nostromo::InputEvent ev{};
             ev.control = m->logical;
-            ev.t_ms = NowMs();
+            ev.t_ms = nostromo::NowMs();
             if (m->turn) {
                 ev.detents = static_cast<std::int8_t>(
                     nostromo::DecodeEnc(msg[2], m->enc));
