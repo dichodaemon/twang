@@ -128,3 +128,11 @@ Stages:
 
 Order is audio-out before MIDI-in so there is a working output path to hear
 MIDI arrive on.
+
+Status (2026-09-18): all four stages complete and verified on hardware. The
+cm85 enumerates the composite (UAC2 capture + MIDI 2.0), streams the rendered
+audio to the host (`arecord` captures the engine's note), and the MIDI 2.0
+endpoint feeds the engine through the cross-core ring (`amidi` note-on/off
+traverses cm85 → cm33 → `MidiMessage`). Render clock is the `k_timer` (SSIE
+MCLK broken, `twang-97n6`); the UAC2 send is `buf_release_cb`-driven (FSP SOF
+is a resume detector, not a clock).
