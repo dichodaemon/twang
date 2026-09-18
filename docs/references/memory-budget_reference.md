@@ -35,3 +35,4 @@ Percentages are of the budget above. Reproduce a build per AGENTS.md
 | Date | Commit | cm33 flash | cm33 RAM | cm85 flash | cm85 RAM | cm85 DTCM |
 |---|---|---|---|---|---|---|
 | 2026-09-17 | 81da9f4 | 71,852 B (27.4%) | 50,044 B (7.6%) | 48,284 B (6.1%) | 9,296 B (0.9%) | 3,516 B (5.4%) |
+| 2026-09-18 | scope-tap | 72,428 B (27.6%) | 50,044 B (7.6%) | 49,208 B (6.3%) | 9,296 B (0.9%) | 3,516 B (5.4%) |

@@ -11,6 +11,8 @@ project(twang_cm85)
 
 # Portable audio engine — the C++ core shared with the desktop build.
 set(ENGINE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../engine)
+# The scope ring/tap (audio writes, UI reads) is shared with the cm33 image.
+set(CONTROLLER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../controller)
 
 target_sources(app PRIVATE
     src/main.cc
@@ -18,9 +20,10 @@ target_sources(app PRIVATE
     ${ENGINE_DIR}/engine_audio.cc
     ${ENGINE_DIR}/ipc.cc
     ${ENGINE_DIR}/params.cc
+    ${CONTROLLER_DIR}/scope_ring.cc
 )
 
-target_include_directories(app PRIVATE ${ENGINE_DIR})
+target_include_directories(app PRIVATE ${ENGINE_DIR} ${CONTROLLER_DIR})
 
 # The engine's control/audio IPC lives in shared SDRAM (see ipc_shared.h).
 target_compile_definitions(app PRIVATE TWANG_SHARED_IPC)

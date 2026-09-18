@@ -13,6 +13,7 @@
 #include <zephyr/sys/printk.h>
 
 #include "engine_audio.h"
+#include "scope_tap.h"
 
 namespace {
 
@@ -35,10 +36,16 @@ K_MEM_SLAB_DEFINE(tx_slab, WB_UP(kBlockBytes), kNumBlocks, 4);
 /// Zero-initialized by the C runtime (NOLOAD section).
 engine::EngineAudio audio __attribute__((section(".dtcm_bss")));
 
-/// Render one engine block into an interleaved 16-bit stereo I2S block.
-void RenderBlock(int16_t *out) {
-    float buf[engine::kBlockSize];
+/// Render one engine block into `buf` and tap the samples into the shared
+/// scope ring so the UI core (cm33) can draw the scope.
+void RenderTap(float *buf, ScopeTap *tap) {
     engine::Render(audio, buf, engine::kBlockSize);
+    tap->ring.Write(buf, engine::kBlockSize);
+    tap->dirty.store(true, std::memory_order_relaxed);
+}
+
+/// Convert a mono float block into an interleaved 16-bit stereo I2S block.
+void ConvertToI16(const float *buf, int16_t *out) {
     for (int i = 0; i < engine::kBlockSize; ++i) {
         float s = buf[i];
         if (s > 1.0f) s = 1.0f;
@@ -78,33 +85,40 @@ int main(void) {
     // routes and queued the A4 test note; this core only renders.
     audio.ipc = reinterpret_cast<engine::SharedIpc *>(engine::kSharedIpcAddr);
 
-    // Prime the first block, then start the stream.
-    void *blk;
-    if (k_mem_slab_alloc(&tx_slab, &blk, K_FOREVER) < 0) {
-        return -ENOMEM;
-    }
-    RenderBlock(static_cast<int16_t *>(blk));
-    if (i2s_write(i2s, blk, kBlockBytes) < 0) {
-        printk("i2s: first write failed\n");
-        return -EIO;
-    }
-    if (i2s_trigger(i2s, I2S_DIR_TX, I2S_TRIGGER_START) < 0) {
-        printk("i2s: trigger failed\n");
-        return -EIO;
-    }
-    printk("twang cm85: engine -> I2S (48 kHz stereo)\n");
+    // Reset the shared events + params before the render loop. This core's
+    // render loop starts before the cm33 has run EngineControl::Init, so
+    // without this the audio core would consume uninitialized-SDRAM garbage
+    // note events and garbage params — a non-deterministic boot race that
+    // makes the scope flat/frozen on some boots. The cm33's Init re-resets
+    // and seeds the real note afterward; both Reset calls are idempotent.
+    audio.ipc->events.Reset();
+    audio.ipc->params.Reset(engine::k_params);
 
-    // Continuous render loop. The slab gives backpressure: k_mem_slab_alloc
-    // blocks until the driver frees a completed DMA block.
+    // Reset the shared scope tap (fixed SDRAM address) before the render loop:
+    // the SDRAM backing is uninitialized until a producer runs this.
+    ScopeTap *tap = reinterpret_cast<ScopeTap *>(kScopeTapAddr);
+    tap->Reset();
+
+    // Start the I2S stream (best-effort). The codec MCLK (GPT PWM) is not yet
+    // verified on hardware, so the DMA may stall; audio output is best-effort
+    // and the scope is clocked independently below.
+    (void)i2s_trigger(i2s, I2S_DIR_TX, I2S_TRIGGER_START);
+
+    // Render + tap at the engine block rate, decoupled from the I2S
+    // backpressure so the scope animates even when the I2S DMA stalls. The
+    // I2S output is best-effort: convert + queue only if a DMA block is free.
+    constexpr uint32_t kBlockUs =
+        1000000u * engine::kBlockSize / engine::kSampleRate;  // ~1333 us
     for (;;) {
-        if (k_mem_slab_alloc(&tx_slab, &blk, K_FOREVER) < 0) {
-            break;
+        float buf[engine::kBlockSize];
+        RenderTap(buf, tap);
+
+        void *blk;
+        if (k_mem_slab_alloc(&tx_slab, &blk, K_NO_WAIT) == 0) {
+            ConvertToI16(buf, static_cast<int16_t *>(blk));
+            (void)i2s_write(i2s, blk, kBlockBytes);
         }
-        RenderBlock(static_cast<int16_t *>(blk));
-        if (i2s_write(i2s, blk, kBlockBytes) < 0) {
-            printk("i2s: write failed\n");
-            break;
-        }
+        k_busy_wait(kBlockUs);
     }
     return 0;
 }

@@ -43,6 +43,9 @@
 #include "pages.h"
 #include "params.h"
 #include "scope_ring.h"
+#include "scope_tap.h"
+
+#include <cstddef>
 
 namespace nostromo {
 
@@ -64,6 +67,11 @@ constexpr std::uint16_t kEmpty = 0xFFFF;
 // ---- Panel struct ----
 
 struct Panel {
+  // Audio→UI scope tap: FIRST member so it sits at the Panel's fixed SDRAM
+  // base (kScopeTapAddr) on the target, where the audio core reaches it by
+  // reinterpret-casting that address. See controller/scope_tap.h.
+  ScopeTap scope_tap;
+
   // Cached engine state + transients (control thread). The parameter defaults
   // mirror engine/params.cc's k_params so the panel renders the engine's
   // initial state before any input (the per-frame poll then keeps them in
@@ -91,7 +99,6 @@ struct Panel {
   engine::EngineControl *control = nullptr;
 
   // Audio tap + draw scratch (owned here, never heap-allocated in the draw).
-  ScopeRing scope_ring;
   float cycle_buf[kCycleBufSize];
   float fft_re[kFftSize];
   float fft_im[kFftSize];
@@ -124,13 +131,7 @@ struct Panel {
   int drag_handle = -1;
   bool filter_drag = false;
 
-  // Scope invalidation: set by the audio thread (PanelAudioTap), drained by
-  // the control thread (PanelDraw) to redraw the output plot — the one plot
-  // that animates in steady state. Relaxed ordering: the ring's own
-  // synchronization orders the samples; this flag is only a redraw hint.
-  std::atomic<bool> scope_dirty{false};
-
-  // Output-refresh throttle: PanelDraw latches scope_dirty and services it at
+  // Output-refresh throttle: PanelDraw latches scope_tap.dirty and services it at
   // most once per scope_interval_ms. The latch survives exchange()'s clear, so
   // a tap arriving inside the interval is remembered, not dropped.
   std::uint32_t last_scope_ms = 0;
@@ -152,6 +153,11 @@ struct Panel {
   // Test/debug: draw-call counts per plot.
   int draw_counts[4] = {0, 0, 0, 0};
 };
+
+// The tap must be the Panel's first member so it sits at the fixed SDRAM base
+// (kScopeTapAddr); the audio core reaches it without knowing the Panel layout.
+static_assert(offsetof(Panel, scope_tap) == 0,
+              "scope_tap must be the Panel's first member");
 
 // ---- time ----
 
@@ -596,7 +602,7 @@ void DrawScopePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
       w, ScopeRing::kCapacity);
   const int kStride = window_samples / w;
   float buf[geom::kPlotW];
-  p.scope_ring.ReadLast(buf, w, kStride);
+  p.scope_tap.ring.ReadLast(buf, w, kStride);
 
   float peak = 0.0f;
   int prev = 0;
@@ -650,7 +656,7 @@ void DrawCyclePlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
     // n_eff cycles plus one period of trigger margin (the first rising
     // zero-crossing sits somewhere inside the first period).
     const int count = std::min((n_eff + 1) * period, kCycleBufSize);
-    p.scope_ring.ReadLast(p.cycle_buf, count, 1);
+    p.scope_tap.ring.ReadLast(p.cycle_buf, count, 1);
 
     int trigger = -1;
     for (int i = 1; i < count; ++i) {
@@ -719,7 +725,7 @@ void DrawSpectrumPlot(FrameBuffer &fb, int ox, int oy, int w, int h, Panel &p) {
   float *im = p.fft_im;
   float *mag = p.fft_mag;
 
-  p.scope_ring.ReadLast(re, kN, 1);
+  p.scope_tap.ring.ReadLast(re, kN, 1);
   for (int i = 0; i < kN; ++i) {
     re[i] *= 0.5f - 0.5f * std::cos(2.0f * controller::kPi * static_cast<float>(i) /
                                     static_cast<float>(kN - 1));
@@ -1468,19 +1474,13 @@ void DrawChrome(FrameBuffer &fb, Panel &p) {
 
 // ---- Panel API ----
 
-#ifdef TWANG_UI_SDRAM
-/// Fixed SDRAM address for the Panel on the target. SDRAM spans
-/// 0x68000000..0x6c000000 (64 MiB); the GLCDC frame buffers occupy the first
-/// ~4.8 MB (two 2.4 MB buffers) and the IPC block sits at 0x68400000
-/// (engine/ipc_shared.h), so the Panel lands at +5 MB — clear of both.
-constexpr std::uintptr_t kPanelSdrAddr = 0x68500000UL;
-#endif
-
 Panel *PanelCreate() {
 #ifdef TWANG_UI_SDRAM
   // The Panel is ~160 KB of draw scratch; the M33's 640 KB SRAM is tight, so
-  // place it in SDRAM (placement new — never freed in practice).
-  auto *p = new (reinterpret_cast<void *>(kPanelSdrAddr)) Panel;
+  // place it in SDRAM at kScopeTapAddr (placement new — never freed in
+  // practice). The scope tap is the Panel's first member, so it lands exactly
+  // on kScopeTapAddr where the audio core reaches it (see scope_tap.h).
+  auto *p = new (reinterpret_cast<void *>(kScopeTapAddr)) Panel;
 #else
   auto *p = new Panel;
 #endif
@@ -1569,7 +1569,7 @@ void PanelDraw(Panel *p, FrameBuffer &fb, int buffer_index) {
   // invalidation — the scope animates in steady state, throttled to
   // scope_interval_ms. A tap inside the interval is latched, not dropped
   // (exchange() cleared the flag, so scope_pending carries it forward).
-  if (p->scope_dirty.exchange(false, std::memory_order_relaxed))
+  if (p->scope_tap.dirty.exchange(false, std::memory_order_relaxed))
     p->scope_pending = true;
   if (p->scope_pending) {
     const std::uint32_t now = NowMs();
@@ -1771,8 +1771,8 @@ void PanelNoteOff(Panel *p, float freq_hz) {
 }
 
 void PanelAudioTap(Panel *p, const float *samples, int n) {
-  p->scope_ring.Write(samples, n);
-  p->scope_dirty.store(true, std::memory_order_relaxed);
+  p->scope_tap.ring.Write(samples, n);
+  p->scope_tap.dirty.store(true, std::memory_order_relaxed);
 }
 
 int PanelPlotDraws(const Panel *p, int idx) {
