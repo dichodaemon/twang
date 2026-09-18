@@ -19,6 +19,7 @@
 #include "interaction.h"
 #include "midi.h"       // engine::MidiNoteToFreq
 #include "midi_ring.h"
+#include "loss_counters.h"
 #include "panel.h"
 #include "surface.h"
 
@@ -51,12 +52,16 @@ void DrainMidi(nostromo::Panel *panel, nostromo::Interaction *interaction,
         struct midi_ump ump = {};
         ump.data[0] = word;
         if (UMP_MT(ump) != UMP_MT_MIDI1_CHANNEL_VOICE) {
+            reinterpret_cast<LossCounters *>(kLossCountersAddr)
+                ->mt_reject.fetch_add(1, std::memory_order_relaxed);
             continue;  // SysEx / MIDI 2.0 (multi-word) not handled yet
         }
         const uint8_t status = UMP_MIDI_STATUS(ump);
         const uint8_t d1 = UMP_MIDI1_P1(ump);
         const uint8_t d2 = UMP_MIDI1_P2(ump);
         if ((status & 0x0F) != 0) {
+            reinterpret_cast<LossCounters *>(kLossCountersAddr)
+                ->channel_reject.fetch_add(1, std::memory_order_relaxed);
             continue;  // wrong channel (X-Touch speaks on channel 1)
         }
         switch (status & 0xF0) {
@@ -106,6 +111,7 @@ int main(void) {
     // uninitialized; the audio core also resets it, idempotently).
     MidiRing *midi_ring = reinterpret_cast<MidiRing *>(kMidiRingAddr);
     midi_ring->Reset();
+    reinterpret_cast<LossCounters *>(kLossCountersAddr)->Reset();
 
     spike::GlcdcBackend backend;
     if (!backend.Init()) {

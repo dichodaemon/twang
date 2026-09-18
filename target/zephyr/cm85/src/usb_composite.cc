@@ -27,6 +27,7 @@ extern "C" {
 #include <cstdint>
 
 #include "midi_ring.h"
+#include "loss_counters.h"
 
 LOG_MODULE_REGISTER(usb_composite, LOG_LEVEL_INF);
 
@@ -67,6 +68,10 @@ void FifoPush(const int16_t *stereo, int frames)
     const uint32_t r = audio_fifo.read.load(std::memory_order_acquire);
     const uint32_t free = kFifoFrames - (w - r);
     if (static_cast<uint32_t>(frames) > free) {
+        reinterpret_cast<LossCounters *>(kLossCountersAddr)
+            ->fifo_overflow_frames.fetch_add(
+                static_cast<uint32_t>(frames) - free,
+                std::memory_order_relaxed);
         frames = static_cast<int>(free);  // drop on overflow (render faster)
     }
     for (int i = 0; i < frames; i++) {
@@ -227,7 +232,10 @@ void MidiRxCb(const struct device *dev, const struct midi_ump ump)
 {
     ARG_UNUSED(dev);
     MidiRing *ring = reinterpret_cast<MidiRing *>(kMidiRingAddr);
-    ring->Push(ump.data[0]);
+    if (!ring->Push(ump.data[0])) {
+        reinterpret_cast<LossCounters *>(kLossCountersAddr)
+            ->midi_ring_full.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 
 const struct usbd_midi_ops kMidiOps = {
@@ -307,6 +315,7 @@ int Init()
     // MIDI 2.0 rx -> control core over the shared ring. Reset before any
     // traffic (the SDRAM backing is uninitialized).
     reinterpret_cast<MidiRing *>(kMidiRingAddr)->Reset();
+    reinterpret_cast<LossCounters *>(kLossCountersAddr)->Reset();
     usbd_midi_set_ops(midi, &kMidiOps);
 
     err = usbd_add_descriptor(&twang_usbd, &twang_lang);

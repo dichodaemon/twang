@@ -8,9 +8,28 @@
 
 #include "params.h"
 
+#ifdef TWANG_SHARED_IPC
+#include "loss_counters.h"
+#endif
+
 namespace engine {
 
 __attribute__((weak)) void EngineEventsPending() {}
+
+#ifdef TWANG_SHARED_IPC
+namespace {
+// Increment the transport's IPC event-drop counter (diagnostic; read over
+// J-Link). Target-only — on the desktop there is no fixed-address block.
+void CountEventDrop() {
+    reinterpret_cast<LossCounters *>(kLossCountersAddr)
+        ->ipc_event_drops.fetch_add(1, std::memory_order_relaxed);
+}
+}  // namespace
+#else
+namespace {
+void CountEventDrop() {}
+}  // namespace
+#endif
 
 void EngineControl::Init(SharedIpc &ipc) {
     ipc_ = &ipc;
@@ -42,16 +61,22 @@ void EngineControl::NoteOn(int part, float freq_hz, std::uint8_t velocity) {
     if (d.voice < 0) return;  // dropped: full and nothing to steal
     const Event::Type type =
         d.steal ? Event::Type::kSteal : Event::Type::kNoteOn;
-    ipc_->events.Push({type, static_cast<std::uint8_t>(part),
-                       static_cast<std::uint8_t>(d.voice), velocity, freq_hz});
+    if (!ipc_->events.Push({type, static_cast<std::uint8_t>(part),
+                            static_cast<std::uint8_t>(d.voice), velocity,
+                            freq_hz})) {
+        CountEventDrop();
+    }
     EngineEventsPending();
 }
 
 void EngineControl::NoteOff(int part, float freq_hz) {
     const int voice = alloc_.NoteOff(part, freq_hz);
     if (voice < 0) return;  // no matching note
-    ipc_->events.Push({Event::Type::kNoteOff, static_cast<std::uint8_t>(part),
-                       static_cast<std::uint8_t>(voice), 0, 0.0f});
+    if (!ipc_->events.Push({Event::Type::kNoteOff,
+                            static_cast<std::uint8_t>(part),
+                            static_cast<std::uint8_t>(voice), 0, 0.0f})) {
+        CountEventDrop();
+    }
     EngineEventsPending();
 }
 
