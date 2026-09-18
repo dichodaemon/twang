@@ -128,29 +128,28 @@ int SamplesToSend()
 // hit usbd_uac2_send()'s "not active" path, which calls buf_release_cb
 // synchronously — an infinite recursion. The work runs after the SET_INTERFACE
 // handler finishes (as_active set).
-bool terminal_enabled = false;  // set/cleared in terminal_update_cb
-bool in_send = false;           // re-entrancy guard (ISR/event context)
+std::atomic<bool> terminal_enabled{false};  // set/cleared in terminal_update_cb
 const struct device *g_uac2_dev = NULL;
-struct k_work prime_work;  // send 2 packets (priming)
-struct k_work send_work;   // send 1 packet (re-send on completion)
+constexpr int kTargetInFlight = 2;  // packets kept in flight (== slab depth)
+struct k_work prime_work;  // prime on enable
+struct k_work send_work;   // top-up on completion
 
 // Dedicated send work queue: serializes SendPacket (PrimeHandler + SendHandler)
 // off the shared system workqueue, which also runs logging and the USB stack.
 K_THREAD_STACK_DEFINE(audio_queue_stack, 1024);
 struct k_work_q audio_queue;
 
-void SendPacket(const struct device *dev)
+// @return true if a packet was sent (its slab block is now in flight);
+//         false on any failure (no block available, or send rejected).
+bool SendPacket(const struct device *dev)
 {
-    void *buf;
-
-    if (in_send || !terminal_enabled) {
-        return;  // re-entrant (not-active release) or host disabled the stream
+    if (!terminal_enabled.load(std::memory_order_relaxed)) {
+        return false;  // host disabled the stream
     }
-    in_send = true;
 
+    void *buf;
     if (k_mem_slab_alloc(&send_slab, &buf, K_NO_WAIT) != 0) {
-        in_send = false;
-        return;  // all send buffers in flight; the next buf_release_cb drives it
+        return false;  // all send buffers in flight; the next buf_release_cb drives it
     }
 
     int16_t *p = static_cast<int16_t *>(buf);
@@ -165,27 +164,35 @@ void SendPacket(const struct device *dev)
                                   n * kChannels * sizeof(int16_t));
     if (rc != 0) {
         k_mem_slab_free(&send_slab, buf);  // send rejected; return the buffer
+        return false;
     }
+    return true;
+}
 
-    in_send = false;
+// Top up in-flight sends to kTargetInFlight. Self-healing: runs after any
+// release (buf_release_cb) or re-enable (terminal_update_cb) and sends until
+// the slab used-count — the in-flight count by construction — reaches target.
+// The single audio_queue serializes SendPacket, so no re-entrancy guard.
+void TopUpSends()
+{
+    while (g_uac2_dev && terminal_enabled.load(std::memory_order_relaxed) &&
+           k_mem_slab_num_used_get(&send_slab) < kTargetInFlight) {
+        if (!SendPacket(g_uac2_dev)) {
+            break;
+        }
+    }
 }
 
 void PrimeHandler(struct k_work *work)
 {
     ARG_UNUSED(work);
-    if (g_uac2_dev && terminal_enabled) {
-        // Two packets in flight; each buf_release_cb sends the next.
-        SendPacket(g_uac2_dev);
-        SendPacket(g_uac2_dev);
-    }
+    TopUpSends();  // prime the stream on enable
 }
 
 void SendHandler(struct k_work *work)
 {
     ARG_UNUSED(work);
-    if (g_uac2_dev && terminal_enabled) {
-        SendPacket(g_uac2_dev);
-    }
+    TopUpSends();  // top-up on completion
 }
 
 void Uac2SofCb(const struct device *dev, void *user_data)
@@ -202,7 +209,7 @@ void Uac2TerminalCb(const struct device *dev, uint8_t terminal, bool enabled,
     ARG_UNUSED(microframes);
     ARG_UNUSED(user_data);
 
-    terminal_enabled = enabled;
+    terminal_enabled.store(enabled, std::memory_order_relaxed);
     if (enabled) {
         // Deferred: as_active is set only after this callback returns.
         k_work_submit_to_queue(&audio_queue, &prime_work);
