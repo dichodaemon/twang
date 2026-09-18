@@ -1,6 +1,6 @@
 ---
 title: Decoupling Shared Code from Target and Platform -- Implementation Plan
-status: approved
+status: issued
 date: 2026-09-18
 author: Dizan Vasquez
 design-note: ../design-notes/2026-09-18_decoupling-shared-code-from-target-and-platform_design-note.md
