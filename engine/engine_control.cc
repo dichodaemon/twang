@@ -15,6 +15,7 @@ void EngineControl::Init(SharedIpc &ipc, EventNotify notify) {
     notify_ = notify;
     batching_ = false;
     ipc_->meter.store(0.0f, std::memory_order_relaxed);
+    ipc_->event_drops.store(0, std::memory_order_relaxed);
     alloc_.Reset();
     ipc_->events.Reset();
     ipc_->params.Reset(k_params);
