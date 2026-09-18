@@ -17,6 +17,14 @@
 
 namespace engine {
 
+/// Notifier invoked after a note event is queued into the shared ring.
+///
+/// Defaults to nullptr (no-op on the desktop and in tests). The target passes
+/// a function that signals the audio core (a mailbox send on the M33→M85
+/// channel); the audio core drains the shared ring at its block boundary
+/// regardless.
+using EventNotify = void (*)();
+
 /// The control core's runtime state. Owned by the caller (host/target main),
 /// constructed once, `Init`-ed before the audio thread starts. Not copyable
 /// (owns the allocator); reach it by pointer from the panel/interaction/midi.
@@ -28,7 +36,9 @@ class EngineControl {
     /// @param ipc The shared transport block (fixed SDRAM address on the
     /// target; a plain object owned by main on the desktop). Referenced, not
     /// copied.
-    void Init(SharedIpc &ipc);
+    /// @param notify Called after a note event is queued; nullptr (default) is
+    /// a no-op. The target passes a signal-the-audio-core function.
+    void Init(SharedIpc &ipc, EventNotify notify = nullptr);
 
     /// @brief Queue a note-on (control thread).
     void NoteOn(int part, float freq_hz, std::uint8_t velocity);
@@ -71,13 +81,7 @@ class EngineControl {
     Allocator alloc_;
     bool batching_ = false;
     SharedIpc *ipc_ = nullptr;  ///< set once in Init; never null afterward
+    EventNotify notify_ = nullptr;  ///< post-queue notifier (target-only)
 };
-
-/// @brief Weak hook the control side calls after queueing a note event.
-///
-/// Defaults to a no-op. The target overrides it to notify the audio core (a
-/// mailbox signal on the M33→M85 channel). The audio core drains the shared
-/// ring at its block boundary regardless.
-void EngineEventsPending();
 
 }  // namespace engine

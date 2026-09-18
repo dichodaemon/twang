@@ -8,31 +8,11 @@
 
 #include "params.h"
 
-#ifdef TWANG_SHARED_IPC
-#include "loss_counters.h"
-#endif
-
 namespace engine {
 
-__attribute__((weak)) void EngineEventsPending() {}
-
-#ifdef TWANG_SHARED_IPC
-namespace {
-// Increment the transport's IPC event-drop counter (diagnostic; read over
-// J-Link). Target-only — on the desktop there is no fixed-address block.
-void CountEventDrop() {
-    reinterpret_cast<LossCounters *>(kLossCountersAddr)
-        ->ipc_event_drops.fetch_add(1, std::memory_order_relaxed);
-}
-}  // namespace
-#else
-namespace {
-void CountEventDrop() {}
-}  // namespace
-#endif
-
-void EngineControl::Init(SharedIpc &ipc) {
+void EngineControl::Init(SharedIpc &ipc, EventNotify notify) {
     ipc_ = &ipc;
+    notify_ = notify;
     batching_ = false;
     ipc_->meter.store(0.0f, std::memory_order_relaxed);
     alloc_.Reset();
@@ -64,9 +44,9 @@ void EngineControl::NoteOn(int part, float freq_hz, std::uint8_t velocity) {
     if (!ipc_->events.Push({type, static_cast<std::uint8_t>(part),
                             static_cast<std::uint8_t>(d.voice), velocity,
                             freq_hz})) {
-        CountEventDrop();
+        ipc_->event_drops.fetch_add(1, std::memory_order_relaxed);
     }
-    EngineEventsPending();
+    if (notify_) notify_();
 }
 
 void EngineControl::NoteOff(int part, float freq_hz) {
@@ -75,9 +55,9 @@ void EngineControl::NoteOff(int part, float freq_hz) {
     if (!ipc_->events.Push({Event::Type::kNoteOff,
                             static_cast<std::uint8_t>(part),
                             static_cast<std::uint8_t>(voice), 0, 0.0f})) {
-        CountEventDrop();
+        ipc_->event_drops.fetch_add(1, std::memory_order_relaxed);
     }
-    EngineEventsPending();
+    if (notify_) notify_();
 }
 
 void EngineControl::AllNotesOff(int part) {
@@ -87,12 +67,12 @@ void EngineControl::AllNotesOff(int part) {
             if (!ipc_->events.Push({Event::Type::kNoteOff,
                                     static_cast<std::uint8_t>(part),
                                     static_cast<std::uint8_t>(v), 0, 0.0f})) {
-                CountEventDrop();
+                ipc_->event_drops.fetch_add(1, std::memory_order_relaxed);
             }
         }
     }
     if (released) {
-        EngineEventsPending();
+        if (notify_) notify_();
     }
 }
 

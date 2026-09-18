@@ -23,7 +23,6 @@ struct LossCounters {
     std::atomic<std::uint32_t> channel_reject{0};       ///< cm33: MIDI 1.0 channel != 0 dropped
     std::atomic<std::uint32_t> mt_reject{0};            ///< cm33: UMP MT != 2 dropped
     std::atomic<std::uint32_t> fifo_overflow_frames{0}; ///< cm85: UAC2 FIFO truncation frames
-    std::atomic<std::uint32_t> ipc_event_drops{0};      ///< cm33: ipc events.Push() returned false
 
     /// Reset all counters (idempotent; call once at boot before MIDI flows —
     /// the fixed-address SDRAM backing is uninitialized until this runs).
@@ -33,7 +32,6 @@ struct LossCounters {
         channel_reject.store(0, std::memory_order_relaxed);
         mt_reject.store(0, std::memory_order_relaxed);
         fifo_overflow_frames.store(0, std::memory_order_relaxed);
-        ipc_event_drops.store(0, std::memory_order_relaxed);
     }
 };
 

@@ -25,6 +25,10 @@ struct SharedIpc {
     EventRing events;   ///< control produces, audio consumes (SPSC)
     ParamBlock params;  ///< control writes, audio snapshots at block boundary
     std::atomic<float> meter;  ///< audio writes, control reads-and-clears (reverse direction)
+    /// Control-side diagnostic: how many note events were dropped because the
+    /// event ring was full. Bumped by EngineControl when events.Push() returns
+    /// false; a plain object on the desktop, so unit-testable.
+    std::atomic<std::uint32_t> event_drops{0};
 };
 
 // The meter is the first audio -> control signal: the audio core writes it
