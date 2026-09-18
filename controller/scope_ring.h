@@ -18,17 +18,7 @@ class ScopeRing {
     /// window so the producer can never wrap into a window being read.
     static constexpr int kCapacity = 1 << 14;  // 16384 (~341 ms @ 48 kHz)
 
-    ScopeRing() {
-#if !defined(__ZEPHYR__)
-        // Host only: zero the buffer so reads before the first Write stay
-        // in-range. On the target this ring lives at a fixed SDRAM address
-        // shared with the audio core (see scope_tap.h); the panel's
-        // construction must NOT zero the 64 KB buffer while the audio core is
-        // concurrently writing it — every slot is written before it is read,
-        // so zero-fill buys nothing there and only races.
-        for (auto &v : buf_) v.store(0.0f, std::memory_order_relaxed);
-#endif
-    }
+    ScopeRing() = default;
 
     /// @brief Append samples (audio thread).
     /// @param src Samples to append.
@@ -50,6 +40,14 @@ class ScopeRing {
     /// uninitialized until this runs. The buffer itself needs no reset: every
     /// slot is written before it is read.
     void Reset();
+
+    /// @brief Zero-fill the buffer (host init only).
+    ///
+    /// The target must NOT call this: its ring lives at a fixed SDRAM address
+    /// the audio core writes concurrently, and zeroing it races the producer.
+    /// The desktop host calls this once at construction (nostromo/panel.cc)
+    /// so reads before the first Write stay in-range.
+    void Clear();
 
   private:
     std::atomic<std::uint32_t> write_{0};  ///< Monotonic sample count.

@@ -30,3 +30,7 @@ void ScopeRing::ReadLast(float *dst, int count, int stride) const {
 void ScopeRing::Reset() {
     write_.store(0, std::memory_order_relaxed);
 }
+
+void ScopeRing::Clear() {
+    for (auto &v : buf_) v.store(0.0f, std::memory_order_relaxed);
+}

@@ -64,10 +64,18 @@ struct Interaction;
 /// Plot slot index (defined in interaction.h).
 enum SlotIdx : int;
 
-/// @brief Allocates the panel (fixed SDRAM placement on the target).
+/// @brief Allocates the panel (heap; desktop/sim). Clear()s the scope ring.
 ///
 /// @return The panel context (owned by the caller; never freed in practice).
 Panel *PanelCreate();
+
+/// @brief Constructs the panel into caller-provided storage (placement-new;
+/// target). Does NOT clear the scope ring — the audio core is already writing
+/// it at the shared address.
+///
+/// @param storage Storage for the Panel (>= sizeof(Panel), suitably aligned).
+/// @return The panel context (owned by the caller; never freed in practice).
+Panel *PanelCreateAt(void *storage);
 
 /// @brief Marks a slot dirty, repainting it into both buffers.
 ///

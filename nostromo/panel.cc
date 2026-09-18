@@ -67,9 +67,9 @@ constexpr std::uint16_t kEmpty = 0xFFFF;
 // ---- Panel struct ----
 
 struct Panel {
-  // Audio→UI scope tap: FIRST member so it sits at the Panel's fixed SDRAM
-  // base (kScopeTapAddr) on the target, where the audio core reaches it by
-  // reinterpret-casting that address. See controller/scope_tap.h.
+  // Audio→UI scope tap: FIRST member so it sits at the Panel's SDRAM base on
+  // the target, where the audio core reaches it by reinterpret-casting that
+  // address. See controller/scope_tap.h.
   ScopeTap scope_tap;
 
   // Cached engine state + transients (control thread). The parameter defaults
@@ -154,8 +154,10 @@ struct Panel {
   int draw_counts[4] = {0, 0, 0, 0};
 };
 
-// The tap must be the Panel's first member so it sits at the fixed SDRAM base
-// (kScopeTapAddr); the audio core reaches it without knowing the Panel layout.
+// The tap must be the Panel's first member so it sits at the Panel's SDRAM
+// base where the audio core reaches it by fixed address (see
+// controller/sdram_map.h); the audio core reaches it without knowing the
+// Panel layout.
 static_assert(offsetof(Panel, scope_tap) == 0,
               "scope_tap must be the Panel's first member");
 
@@ -1474,16 +1476,8 @@ void DrawChrome(FrameBuffer &fb, Panel &p) {
 
 // ---- Panel API ----
 
-Panel *PanelCreate() {
-#ifdef TWANG_UI_SDRAM
-  // The Panel is ~160 KB of draw scratch; the M33's 640 KB SRAM is tight, so
-  // place it in SDRAM at kScopeTapAddr (placement new — never freed in
-  // practice). The scope tap is the Panel's first member, so it lands exactly
-  // on kScopeTapAddr where the audio core reaches it (see scope_tap.h).
-  auto *p = new (reinterpret_cast<void *>(kScopeTapAddr)) Panel;
-#else
-  auto *p = new Panel;
-#endif
+// Shared init for both create paths: column traces + the four plot slots.
+static void InitPanel(Panel *p) {
   // Column traces start empty (no curve) in every column of every buffer.
   std::memset(p->traces, 0xFF, sizeof(p->traces));
 
@@ -1493,6 +1487,23 @@ Panel *PanelCreate() {
       PlotOsc, PlotFilter, PlotEnv, PlotOut};
   for (int i = 0; i < 4; ++i)
     p->dyn[i] = DynRegion{{0, 0, 0, 0}, hooks[i], p, true};
+}
+
+Panel *PanelCreateAt(void *storage) {
+  // Placement-new into caller-provided storage (the target's fixed SDRAM
+  // address; never freed in practice). No scope-ring Clear: the audio core
+  // is already writing the shared ring, and zeroing it would race.
+  auto *p = new (storage) Panel;
+  InitPanel(p);
+  return p;
+}
+
+Panel *PanelCreate() {
+  auto *p = new Panel;
+  InitPanel(p);
+  // Heap path owns the scope ring: clear it so reads before the first Write
+  // stay in-range.
+  p->scope_tap.ring.Clear();
   return p;
 }
 
