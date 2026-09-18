@@ -56,8 +56,16 @@ two producers: `NoteOn/Off` push `ipc_->events`, and `SetParam`/`SetRoute` write
 `ipc_->params`, both of which `ipc.h` documents as single-producer /
 single-writer. Two writers on a lock-free SPSC ring lose or corrupt entries — the
 exact dropped-note-off symptom being chased. A single control thread keeps one
-producer and still frees notes from the frame gate; the render thread reads
-navigation state lock-free, which is a benign stale read, not a ring corruption.
+producer and still frees notes from the frame gate. The render thread reads
+navigation state cross-thread, so `NavState` must not be read raw — it is a
+multi-field struct (`part`, `subject`, `group`, `item[]`, `focus_col`, `mode`,
+`scope_mode`), and a torn read (new `part`, old `item[]`) can index out of range.
+A double-buffered `NavState` snapshot with an atomic index flip (or a seqlock)
+makes the read safe; the cost is one copy per navigation change.
+
+Trade-off accepted: touch is now a round trip — it posts an `InputEvent`, the
+control thread applies it, and the UI reflects it next frame. Imperceptible at
+display rates, but it is a behavioural change.
 
 **Alternatives:**
 
@@ -86,6 +94,12 @@ no-op — so two completions produce one send and in-flight depth degrades. A
 counter plus a top-up loop is self-healing regardless of how many submissions
 collapse, and a dedicated queue keeps the audio send off the queue shared with
 logging and the USB stack.
+
+`in_flight` reset: on `terminal_enabled` → false, reset `in_flight` to 0 and have
+`Uac2BufReleaseCb` skip the decrement while disabled. Otherwise a pre-disable
+release can land after re-enable, drift the counter, and leave the top-up loop
+reading a stale non-zero count that sends nothing. The slab free still happens
+unconditionally; only the counter decrement is gated on `terminal_enabled`.
 
 **Alternatives:**
 
@@ -150,8 +164,8 @@ making the residual races cheap while they are chased.
 
 ### Decision 6: instrument the loss paths with J-Link-readable counters
 
-**Decision:** Add counters at fixed SDRAM addresses for the five silent-drop
-paths: MIDI ring `Push` full, channel-reject, MT-reject, FIFO overflow frames,
+**Decision:** Add counters at fixed SDRAM addresses for the silent-drop paths:
+note-ring full, CC-ring full, channel-reject, MT-reject, FIFO overflow frames,
 and IPC event-ring drops.
 
 **Rationale:** The stuck-note root cause is a three-way guess (ring drop vs
@@ -160,11 +174,11 @@ fact in one reading, and they are cheap to keep. Counters are also the right
 instrument for these high-rate paths, where logging would perturb timing.
 
 RTT is supported on the RA8D2 — the RA SoC selects `HAS_SEGGER_RTT` when the
-SEGGER module is present — but the external SEGGER module is not vendored in the
-workspace, so it is not currently enabled. Add the module and enable
-`CONFIG_USE_SEGGER_RTT` + `CONFIG_RTT_CONSOLE` as part of this work: it would have
-surfaced the SSIE `-ENOMEM`, the MIDI 1.0 altsetting warning, and future error
-lines for free. The counters stay regardless.
+SEGGER module is present. The module is in the west manifest
+(`modules/debug/segger`) but not checked out, so `west update segger` then
+`CONFIG_USE_SEGGER_RTT` + `CONFIG_RTT_CONSOLE` enable it. Doing this first (step
+1) would have surfaced the SSIE `-ENOMEM`, the MIDI 1.0 altsetting warning, and
+future error lines for free. The counters stay regardless.
 
 **Accepted risk:** `MidiRxCb` forwards only `ump.data[0]`. MT=2 (MIDI 1.0 channel
 voice) is a complete message; MT=4 (MIDI 2.0 channel voice) would be a
@@ -177,34 +191,44 @@ ALSA ever negotiates it. Known and counter-visible, not fixed here.
   the high-rate paths; counters remain the primary instrument. Rejected as the
   sole mechanism.
 
-### Decision 7: prefer dropping CCs over notes when the MIDI ring fills
+### Decision 7: split the MIDI ring into a note ring and a CC ring
 
-**Decision:** Make `MidiRing::Push` note-aware: when the ring is full and an
-incoming word is a note-on/note-off (status 0x80/0x90), drop a queued CC word to
-make room; never drop a note word. Count both dropped notes (none, by policy) and
-dropped CCs.
+**Decision:** Replace the single generic word ring with two strictly-SPSC FIFO
+rings: a small note ring (note-on/note-off + CC 123) and a larger CC ring
+(everything else). `MidiRxCb` classifies each word once and pushes to one or the
+other; the control thread drains the note ring before the CC ring. Each ring has
+its own drop counter, so a lost note-off and a lost CC are separately visible.
 
 **Rationale:** Decoupling the drain makes overflow unlikely but not impossible —
-a fader sweep or SysEx can burst faster than any consumer. When the ring does
-fill, a dropped note-off is the exact stuck-note symptom being fixed, while a
-dropped CC is a self-correcting missed control move. Prioritising notes over CCs
-is a small change with a large payoff on precisely the failure being fixed.
+a fader sweep or SysEx can burst faster than any consumer, and a dropped note-off
+is the exact stuck-note symptom being fixed. Making the single ring "note-aware"
+by dropping a queued CC when a note arrives would have the producer mutate the
+consumer's region (compaction, or advancing the consumer's `read` index) — the
+same SPSC invariant violation Decision 1 fixed. Two plain rings keep both sides
+strictly single-producer / single-consumer and still give notes priority.
+
+Layering consequence: classification moves into `MidiRxCb` (cm85), so the ring
+stops being a generic word ring.
 
 **Alternatives:**
 
-- Uniform FIFO drop (current) — drops whatever is incoming, so a note-off can be
-  the casualty. Rejected.
+- Note-aware single ring (drop a queued CC to admit a note) — the producer writes
+  the consumer's region. Rejected.
+- Uniform FIFO drop (current) — a note-off can be the casualty. Rejected.
 - Unbounded ring — no bound on SDRAM or latency. Rejected.
 
 ## 4. Interface & Type Outline
 
-### MIDI ring (`controller/midi_ring.h`, `usb_composite.cc`)
+### MIDI rings (`controller/midi_ring.h`, `usb_composite.cc`)
 
 ```cpp
-// Push is note-aware: on full, drop a queued CC to admit a note; never drop a note.
-bool Push(std::uint32_t word);  // false only when the incoming word is dropped
-std::atomic<std::uint32_t> midi_ring_notes_dropped{0};  // fixed SDRAM address (policy: 0)
-std::atomic<std::uint32_t> midi_ring_ccs_dropped{0};    // fixed SDRAM address
+// Two strictly-SPSC FIFO rings at distinct fixed addresses. MidiRxCb (cm85)
+// classifies each UMP word and pushes to one or the other; the control thread
+// drains the note ring first.
+MidiRing note_ring;   // notes + CC 123 (small, priority)
+MidiRing cc_ring;     // all other words (larger)
+std::atomic<std::uint32_t> note_ring_drops{0};  // fixed SDRAM address (the stuck-note signal)
+std::atomic<std::uint32_t> cc_ring_drops{0};    // fixed SDRAM address
 ```
 
 ### UAC2 send chain (`usb_composite.cc`)
@@ -225,8 +249,14 @@ void SendHandler(struct k_work *work) {
 
 void Uac2BufReleaseCb(...) {
     k_mem_slab_free(&send_slab, buf);
-    in_flight.fetch_sub(1);
-    k_work_submit_to_queue(&audio_queue, &send_work);  // dedicated queue
+    if (terminal_enabled.load()) in_flight.fetch_sub(1);  // skip while disabled
+    k_work_submit_to_queue(&audio_queue, &send_work);     // dedicated queue
+}
+
+void Uac2TerminalCb(... bool enabled ...) {
+    terminal_enabled.store(enabled);
+    if (enabled) k_work_submit_to_queue(&audio_queue, &prime_work);
+    else in_flight.store(0);  // reset on disable
 }
 ```
 
@@ -273,13 +303,15 @@ K_THREAD_DEFINE(control, kStackBytes, ControlThread, NULL, NULL, NULL,
 ```
 
 Touch input posts `InputEvent`s into a queue drained by `ControlThread` instead
-of calling `Interaction::OnInput` synchronously. The UI loop reads navigation
-state and draws only. CC 123 is special-cased before the surface-map lookup.
+of calling `Interaction::OnInput` synchronously. The UI loop reads a
+double-buffered `NavState` snapshot (atomic index flip) and draws; it never reads
+`Interaction::nav` directly. CC 123 is special-cased before the surface-map
+lookup.
 
 ## 5. Acceptance Criteria
 
 - [ ] Given a note-off for a held note, the voice transitions to release and falls silent — no stuck note.
-- [ ] Given sustained encoder/fader traffic during a long spectrum draw, no note-off is dropped (`midi_ring_notes_dropped` stays 0 under load).
+- [ ] Given sustained encoder/fader traffic during a long spectrum draw, no note-off is dropped (`note_ring_drops` stays 0 under load).
 - [ ] Given a UAC2 underrun, the device sends a short packet (no zero-padded splice, no audible click).
 - [ ] Given the host pauses and resumes the stream, the send chain recovers (`in_flight` returns to 2).
 - [ ] Given two overlapping notes of the same pitch, each note-off releases one voice (both are released after two note-offs; the voices are indistinguishable by construction).
@@ -289,15 +321,16 @@ state and draws only. CC 123 is special-cased before the surface-map lookup.
 
 ## 6. Approach
 
-1. Add the loss counters and the MIDI-ring drop counter; flash; reproduce; read
-   the counters over J-Link to confirm the stuck-note cause.
+1. Enable RTT (`west update segger` + `CONFIG_USE_SEGGER_RTT` +
+   `CONFIG_RTT_CONSOLE`) and add the loss counters; flash; reproduce; read the
+   counters over J-Link to confirm the stuck-note cause.
 2. Fix the UAC2 send chain: `in_flight` counter, top-up loop, one dedicated queue
    for send + prime (`in_send` removed), short packet on underrun,
-   `terminal_enabled` as an atomic.
-3. Add the control thread (sole owner of `Interaction` + `EngineControl`); touch
-   posts `InputEvent`s into it. Vendor the SEGGER module and enable RTT
-   (`CONFIG_USE_SEGGER_RTT` + `CONFIG_RTT_CONSOLE`).
-4. Make `MidiRing::Push` note-aware (drop CCs over notes) and count both.
+   `terminal_enabled` as an atomic, and the `in_flight` reset on disable.
+3. Add the control thread (sole owner of `Interaction` + `EngineControl`) with the
+   double-buffered `NavState` snapshot; touch posts `InputEvent`s into it.
+4. Split the MIDI ring into note + CC rings (`MidiRxCb` classifies); count drops
+   per ring.
 5. Refactor note identity through allocator → engine control → panel → both
    transports, then update the tests (`test_allocator.cc`, `test_engine.cc`,
    `test_mod_route.cc`, `test_split.cc`) and tools (`panel_shot.cc`, `bench.cc`,
