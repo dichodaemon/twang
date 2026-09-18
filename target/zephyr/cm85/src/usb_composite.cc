@@ -155,13 +155,11 @@ bool SendPacket(const struct device *dev)
     int16_t *p = static_cast<int16_t *>(buf);
     const int n = SamplesToSend();
     const int got = FifoPop(p, n);
-    for (int i = got; i < n; i++) {  // underrun: pad with silence
-        p[i * kChannels] = 0;
-        p[i * kChannels + 1] = 0;
-    }
-
+    // Short packet on underrun: send the frames actually produced, never a
+    // zero-padded splice (zero-padding injects silence discontinuities).
+    // got == 0 sends a zero-length packet.
     const int rc = usbd_uac2_send(dev, kUsbOutTerminalId, buf,
-                                  n * kChannels * sizeof(int16_t));
+                                  got * kChannels * sizeof(int16_t));
     if (rc != 0) {
         k_mem_slab_free(&send_slab, buf);  // send rejected; return the buffer
         return false;
