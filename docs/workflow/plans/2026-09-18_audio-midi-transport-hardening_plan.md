@@ -1,6 +1,6 @@
 ---
 title: Audio/MIDI Transport Hardening -- Implementation Plan
-status: draft
+status: approved
 date: 2026-09-18
 author: Dizan Vasquez
 design-note: ../design-notes/2026-09-18_audio-midi-transport-hardening_design-note.md
