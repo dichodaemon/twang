@@ -68,6 +68,10 @@ void HandleMidiWord(nostromo::Panel *panel, nostromo::Interaction *interaction,
     }
     switch (status & 0xF0) {
     case 0xB0: {  // Control Change → logical control via the surface map
+        if (d1 == 123) {  // CC 123 (All Notes Off) — panic path
+            interaction->control->AllNotesOff(0);
+            return;
+        }
         const nostromo::ControlMap *m = nostromo::FindControl(surface, d1);
         if (!m) {
             return;  // unmapped CC (faders and surplus controls)

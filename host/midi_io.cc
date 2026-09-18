@@ -103,6 +103,10 @@ void MidiIo::Poll(nostromo::Panel *panel, nostromo::Interaction *interaction) {
         if ((status & 0x0F) != kChannel) continue;  // wrong channel
         switch (status & 0xF0) {
         case 0xB0: {  // Control Change → logical control via the surface map
+            if (msg[1] == 123) {  // CC 123 (All Notes Off) — panic path
+                interaction->control->AllNotesOff(0);
+                break;
+            }
             const nostromo::ControlMap *m = FindControl(surface, msg[1]);
             if (!m) break;  // unmapped CC (faders and other surplus controls)
             nostromo::InputEvent ev{};
