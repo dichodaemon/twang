@@ -485,6 +485,30 @@ int main() {
         Check(it.Nav().mode == ViewMode::kEdit, "OUT hold exits kOutView");
     }
 
+    // Nav snapshot: Nav() returns the published snapshot, not nav directly — a
+    // control-thread mutation isn't visible until PublishNav() runs, and a
+    // publish is coherent (no old/new field mix across the double-buffer flip).
+    {
+        const std::uint8_t prev_part = it.Nav().part;
+        it.nav.part = 3;  // direct mutation (simulates a control-thread write)
+        it.nav.item[static_cast<int>(SubjectId::kOsc1)] = 7;
+        Check(it.Nav().part == prev_part,
+              "unpublished nav mutation is not visible");
+        it.PublishNav();
+        const NavState &snap = it.Nav();
+        Check(snap.part == 3, "snapshot part reflects published nav");
+        Check(snap.item[static_cast<int>(SubjectId::kOsc1)] == 7,
+              "snapshot item reflects published nav");
+
+        it.nav.part = 1;
+        it.nav.item[static_cast<int>(SubjectId::kOsc1)] = 2;
+        it.PublishNav();
+        const NavState &snap2 = it.Nav();
+        Check(snap2.part == 1 &&
+                  snap2.item[static_cast<int>(SubjectId::kOsc1)] == 2,
+              "second publish coherent (part and item from the same state)");
+    }
+
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;
