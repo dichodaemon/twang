@@ -57,6 +57,12 @@ struct MidiRing {
     }
 };
 
-/// Fixed SDRAM address of the MIDI ring, clear of the scope tap (0x68500000,
-/// ~64 KiB ring + flag) and the shared IPC block (0x68400000).
-inline constexpr std::uintptr_t kMidiRingAddr = 0x68520000UL;
+/// Fixed SDRAM address of the MIDI ring.
+///
+/// Must NOT land inside the Panel's placement-new'd draw scratch (base
+/// kScopeTapAddr = 0x68500000, ~160 KiB, ending ~0x68528000): the cm33 writes
+/// fft_re/fft_im on every spectrum draw, and the old 0x68520000 sat inside
+/// fft_im — clobbering the ring's indices and buf, which dropped/corrupted
+/// note-offs (intermittent stuck notes). 0x68580000 sits in the clear gap
+/// before the GLCDC framebuffer at 0x68600000.
+inline constexpr std::uintptr_t kMidiRingAddr = 0x68580000UL;
