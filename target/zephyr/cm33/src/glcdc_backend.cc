@@ -11,6 +11,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
+#include <zephyr/kernel.h>
 #include <zephyr/drivers/display.h>
 #include <zephyr/input/input.h>
 
@@ -19,7 +20,6 @@
 namespace spike {
 
 using nostromo::Panel;
-using nostromo::PanelPointer;
 using nostromo::PointerEvent;
 using nostromo::PointerKind;
 
@@ -92,14 +92,15 @@ bool GlcdcBackend::Init() {
   return true;
 }
 
-void GlcdcBackend::PollTouch(Panel *panel) {
+void GlcdcBackend::PollTouch(Panel *panel, struct k_msgq *events) {
   if (!g_touch.dirty) {
     return;
   }
   g_touch.dirty = false;
   const PointerKind kind =
       g_touch.pressed ? PointerKind::kPress : PointerKind::kRelease;
-  PanelPointer(panel, PointerEvent{kind, g_touch.x, g_touch.y});
+  const PointerEvent e{kind, g_touch.x, g_touch.y};
+  k_msgq_put(events, &e, K_NO_WAIT);  // drop if full (touch is lossy)
 }
 
 void GlcdcBackend::Present() {

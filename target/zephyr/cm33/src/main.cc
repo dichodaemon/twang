@@ -23,6 +23,11 @@
 #include "panel.h"
 #include "surface.h"
 
+// Touch event queue: PollTouch (UI loop) posts PointerEvents; the control
+// thread drains them (the sole PanelPointer/param producer). cm33-local, so a
+// plain kernel msgq suffices (no fixed SDRAM address).
+K_MSGQ_DEFINE(touch_events, sizeof(nostromo::PointerEvent), 8, 4);
+
 namespace engine {
 
 // Override the engine's weak notification hook: ping the audio core (M85) on
@@ -132,7 +137,7 @@ int main(void) {
     for (;;) {
         DrainMidi(panel, &interaction, midi_ring);  // USB MIDI -> surface map
 
-        backend.PollTouch(panel);
+        backend.PollTouch(panel, &touch_events);
         nostromo::PanelDraw(panel, backend.fb, backend.back_);
         backend.Present();  // flip (blocks on vsync; double buffering)
     }

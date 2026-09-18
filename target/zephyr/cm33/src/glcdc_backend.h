@@ -12,6 +12,7 @@
 #include "fb.h"
 
 struct device;  // Zephyr display device (forward declaration)
+struct k_msgq;  // Zephyr message queue (forward declaration)
 
 namespace nostromo {
 struct Panel;
@@ -28,10 +29,14 @@ struct GlcdcBackend {
   /// @return True on success (device ready and framebuffer present).
   bool Init();
 
-  /// @brief Forwards pending touch state as pointer events.
+  /// @brief Forwards pending touch state as pointer events into `events`.
   ///
-  /// @param panel Panel to feed pointer events.
-  void PollTouch(nostromo::Panel *panel);
+  /// The control thread drains `events` (sole PanelPointer/param producer);
+  /// this only posts — it never calls PanelPointer synchronously.
+  ///
+  /// @param panel Panel (the consumer calls PanelPointer on it).
+  /// @param events Touch queue (k_msgq of nostromo::PointerEvent).
+  void PollTouch(nostromo::Panel *panel, struct k_msgq *events);
 
   /// @brief Flips the back buffer to the GLCDC scan-out (blocks on vsync).
   ///
