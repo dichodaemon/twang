@@ -40,29 +40,33 @@ transport loss paths plus the frequency-keyed note-off.
 
 ## 3. Decisions
 
-### Decision 1: drain MIDI on a dedicated thread
+### Decision 1: a single control thread owns the control side
 
-**Decision:** Move `DrainMidi` out of the cm33 `for(;;)` UI loop into a dedicated
-high-priority thread that drains the MIDI ring continuously. The UI loop keeps
-only `PollTouch`, `PanelDraw`, `Present`.
+**Decision:** Move the control-side work onto one dedicated high-priority thread
+that owns `Interaction` + `EngineControl` — the sole producer on the IPC rings.
+It drains the MIDI ring and a touch-event queue continuously. The UI/render loop
+only reads navigation state and draws; touch input posts `InputEvent`s into the
+control thread's queue instead of calling `Interaction::OnInput` synchronously.
 
-**Rationale:** MIDI timing must not be gated by the display frame rate. Today a
-note-off can wait a full frame — 16.7 ms at 60 fps, worse under load — and a long
-`PanelDraw` (the spectrum FFT) widens the gap further. The sim has no such gate,
-and the sim is normative. Decoupling makes note timing independent of UI load and
-stops the 256-word ring from filling during a long draw.
+**Rationale:** MIDI timing must not be gated by the display frame rate — today a
+note-off can wait a full frame, and a long `PanelDraw` (the spectrum FFT) widens
+the gap further. The sim has no such gate and is normative. But the naive fix —
+drain MIDI on a second thread while the UI thread still calls `OnInput` — creates
+two producers: `NoteOn/Off` push `ipc_->events`, and `SetParam`/`SetRoute` write
+`ipc_->params`, both of which `ipc.h` documents as single-producer /
+single-writer. Two writers on a lock-free SPSC ring lose or corrupt entries — the
+exact dropped-note-off symptom being chased. A single control thread keeps one
+producer and still frees notes from the frame gate; the render thread reads
+navigation state lock-free, which is a benign stale read, not a ring corruption.
 
 **Alternatives:**
 
-- Drain again after `Present()` — halves the worst-case latency with no thread,
-  but the drain is still frame-gated; a long `PanelDraw` still stalls MIDI.
-  Rejected as incomplete.
+- Mutex around the control side — correct and minimal, but gives up the lock-free
+  property on a low-rate path and keeps two callers; rejected in favour of the
+  single-owner structure the control side already assumes.
+- Drain again after `Present()` — halves latency with no thread, but still
+  frame-gated; a long `PanelDraw` still stalls MIDI. Rejected as incomplete.
 - A larger ring — only delays the drop; it does not remove the gate. Rejected.
-
-Trade-off accepted: `PanelNoteOn/Off` and `Interaction::OnInput` write plain
-fields that `PanelDraw` reads, so the MIDI thread races the UI thread on those
-fields. Worst case is one frame of stale playhead or control value — benign for a
-synth panel.
 
 ### Decision 2: self-healing UAC2 send with an in-flight counter
 
@@ -70,9 +74,11 @@ synth panel.
 `std::atomic<int>` `in_flight` (target 2, matching the `uac2_pool` depth).
 `Uac2BufReleaseCb` decrements it; `SendHandler` tops up in a loop
 `while (in_flight < kTargetInFlight && SendPacket())`; `SendPacket` returns
-success and increments on a successful send. Run the work on a dedicated
-high-priority `k_work_queue`, not the shared system queue. `terminal_enabled` and
-`in_send` become `std::atomic<bool>`.
+success and increments on a successful send. Run all send work — `SendHandler`
+and `PrimeHandler` — on one dedicated high-priority `k_work_queue`, not the
+shared system queue. `terminal_enabled` becomes `std::atomic<bool>`; `in_send` is
+deleted: the single work queue serializes `SendPacket`, so the re-entrancy guard
+is dead code, and its test-then-set was not atomic anyway.
 
 **Rationale:** One `k_work_submit` per completion collapses when two releases
 arrive before the handler runs — submitting an already-pending `k_work` is a
@@ -120,6 +126,11 @@ structurally wrong.
 - Exact float match on frequency — deterministic today, but structurally broken
   for tuning/MPE/microtuning. Rejected.
 
+Same-pitch retrigger (a second note-on while the note still sounds) is out of
+scope: the current allocator assigns a second voice, and each note-off releases
+one — which one is indistinguishable by construction. Retrigger-on-same-note is a
+separate allocation-policy choice, not part of this fix.
+
 ### Decision 5: panic path for All Notes Off
 
 **Decision:** In `DrainMidi` and `host/midi_io.cc`, special-case CC 123 (All
@@ -145,20 +156,55 @@ and IPC event-ring drops.
 
 **Rationale:** The stuck-note root cause is a three-way guess (ring drop vs
 channel filter vs IPC delivery). Counters readable over J-Link turn it into a
-fact in one reading, and they are cheap to keep. The console is unreadable (UART8,
-no RTT), so logging is blind.
+fact in one reading, and they are cheap to keep. Counters are also the right
+instrument for these high-rate paths, where logging would perturb timing.
+
+RTT is supported on the RA8D2 — the RA SoC selects `HAS_SEGGER_RTT` when the
+SEGGER module is present — but the external SEGGER module is not vendored in the
+workspace, so it is not currently enabled. Add the module and enable
+`CONFIG_USE_SEGGER_RTT` + `CONFIG_RTT_CONSOLE` as part of this work: it would have
+surfaced the SSIE `-ENOMEM`, the MIDI 1.0 altsetting warning, and future error
+lines for free. The counters stay regardless.
+
+**Accepted risk:** `MidiRxCb` forwards only `ump.data[0]`. MT=2 (MIDI 1.0 channel
+voice) is a complete message; MT=4 (MIDI 2.0 channel voice) would be a
+half-message and is not handled — the MT-reject counter makes that visible if
+ALSA ever negotiates it. Known and counter-visible, not fixed here.
 
 **Alternatives:**
 
-- Log-based diagnosis — no readable console exists on this board. Rejected.
+- Log-based diagnosis over RTT — useful once RTT is enabled, but still perturbs
+  the high-rate paths; counters remain the primary instrument. Rejected as the
+  sole mechanism.
+
+### Decision 7: prefer dropping CCs over notes when the MIDI ring fills
+
+**Decision:** Make `MidiRing::Push` note-aware: when the ring is full and an
+incoming word is a note-on/note-off (status 0x80/0x90), drop a queued CC word to
+make room; never drop a note word. Count both dropped notes (none, by policy) and
+dropped CCs.
+
+**Rationale:** Decoupling the drain makes overflow unlikely but not impossible —
+a fader sweep or SysEx can burst faster than any consumer. When the ring does
+fill, a dropped note-off is the exact stuck-note symptom being fixed, while a
+dropped CC is a self-correcting missed control move. Prioritising notes over CCs
+is a small change with a large payoff on precisely the failure being fixed.
+
+**Alternatives:**
+
+- Uniform FIFO drop (current) — drops whatever is incoming, so a note-off can be
+  the casualty. Rejected.
+- Unbounded ring — no bound on SDRAM or latency. Rejected.
 
 ## 4. Interface & Type Outline
 
-### MIDI ring drop counter (`controller/midi_ring.h`, `usb_composite.cc`)
+### MIDI ring (`controller/midi_ring.h`, `usb_composite.cc`)
 
 ```cpp
-// MidiRxCb checks Push's return and increments a loss counter on false.
-std::atomic<std::uint32_t> midi_ring_drops{0};  // fixed SDRAM address
+// Push is note-aware: on full, drop a queued CC to admit a note; never drop a note.
+bool Push(std::uint32_t word);  // false only when the incoming word is dropped
+std::atomic<std::uint32_t> midi_ring_notes_dropped{0};  // fixed SDRAM address (policy: 0)
+std::atomic<std::uint32_t> midi_ring_ccs_dropped{0};    // fixed SDRAM address
 ```
 
 ### UAC2 send chain (`usb_composite.cc`)
@@ -166,7 +212,6 @@ std::atomic<std::uint32_t> midi_ring_drops{0};  // fixed SDRAM address
 ```cpp
 std::atomic<int> in_flight{0};
 std::atomic<bool> terminal_enabled{false};
-std::atomic<bool> in_send{false};
 constexpr int kTargetInFlight = 2;
 
 bool SendPacket(const struct device *dev);  // true on successful send
@@ -185,7 +230,10 @@ void Uac2BufReleaseCb(...) {
 }
 ```
 
-`SendPacket` sends `got` frames (short packet) instead of padding to `n`.
+`SendHandler` and `PrimeHandler` are both submitted to `audio_queue`; the single
+queue serializes `SendPacket`, so `in_send` is removed (dead guard with a
+non-atomic test-then-set). `SendPacket` sends `got` frames (short packet) instead
+of padding to `n`.
 
 ### Allocator (`allocator.h`)
 
@@ -213,23 +261,29 @@ void PanelNoteOff(Panel *p, std::uint8_t note);                        // was (f
 `MidiNoteToFreq` moves inside the note-on path (panel or engine control); the
 event to cm85 still carries `freq_hz`.
 
-### DrainMidi (`cm33/src/main.cc`)
+### Control thread (`cm33/src/main.cc`)
 
 ```cpp
-void DrainMidiThread(void *, void *, void *) { /* drain ring in a loop */ }
-K_THREAD_DEFINE(midi_drain, kStackBytes, DrainMidiThread, NULL, NULL, NULL,
+// Sole owner of Interaction + EngineControl (the single IPC producer).
+void ControlThread(void *, void *, void *) {
+    for (;;) { DrainMidi(...); DrainTouchQueue(...); }
+}
+K_THREAD_DEFINE(control, kStackBytes, ControlThread, NULL, NULL, NULL,
                 /* prio */ 5, 0, 0);
 ```
 
-CC 123 special-cased before the surface-map lookup.
+Touch input posts `InputEvent`s into a queue drained by `ControlThread` instead
+of calling `Interaction::OnInput` synchronously. The UI loop reads navigation
+state and draws only. CC 123 is special-cased before the surface-map lookup.
 
 ## 5. Acceptance Criteria
 
 - [ ] Given a note-off for a held note, the voice transitions to release and falls silent — no stuck note.
-- [ ] Given sustained encoder/fader traffic during a long spectrum draw, no note-off is dropped (`midi_ring_drops` stays 0 under load).
+- [ ] Given sustained encoder/fader traffic during a long spectrum draw, no note-off is dropped (`midi_ring_notes_dropped` stays 0 under load).
 - [ ] Given a UAC2 underrun, the device sends a short packet (no zero-padded splice, no audible click).
 - [ ] Given the host pauses and resumes the stream, the send chain recovers (`in_flight` returns to 2).
-- [ ] Given two overlapping notes of the same pitch, each note-off releases exactly its own voice.
+- [ ] Given two overlapping notes of the same pitch, each note-off releases one voice (both are released after two note-offs; the voices are indistinguishable by construction).
+- [ ] Given `arecord -D hw:N,0 -f S16_LE -c 2 -r 48000 -d 60`, the capture returns in ~60.0 s (regression-tests the SSIE render clock; the prior k_timer clock measured 61.10 s ≈ 47,136 Hz).
 - [ ] Given a stuck note, CC 123 releases every active voice.
 - [ ] Given the loss counters are read over J-Link after reproducing a stuck note, exactly one counter names the culprit.
 
@@ -237,12 +291,16 @@ CC 123 special-cased before the surface-map lookup.
 
 1. Add the loss counters and the MIDI-ring drop counter; flash; reproduce; read
    the counters over J-Link to confirm the stuck-note cause.
-2. Fix the UAC2 send chain: `in_flight` counter, top-up loop, dedicated queue,
-   short packet on underrun, and the two atomics.
-3. Decouple `DrainMidi` onto a dedicated thread.
-4. Refactor note identity through allocator → engine control → panel → both
+2. Fix the UAC2 send chain: `in_flight` counter, top-up loop, one dedicated queue
+   for send + prime (`in_send` removed), short packet on underrun,
+   `terminal_enabled` as an atomic.
+3. Add the control thread (sole owner of `Interaction` + `EngineControl`); touch
+   posts `InputEvent`s into it. Vendor the SEGGER module and enable RTT
+   (`CONFIG_USE_SEGGER_RTT` + `CONFIG_RTT_CONSOLE`).
+4. Make `MidiRing::Push` note-aware (drop CCs over notes) and count both.
+5. Refactor note identity through allocator → engine control → panel → both
    transports, then update the tests (`test_allocator.cc`, `test_engine.cc`,
    `test_mod_route.cc`, `test_split.cc`) and tools (`panel_shot.cc`, `bench.cc`,
    `live_render.cc`).
-5. Add the CC 123 panic path.
-6. Verify on hardware and confirm sim parity.
+6. Add the CC 123 panic path.
+7. Verify on hardware and confirm sim parity.
