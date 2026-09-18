@@ -134,6 +134,11 @@ const struct device *g_uac2_dev = NULL;
 struct k_work prime_work;  // send 2 packets (priming)
 struct k_work send_work;   // send 1 packet (re-send on completion)
 
+// Dedicated send work queue: serializes SendPacket (PrimeHandler + SendHandler)
+// off the shared system workqueue, which also runs logging and the USB stack.
+K_THREAD_STACK_DEFINE(audio_queue_stack, 1024);
+struct k_work_q audio_queue;
+
 void SendPacket(const struct device *dev)
 {
     void *buf;
@@ -200,7 +205,7 @@ void Uac2TerminalCb(const struct device *dev, uint8_t terminal, bool enabled,
     terminal_enabled = enabled;
     if (enabled) {
         // Deferred: as_active is set only after this callback returns.
-        k_work_submit(&prime_work);
+        k_work_submit_to_queue(&audio_queue, &prime_work);
     }
 }
 
@@ -215,7 +220,7 @@ void Uac2BufReleaseCb(const struct device *dev, uint8_t terminal, void *buf,
     // Deferred: uac2_request frees the net_buf back to uac2_pool only AFTER
     // this callback returns, so re-enqueueing here would hit -ENOMEM (the pool
     // is 2 buffers). The work runs after the free, so the alloc succeeds.
-    k_work_submit(&send_work);
+    k_work_submit_to_queue(&audio_queue, &send_work);
 }
 
 const struct uac2_ops kUac2Ops = {
@@ -311,6 +316,8 @@ int Init()
     g_uac2_dev = uac2;
     k_work_init(&prime_work, PrimeHandler);
     k_work_init(&send_work, SendHandler);
+    k_work_queue_start(&audio_queue, audio_queue_stack,
+                       K_THREAD_STACK_SIZEOF(audio_queue_stack), 5, NULL);
 
     // MIDI 2.0 rx -> control core over the shared ring. Reset before any
     // traffic (the SDRAM backing is uninitialized).
