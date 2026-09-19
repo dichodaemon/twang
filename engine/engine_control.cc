@@ -37,8 +37,9 @@ void EngineControl::Init(SharedIpc &ipc, EventNotify notify) {
     }
 }
 
-void EngineControl::NoteOn(int part, float freq_hz, std::uint8_t velocity) {
-    const Allocator::Decision d = alloc_.NoteOn(part, freq_hz);
+void EngineControl::NoteOn(int part, std::uint8_t note, float freq_hz,
+                           std::uint8_t velocity) {
+    const Allocator::Decision d = alloc_.NoteOn(part, note, freq_hz);
     if (d.voice < 0) return;  // dropped: full and nothing to steal
     const Event::Type type =
         d.steal ? Event::Type::kSteal : Event::Type::kNoteOn;
@@ -50,8 +51,8 @@ void EngineControl::NoteOn(int part, float freq_hz, std::uint8_t velocity) {
     if (notify_) notify_();
 }
 
-void EngineControl::NoteOff(int part, float freq_hz) {
-    const int voice = alloc_.NoteOff(part, freq_hz);
+void EngineControl::NoteOff(int part, std::uint8_t note) {
+    const int voice = alloc_.NoteOff(part, note);
     if (voice < 0) return;  // no matching note
     if (!ipc_->events.Push({Event::Type::kNoteOff,
                             static_cast<std::uint8_t>(part),

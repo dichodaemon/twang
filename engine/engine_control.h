@@ -41,10 +41,15 @@ class EngineControl {
     void Init(SharedIpc &ipc, EventNotify notify = nullptr);
 
     /// @brief Queue a note-on (control thread).
-    void NoteOn(int part, float freq_hz, std::uint8_t velocity);
+    /// @param note MIDI note number (identity for note-off matching).
+    /// @param freq_hz Note frequency in Hz (render parameter, carried in the
+    /// event to the audio core).
+    void NoteOn(int part, std::uint8_t note, float freq_hz,
+                std::uint8_t velocity);
 
     /// @brief Queue a note-off (control thread).
-    void NoteOff(int part, float freq_hz);
+    /// @param note MIDI note number.
+    void NoteOff(int part, std::uint8_t note);
 
     /// @brief Release every active voice in `part` and queue one note-off per
     /// released voice (control thread; CC 123 All Notes Off).
