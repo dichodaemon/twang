@@ -54,7 +54,7 @@ int main(int argc, char **argv) {
   // Two draws fill both buffers with chrome; extra pairs settle the plots.
   nostromo::PanelDraw(p, fb0, 0);
   nostromo::PanelDraw(p, fb1, 1);
-  nostromo::PanelNoteOn(p, 440.0f, 127);
+  nostromo::PanelNoteOn(p, 69, 127);
   for (int i = 0; i < 3; ++i) {
     nostromo::PanelDraw(p, fb0, 0);
     nostromo::PanelDraw(p, fb1, 1);

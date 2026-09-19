@@ -35,9 +35,9 @@ int main(int argc, char **argv) {
     control.SetParamDisp(0, ParamRef{0, ParamId::kRelease}, 0.4f);
 
     int note_frames = frames * 8 / 10;  /* held 80%, release the rest */
-    control.NoteOn(0, 440.0f, 127);
+    control.NoteOn(0, 69, 440.0f, 127);
     Render(audio, buf.data(), note_frames);
-    control.NoteOff(0, 440.0f);
+    control.NoteOff(0, 69);
     Render(audio, buf.data() + note_frames, frames - note_frames);
 
     FILE *f = std::fopen(path, "wb");

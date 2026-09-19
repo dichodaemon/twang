@@ -39,14 +39,14 @@ static void AudioCallback(ma_device *device, void *output, const void *,
         ma_uint32 n = static_cast<ma_uint32>(
             (boundary - pos) < frame_count ? (boundary - pos) : frame_count);
 
-        if (pos == 0) ctx->control->NoteOn(0, 440.0f, 127);
+        if (pos == 0) ctx->control->NoteOn(0, 69, 440.0f, 127);
         Render(*ctx->audio, dst, static_cast<int>(n));
         ctx->frame += n;
         dst += n;
         frame_count -= n;
 
         if (ctx->frame % kNotePeriodSamples == kNoteHeldSamples)
-            ctx->control->NoteOff(0, 440.0f);
+            ctx->control->NoteOff(0, 69);
     }
 }
 

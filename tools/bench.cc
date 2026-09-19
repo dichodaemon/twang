@@ -123,7 +123,7 @@ static void RunFull(EngineControl &control, EngineAudio &audio, int seconds,
     std::vector<float> buf(frames);
 
     PatchPluck(control);
-    control.NoteOn(0, 440.0f, 127);
+    control.NoteOn(0, 69, 440.0f, 127);
 
     Render(audio, buf.data(), kBlockSize);  // warm caches
 
@@ -187,7 +187,7 @@ static void RunBreakdown(EngineControl &control, EngineAudio &audio,
 
     /* full voice (osc + filter + envelope + coeffs), via Render() */
     PatchPluck(control);
-    control.NoteOn(0, 440.0f, 127);
+    control.NoteOn(0, 69, 440.0f, 127);
     Render(audio, buf.data(), kBlockSize);
     t0 = NowNs();
     Render(audio, buf.data(), frames);
