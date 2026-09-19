@@ -10,7 +10,6 @@
 #include "engine.h"
 #include "engine_control.h"
 #include "interaction.h"
-#include "midi.h"
 #include "pages.h"
 #include "panel.h"
 #include "surface.h"
@@ -118,11 +117,11 @@ void MidiIo::Poll(nostromo::Panel *panel, nostromo::Interaction *interaction) {
             break;
         }
         case 0x90:  // Note On (velocity 0 = note off)
-            if (msg[2] == 0) nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(msg[1]));
-            else nostromo::PanelNoteOn(panel, engine::MidiNoteToFreq(msg[1]), msg[2]);
+            if (msg[2] == 0) nostromo::PanelNoteOff(panel, msg[1]);
+            else nostromo::PanelNoteOn(panel, msg[1], msg[2]);
             break;
         case 0x80:  // Note Off
-            nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(msg[1]));
+            nostromo::PanelNoteOff(panel, msg[1]);
             break;
         default:
             break;
