@@ -24,16 +24,28 @@ struct LossCounters {
     std::atomic<std::uint32_t> note_ring_full{0};       ///< cm85: note ring Push() returned false
     std::atomic<std::uint32_t> cc_ring_full{0};         ///< cm85: CC ring Push() returned false
     std::atomic<std::uint32_t> channel_reject{0};       ///< cm33: MIDI 1.0 channel != 0 dropped
-    std::atomic<std::uint32_t> mt_reject{0};            ///< cm33: UMP MT != 2 dropped
+    std::atomic<std::uint32_t> mt_reject{0};            ///< cm33: UMP MT != MIDI 1.0 channel voice dropped
+    std::atomic<std::uint32_t> group_reject{0};         ///< cm33: UMP group != 0 dropped
     std::atomic<std::uint32_t> fifo_overflow_frames{0}; ///< cm85: UAC2 FIFO truncation frames
 
-    /// Reset all counters (idempotent; call once at boot before MIDI flows —
-    /// the fixed-address SDRAM backing is uninitialized until this runs).
+    /// Producer→consumer boot handshake: cm85 stores kBootMagic after it has
+    /// reset the MIDI rings; cm33's control thread waits on it before the
+    /// first drain. NOT cleared by Reset() — it is the ready signal, written
+    /// once by cm85 after Reset().
+    std::atomic<std::uint32_t> boot_magic{0};
+
+    /// Reset the counters (cm85, the sole owner, calls this once before MIDI
+    /// flows — the fixed-address SDRAM backing is uninitialized until then).
     void Reset() {
         note_ring_full.store(0, std::memory_order_relaxed);
         cc_ring_full.store(0, std::memory_order_relaxed);
         channel_reject.store(0, std::memory_order_relaxed);
         mt_reject.store(0, std::memory_order_relaxed);
+        group_reject.store(0, std::memory_order_relaxed);
         fifo_overflow_frames.store(0, std::memory_order_relaxed);
     }
 };
+
+/// Boot magic (ASCII "TWAN"): written by cm85 after the MIDI rings are reset,
+/// read by cm33 before its first drain.
+inline constexpr std::uint32_t kBootMagic = 0x5457414Eu;

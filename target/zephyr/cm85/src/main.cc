@@ -16,6 +16,8 @@
 #include <zephyr/sys/printk.h>
 
 #include "engine_audio.h"
+#include "loss_counters.h"
+#include "midi_ring.h"
 #include "scope_tap.h"
 #include "sdram_map.h"
 #include "usb_composite.h"
@@ -67,6 +69,18 @@ void ConvertToI16(const float *buf, int16_t *out)
 
 int main(void)
 {
+    // Reset the shared MIDI rings + loss counters before USB init. This core
+    // (the producer) is the single owner of the rings; the cm33's control
+    // thread waits on the boot magic before its first drain. Doing this here —
+    // not inside usb::Init() — keeps it unconditional: usb::Init() can return
+    // early on a failed device_is_ready and would otherwise leave the rings
+    // uninitialized for the cm33's drain.
+    reinterpret_cast<NoteRing *>(kNoteRingAddr)->Reset();
+    reinterpret_cast<CcRing *>(kCcRingAddr)->Reset();
+    LossCounters *loss = reinterpret_cast<LossCounters *>(kLossCountersAddr);
+    loss->Reset();
+    loss->boot_magic.store(kBootMagic, std::memory_order_release);
+
     // Bring up the composite USB device (UAC2 audio + MIDI 2.0). Best-effort:
     // the render + scope continue even if USB fails to enumerate.
     if (usb::Init() != 0) {
@@ -114,12 +128,14 @@ int main(void)
     // routes and queued the A4 test note; this core only renders.
     audio.ipc = reinterpret_cast<engine::SharedIpc *>(kSharedIpcAddr);
 
-    // Reset the shared events + params before the render loop. This core's
-    // render loop starts before the cm33 has run EngineControl::Init, so
-    // without this the audio core would consume uninitialized-SDRAM garbage
-    // note events and garbage params — a non-deterministic boot race that
-    // makes the scope flat/frozen on some boots. The cm33's Init re-resets
-    // and seeds the real note afterward; both Reset calls are idempotent.
+    // Reset the shared events + params before the render loop: this core's
+    // render loop starts before the cm33 has run EngineControl::Init, so this
+    // is the cold-boot safeguard against consuming uninitialized-SDRAM note
+    // events and params. It is not "idempotent" — the two resets are safe
+    // because each core resets before it begins its own side: the cm33
+    // (producer) resets in EngineControl::Init before producing, and this core
+    // (consumer) resets here before rendering. Neither resets while the other
+    // is mid-flight.
     audio.ipc->events.Reset();
     audio.ipc->params.Reset(engine::k_params);
 

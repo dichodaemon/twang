@@ -334,11 +334,9 @@ int Init()
     k_work_queue_start(&audio_queue, audio_queue_stack,
                        K_THREAD_STACK_SIZEOF(audio_queue_stack), 5, NULL);
 
-    // MIDI 2.0 rx -> control core over the two shared rings. Reset both before
-    // any traffic (the SDRAM backing is uninitialized).
-    reinterpret_cast<NoteRing *>(kNoteRingAddr)->Reset();
-    reinterpret_cast<CcRing *>(kCcRingAddr)->Reset();
-    reinterpret_cast<LossCounters *>(kLossCountersAddr)->Reset();
+    // MIDI 2.0 rx -> control core over the two shared rings. The rings are
+    // reset by cm85/main.cc (the single owner) before usb::Init(); here we
+    // only register the rx callback that begins producing into them.
     usbd_midi_set_ops(midi, &kMidiOps);
 
     err = usbd_add_descriptor(&twang_usbd, &twang_lang);

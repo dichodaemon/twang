@@ -50,25 +50,32 @@ void HandleMidiWord(nostromo::Panel *panel, nostromo::Interaction *interaction,
 {
     struct midi_ump ump = {};
     ump.data[0] = word;
+    LossCounters *loss = reinterpret_cast<LossCounters *>(kLossCountersAddr);
     if (UMP_MT(ump) != UMP_MT_MIDI1_CHANNEL_VOICE) {
-        reinterpret_cast<LossCounters *>(kLossCountersAddr)
-            ->mt_reject.fetch_add(1, std::memory_order_relaxed);
+        loss->mt_reject.fetch_add(1, std::memory_order_relaxed);
         return;  // SysEx / MIDI 2.0 (multi-word) not handled yet
+    }
+    if (UMP_GROUP(ump) != 0) {
+        loss->group_reject.fetch_add(1, std::memory_order_relaxed);
+        return;  // one group terminal declared — a stray group is not ours
     }
     const uint8_t status = UMP_MIDI_STATUS(ump);
     const uint8_t d1 = UMP_MIDI1_P1(ump);
     const uint8_t d2 = UMP_MIDI1_P2(ump);
+    // CC 123 (All Notes Off) panic path: handled before the channel filter so
+    // a note stuck by a channel mismatch is still releasable; every part.
+    if ((status & 0xF0) == 0xB0 && d1 == 123) {
+        for (int p = 0; p < engine::kNumParts; ++p) {
+            interaction->control->AllNotesOff(p);
+        }
+        return;
+    }
     if ((status & 0x0F) != 0) {
-        reinterpret_cast<LossCounters *>(kLossCountersAddr)
-            ->channel_reject.fetch_add(1, std::memory_order_relaxed);
+        loss->channel_reject.fetch_add(1, std::memory_order_relaxed);
         return;  // wrong channel (X-Touch speaks on channel 1)
     }
     switch (status & 0xF0) {
     case 0xB0: {  // Control Change → logical control via the surface map
-        if (d1 == 123) {  // CC 123 (All Notes Off) — panic path
-            interaction->control->AllNotesOff(0);
-            return;
-        }
         const nostromo::ControlMap *m = nostromo::FindControl(surface, d1);
         if (!m) {
             return;  // unmapped CC (faders and surplus controls)
@@ -138,6 +145,22 @@ constexpr int kControlPrio = -1;
 // touch queue (PanelPointer -> SetParam).
 void ControlThread(void *arg1, void *, void *) {
     auto *ctx = static_cast<ControlCtx *>(arg1);
+
+    // Wait for the producer (cm85) to finish resetting the MIDI rings before
+    // the first drain. The boot magic replaces the former implicit assumption
+    // that GLCDC init on this core outlasts cm85's early reset.
+    LossCounters *loss = reinterpret_cast<LossCounters *>(kLossCountersAddr);
+    constexpr int kBootWaitMs = 1000;
+    int waited = 0;
+    while (waited < kBootWaitMs &&
+           loss->boot_magic.load(std::memory_order_acquire) != kBootMagic) {
+        k_msleep(1);
+        ++waited;
+    }
+    if (loss->boot_magic.load(std::memory_order_acquire) != kBootMagic) {
+        printk("boot: cm85 ring reset not observed; draining anyway\n");
+    }
+
     for (;;) {
         DrainMidi(ctx->panel, ctx->interaction, ctx->note_ring, ctx->cc_ring);
         nostromo::PointerEvent e;
@@ -155,13 +178,10 @@ int main(void) {
     control.Init(*reinterpret_cast<engine::SharedIpc *>(kSharedIpcAddr),
                  SignalAudioCore);
 
-    // MIDI input rings: reset before any traffic (the SDRAM backing is
-    // uninitialized; the audio core also resets them, idempotently).
+    // MIDI input rings: reset by the producer (cm85) before USB init; this
+    // core's control thread waits on the boot magic before its first drain.
     NoteRing *note_ring = reinterpret_cast<NoteRing *>(kNoteRingAddr);
     CcRing *cc_ring = reinterpret_cast<CcRing *>(kCcRingAddr);
-    note_ring->Reset();
-    cc_ring->Reset();
-    reinterpret_cast<LossCounters *>(kLossCountersAddr)->Reset();
 
     spike::GlcdcBackend backend;
     if (!backend.Init()) {

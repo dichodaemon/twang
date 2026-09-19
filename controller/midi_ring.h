@@ -65,6 +65,11 @@ using NoteRing = MidiRing<256>;
 /// CC ring (1024 words): everything else (faders, SysEx, MIDI 2.0) — droppable.
 using CcRing = MidiRing<1024>;
 
+/// UMP Message Type: MIDI 1.0 Channel Voice. Portable spelling of Zephyr's
+/// UMP_MT_MIDI1_CHANNEL_VOICE — this header is desktop-includable, so it
+/// cannot include <zephyr/audio/midi.h>.
+inline constexpr std::uint32_t kUmpMtMidi1ChannelVoice = 0x2u;
+
 /// @return true if `word` is a MIDI 1.0 channel-voice note (0x80/0x90) or
 ///         CC 123 (All Notes Off) — the words that must never be dropped.
 ///         Everything else (other CCs, SysEx, MIDI 2.0) returns false.
@@ -72,7 +77,7 @@ using CcRing = MidiRing<1024>;
 /// UMP MIDI 1.0 channel-voice word layout (see Zephyr midi.h): MT in bits
 /// 31-28, group in 27-24, status in 23-16, data1 in 15-8, data2 in 7-0.
 inline bool IsNoteWord(std::uint32_t word) {
-    if ((word >> 28) != 0x2) {  // UMP_MT_MIDI1_CHANNEL_VOICE
+    if ((word >> 28) != kUmpMtMidi1ChannelVoice) {
         return false;  // SysEx / MIDI 2.0 (multi-word) — not a note word
     }
     const std::uint32_t status = (word >> 16) & 0xFF;
