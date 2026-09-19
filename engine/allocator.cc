@@ -15,23 +15,23 @@ void Allocator::Reset() {
     serial_ = 0;
 }
 
-Allocator::Decision Allocator::NoteOn(int part, float freq_hz) {
+Allocator::Decision Allocator::NoteOn(int part, std::uint8_t note, float freq_hz) {
     if (part < 0 || part >= kNumParts) return {-1, false};
     int voice = FirstFree();
     if (voice >= 0) {
-        Claim(voice, part, freq_hz);
+        Claim(voice, part, note, freq_hz);
         return {voice, false};
     }
     voice = PickVictim(part);
     if (voice < 0) return {-1, false};  // full and nothing to steal
-    Claim(voice, part, freq_hz);
+    Claim(voice, part, note, freq_hz);
     return {voice, true};
 }
 
-int Allocator::NoteOff(int part, float freq_hz) {
+int Allocator::NoteOff(int part, std::uint8_t note) {
     for (int i = 0; i < kNumVoices; ++i) {
         if (owner_[i].active && owner_[i].part == part &&
-            owner_[i].freq == freq_hz) {
+            owner_[i].note == note) {
             owner_[i].active = false;
             return i;
         }
@@ -67,8 +67,9 @@ int Allocator::FirstFree() const {
     return -1;
 }
 
-void Allocator::Claim(int voice, int part, float freq_hz) {
+void Allocator::Claim(int voice, int part, std::uint8_t note, float freq_hz) {
     owner_[voice].active = true;
+    owner_[voice].note = note;
     owner_[voice].freq = freq_hz;
     owner_[voice].part = static_cast<std::uint8_t>(part);
     owner_[voice].serial = serial_++;

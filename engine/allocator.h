@@ -41,16 +41,17 @@ class Allocator {
 
     /// @brief Assign a new note for `part`, stealing a voice if none is free.
     /// @param part Part index in [0, kNumParts).
+    /// @param note MIDI note number (identity for note-off matching).
     /// @param freq_hz Note frequency in Hz.
     /// @return The chosen voice and whether it is a steal; `voice` is -1 if
     /// the note is dropped.
-    Decision NoteOn(int part, float freq_hz);
+    Decision NoteOn(int part, std::uint8_t note, float freq_hz);
 
-    /// @brief Release the note `freq_hz` in `part`.
+    /// @brief Release the note `note` in `part`.
     /// @param part Part index in [0, kNumParts).
-    /// @param freq_hz Note frequency in Hz.
+    /// @param note MIDI note number.
     /// @return The released voice, or -1 if no matching note is held.
-    int NoteOff(int part, float freq_hz);
+    int NoteOff(int part, std::uint8_t note);
 
     /// @brief Release every active voice in `part` (CC 123 All Notes Off).
     /// @param part Part index in [0, kNumParts).
@@ -92,8 +93,9 @@ class Allocator {
     /// @brief Bind a voice to a new note and stamp its serial.
     /// @param voice Voice index in [0, kNumVoices).
     /// @param part Part index in [0, kNumParts).
+    /// @param note MIDI note number.
     /// @param freq_hz Note frequency in Hz.
-    void Claim(int voice, int part, float freq_hz);
+    void Claim(int voice, int part, std::uint8_t note, float freq_hz);
 
     /// @brief Choose a victim voice to steal for a new note on `part`.
     /// @param part Part index in [0, kNumParts).
