@@ -80,6 +80,9 @@ inline bool IsNoteWord(std::uint32_t word) {
     if ((word >> 28) != kUmpMtMidi1ChannelVoice) {
         return false;  // SysEx / MIDI 2.0 (multi-word) — not a note word
     }
+    if (((word >> 24) & 0xF) != 0) {
+        return false;  // stray UMP group — HandleMidiWord rejects it too
+    }
     const std::uint32_t status = (word >> 16) & 0xFF;
     if (status == 0x80 || status == 0x90) {
         return true;  // note-off / note-on

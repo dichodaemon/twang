@@ -37,6 +37,11 @@ int main() {
     Check(!IsNoteWord(VoiceWord(0xE0, 0, 64)), "pitch bend is not a note word");
     Check(!IsNoteWord(0x3u << 28), "SysEx (MT=3) is not a note word");
     Check(!IsNoteWord(0x4u << 28), "MIDI 2.0 (MT=4) is not a note word");
+    // Group filter: a note-on on a non-zero group is not ours (HandleMidiWord
+    // rejects it as group_reject), so it must not consume a note-ring slot.
+    Check(!IsNoteWord((0x2u << 28) | (0x3u << 24) | (0x90u << 16) |
+                      (60u << 8) | 100u),
+          "note-on on group 3 is not a note word");
 
     // Note ring: FIFO order + full-drop.
     {
