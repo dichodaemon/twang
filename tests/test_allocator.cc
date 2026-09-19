@@ -13,42 +13,44 @@ static void Check(bool ok, const char *msg) {
     }
 }
 
-// Fill `count` notes on `part` with distinct frequencies.
-static void Fill(Allocator *a, int part, int count, float base) {
+// Fill `count` notes on `part` with distinct note numbers and frequencies.
+static void Fill(Allocator *a, int part, int count, std::uint8_t note_base,
+                 float freq_base) {
     for (int i = 0; i < count; ++i)
-        a->NoteOn(part, base + static_cast<float>(i));
+        a->NoteOn(part, static_cast<std::uint8_t>(note_base + i),
+                  freq_base + static_cast<float>(i));
 }
 
 int main() {
     // Free voices are used in index order, no steal.
     {
         Allocator a;
-        const Allocator::Decision d0 = a.NoteOn(0, 100.0f);
-        const Allocator::Decision d1 = a.NoteOn(0, 101.0f);
-        const Allocator::Decision d2 = a.NoteOn(0, 102.0f);
+        const Allocator::Decision d0 = a.NoteOn(0, 60, 100.0f);
+        const Allocator::Decision d1 = a.NoteOn(0, 61, 101.0f);
+        const Allocator::Decision d2 = a.NoteOn(0, 62, 102.0f);
         Check(d0.voice == 0 && !d0.steal, "first note → voice 0, no steal");
         Check(d1.voice == 1 && !d1.steal, "second note → voice 1");
         Check(d2.voice == 2 && !d2.steal, "third note → voice 2");
         Check(a.ActiveCount(0) == 3, "three held notes in part 0");
 
-        Check(a.NoteOff(0, 101.0f) == 1, "note-off releases the matching voice");
+        Check(a.NoteOff(0, 61) == 1, "note-off releases the matching voice");
         Check(a.ActiveCount(0) == 2, "count decrements after note-off");
-        Check(a.NoteOff(0, 999.0f) == -1, "note-off of a missing note → -1");
+        Check(a.NoteOff(0, 127) == -1, "note-off of a missing note → -1");
     }
 
     // A part at its reservation steals from an over-reservation part, never
     // from its own reserved voices.
     {
         Allocator a;
-        Fill(&a, 0, 3, 100.0f);  // part 0 at reservation (3)
-        Fill(&a, 1, 7, 200.0f);  // part 1 over by 4
-        Fill(&a, 2, 7, 300.0f);  // part 2 over by 4
-        Fill(&a, 3, 7, 400.0f);  // part 3 over by 4  → 24 total, all busy
+        Fill(&a, 0, 3, 60, 100.0f);  // part 0 at reservation (3)
+        Fill(&a, 1, 7, 60, 200.0f);  // part 1 over by 4
+        Fill(&a, 2, 7, 60, 300.0f);  // part 2 over by 4
+        Fill(&a, 3, 7, 60, 400.0f);  // part 3 over by 4  → 24 total, all busy
         Check(a.ActiveCount(0) == 3 && a.ActiveCount(1) == 7 &&
                   a.ActiveCount(2) == 7 && a.ActiveCount(3) == 7,
               "24 voices all busy");
 
-        const Allocator::Decision d = a.NoteOn(0, 999.0f);
+        const Allocator::Decision d = a.NoteOn(0, 127, 999.0f);
         Check(d.voice == 3 && d.steal, "steal the oldest note of part 1");
         Check(a.ActiveCount(0) == 4, "part 0 gained the voice");
         Check(a.ActiveCount(1) == 6, "part 1 lost the voice");
@@ -60,13 +62,13 @@ int main() {
     // A part over its reservation sacrifices its own oldest note first.
     {
         Allocator a;
-        Fill(&a, 0, 6, 100.0f);  // part 0 over by 3
-        Fill(&a, 1, 6, 200.0f);  // parts 1..3 over by 3 each
-        Fill(&a, 2, 6, 300.0f);
-        Fill(&a, 3, 6, 400.0f);  // → 24 total, all busy
+        Fill(&a, 0, 6, 60, 100.0f);  // part 0 over by 3
+        Fill(&a, 1, 6, 60, 200.0f);  // parts 1..3 over by 3 each
+        Fill(&a, 2, 6, 60, 300.0f);
+        Fill(&a, 3, 6, 60, 400.0f);  // → 24 total, all busy
         Check(a.ActiveCount(0) == 6, "part 0 holds 6 (over reservation)");
 
-        const Allocator::Decision d = a.NoteOn(0, 999.0f);
+        const Allocator::Decision d = a.NoteOn(0, 127, 999.0f);
         Check(d.voice == 0 && d.steal, "steal own oldest when over reservation");
         Check(a.ActiveCount(0) == 6, "count unchanged after self-steal");
         Check(a.VoiceFreq(0) == 999.0f, "voice 0 now plays the new note");
@@ -75,14 +77,14 @@ int main() {
     // Never steal from a part at/below its reservation.
     {
         Allocator a;
-        a.NoteOn(1, 200.0f);       // part 1: 1 note (below its 3)
-        Fill(&a, 2, 7, 300.0f);    // part 2: over by 4
-        Fill(&a, 0, 16, 100.0f);   // part 0: over by 13  → 24 total, all busy
+        a.NoteOn(1, 60, 200.0f);       // part 1: 1 note (below its 3)
+        Fill(&a, 2, 7, 60, 300.0f);    // part 2: over by 4
+        Fill(&a, 0, 16, 60, 100.0f);   // part 0: over by 13  → 24 total, all busy
         Check(a.ActiveCount(0) == 16 && a.ActiveCount(1) == 1 &&
                   a.ActiveCount(2) == 7,
               "24 voices busy, part 1 below reservation");
 
-        const Allocator::Decision d = a.NoteOn(1, 999.0f);
+        const Allocator::Decision d = a.NoteOn(1, 61, 999.0f);
         Check(d.voice == 8 && d.steal, "steal from part 0 (most over)");
         Check(a.VoiceFreq(0) == 200.0f, "part 1's only note untouched");
         Check(a.ActiveCount(1) == 2, "part 1 gained a note (still below 3)");
@@ -92,8 +94,8 @@ int main() {
     // released-voice bitmask.
     {
         Allocator a;
-        Fill(&a, 0, 3, 100.0f);  // part 0 -> voices 0,1,2
-        Fill(&a, 1, 2, 200.0f);  // part 1 -> voices 3,4
+        Fill(&a, 0, 3, 60, 100.0f);  // part 0 -> voices 0,1,2
+        Fill(&a, 1, 2, 60, 200.0f);  // part 1 -> voices 3,4
         Check(a.ActiveCount(0) == 3 && a.ActiveCount(1) == 2,
               "voices spread across two parts");
 
@@ -106,6 +108,22 @@ int main() {
         Check(a.VoiceActive(3) && a.VoiceActive(4),
               "part 1's voices stay active");
         Check(a.AllNotesOff(3) == 0, "AllNotesOff on an empty part returns 0");
+    }
+
+    // Two overlapping same-note notes release two voices on two note-offs
+    // (criterion 2: same-pitch parity).
+    {
+        Allocator a;
+        const Allocator::Decision d0 = a.NoteOn(0, 60, 100.0f);
+        const Allocator::Decision d1 = a.NoteOn(0, 60, 100.0f);
+        Check(d0.voice == 0 && d1.voice == 1,
+              "two same-note notes get two voices");
+        Check(a.ActiveCount(0) == 2, "both same-note notes held");
+
+        Check(a.NoteOff(0, 60) == 0, "first note-off releases the first voice");
+        Check(a.NoteOff(0, 60) == 1,
+              "second note-off releases the second voice");
+        Check(a.ActiveCount(0) == 0, "both voices released");
     }
 
     if (g_failures) {
