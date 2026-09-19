@@ -1,6 +1,6 @@
 ---
 title: Allocator Note Identity -- Implementation Plan
-status: approved
+status: issued
 date: 2026-09-19
 author: Dizan Vasquez
 design-note: ../design-notes/2026-09-18_allocator-note-identity_design-note.md
