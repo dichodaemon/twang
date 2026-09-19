@@ -56,7 +56,7 @@ int main() {
         Rig r;
         std::vector<float> buf(kN);
         SetupPart(r.control);
-        r.control.NoteOn(0, 440.0f, 127);
+        r.control.NoteOn(0, 69, 440.0f, 127);
         Render(r.audio, buf.data(), kN);
 
         float peak = Peak(buf);
@@ -70,7 +70,7 @@ int main() {
         Check(peak > 0.1f, "basic: peak above silence");
         Check(rms > 0.01f, "basic: rms above silence");
 
-        r.control.NoteOff(0, 440.0f);
+        r.control.NoteOff(0, 69);
         Render(r.audio, buf.data(), kN);
         float tail = 0.0f;
         for (int i = kN - kBlockSize; i < kN; ++i) {
@@ -84,10 +84,10 @@ int main() {
     {
         std::vector<float> buf(kN);
         Rig r1;
-        SetupPart(r1.control); r1.control.NoteOn(0, 440.0f, 127);
+        SetupPart(r1.control); r1.control.NoteOn(0, 69, 440.0f, 127);
         Render(r1.audio, buf.data(), kN); const float pf = Peak(buf);
         Rig r2;
-        SetupPart(r2.control); r2.control.NoteOn(0, 440.0f, 32);
+        SetupPart(r2.control); r2.control.NoteOn(0, 69, 440.0f, 32);
         Render(r2.audio, buf.data(), kN); const float ps = Peak(buf);
         Check(pf > ps, "velocity: 127 louder than 32");
     }
@@ -97,12 +97,12 @@ int main() {
     {
         std::vector<float> a(kN), b(kN);
         Rig r1;
-        SetupPart(r1.control); r1.control.NoteOn(0, 440.0f, 127);
+        SetupPart(r1.control); r1.control.NoteOn(0, 69, 440.0f, 127);
         Render(r1.audio, a.data(), kN);
         Rig r2;
         SetupPart(r2.control);
         r2.control.SetRoute(0, 5, ModSourceId::kConstant, ParamRef{0, ParamId::kDrive}, 0.0f);
-        r2.control.NoteOn(0, 440.0f, 127);
+        r2.control.NoteOn(0, 69, 440.0f, 127);
         Render(r2.audio, b.data(), kN);
         bool identical = true;
         for (int i = 0; i < kN; ++i)
@@ -114,11 +114,11 @@ int main() {
     {
         std::vector<float> dry(kN), wet(kN);
         Rig r1;
-        SetupPart(r1.control); r1.control.NoteOn(0, 440.0f, 127);
+        SetupPart(r1.control); r1.control.NoteOn(0, 69, 440.0f, 127);
         Render(r1.audio, dry.data(), kN);
         Rig r2;
         SetupPart(r2.control); r2.control.SetParam(0, ParamRef{0, ParamId::kDrive}, 1.0f);
-        r2.control.NoteOn(0, 440.0f, 127);
+        r2.control.NoteOn(0, 69, 440.0f, 127);
         Render(r2.audio, wet.data(), kN);
         bool differs = false;
         for (int i = 0; i < kN; ++i)
@@ -131,7 +131,7 @@ int main() {
     {
         Rig r;
         SetupPart(r.control); r.control.SetParam(0, ParamRef{0, ParamId::kSustain}, 1.0f);
-        for (int i = 0; i < kNumVoices; ++i) r.control.NoteOn(0, 440.0f, 127);
+        for (int i = 0; i < kNumVoices; ++i) r.control.NoteOn(0, 69, 440.0f, 127);
         std::vector<float> buf(kN);
         Render(r.audio, buf.data(), kN);
         bool bounded = true;
@@ -148,11 +148,11 @@ int main() {
         std::vector<float> buf(kN);
         Rig r1;
         SetupPart(r1.control); r1.control.SetParam(0, ParamRef{0, ParamId::kAmp}, 0.25f);
-        r1.control.NoteOn(0, 440.0f, 127);
+        r1.control.NoteOn(0, 69, 440.0f, 127);
         Render(r1.audio, buf.data(), kN); const float p025 = Peak(buf);
         Rig r2;
         SetupPart(r2.control); r2.control.SetParam(0, ParamRef{0, ParamId::kAmp}, 1.0f);
-        r2.control.NoteOn(0, 440.0f, 127);
+        r2.control.NoteOn(0, 69, 440.0f, 127);
         Render(r2.audio, buf.data(), kN); const float p100 = Peak(buf);
         const float ratio = p100 / p025;
         Check(ratio > 3.9f && ratio < 4.1f, "migration: kAmp 1.0 ~4x kAmp 0.25 below rail");
@@ -163,9 +163,9 @@ int main() {
     {
         Rig r;
         SetupPart(r.control);
-        for (int i = 0; i < kNumVoices; ++i) r.control.NoteOn(0, 440.0f + i, 127);
+        for (int i = 0; i < kNumVoices; ++i) r.control.NoteOn(0, 60 + i, 440.0f + i, 127);
         r.control.SetParam(0, ParamRef{0, ParamId::kDrive}, 1.0f);    // discontinuous enable
-        r.control.NoteOn(0, 440.0f + kNumVoices, 127);   // 25th note -> steal
+        r.control.NoteOn(0, 60 + kNumVoices, 440.0f + kNumVoices, 127);   // 25th note -> steal
         std::vector<float> buf(kN);
         Render(r.audio, buf.data(), kN);
         bool ok = true;
@@ -177,9 +177,9 @@ int main() {
     /* AllNotesOff: one kNoteOff per released voice. */
     {
         Rig rig;
-        rig.control.NoteOn(0, 100.0f, 100);
-        rig.control.NoteOn(0, 200.0f, 100);
-        rig.control.NoteOn(0, 300.0f, 100);
+        rig.control.NoteOn(0, 60, 100.0f, 100);
+        rig.control.NoteOn(0, 61, 200.0f, 100);
+        rig.control.NoteOn(0, 62, 300.0f, 100);
 
         rig.control.AllNotesOff(0);
 
