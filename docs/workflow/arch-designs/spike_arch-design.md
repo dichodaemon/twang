@@ -187,8 +187,8 @@ Panel *PanelCreate();                              // returns state; never freed
 Panel *PanelCreateAt(void *storage);               // placement-new into caller storage; never freed in practice
 void PanelDraw(Panel *p, FrameBuffer &fb);         // repaint damage[n] ∪ damage[n−1]
 void PanelPointer(Panel *p, PointerEvent e);       // handle a touch/mouse event
-void PanelNoteOn(Panel *p, float freq_hz, std::uint8_t velocity);  // note-on: drive engine + envelope playhead
-void PanelNoteOff(Panel *p, float freq_hz);        // note-off: release + playhead release segment
+void PanelNoteOn(Panel *p, std::uint8_t note, std::uint8_t velocity);  // note-on: drive engine + envelope playhead
+void PanelNoteOff(Panel *p, std::uint8_t note);        // note-off: release + playhead release segment
 void PanelAudioTap(Panel *p, const float *samples, int n);  // feed the scope ring (audio thread)
 ```
 

@@ -313,8 +313,8 @@ void EngineFlush();
 ### EngineNoteOn / EngineNoteOff
 
 ```cpp
-void EngineNoteOn(int part, float freq_hz, uint8_t velocity);
-void EngineNoteOff(int part, float freq_hz);
+void EngineNoteOn(int part, std::uint8_t note, float freq_hz, uint8_t velocity);
+void EngineNoteOff(int part, std::uint8_t note);
 ```
 
 - **Precondition**: `part` in `[0, kNumParts)`.
