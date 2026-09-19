@@ -38,6 +38,12 @@ struct LossCounters {
     /// non-MIDI-1.0-channel-voice word that bumped mt_reject).
     std::atomic<std::uint32_t> last_reject_word{0};
 
+    /// Diagnostic note traffic (temporary): MT=2 note-ons/offs processed, and
+    /// the note number of the last note-off.
+    std::atomic<std::uint32_t> note_on_count{0};
+    std::atomic<std::uint32_t> note_off_count{0};
+    std::atomic<std::uint32_t> last_note_off_note{0};
+
     /// Reset the counters (cm85, the sole owner, calls this once before MIDI
     /// flows — the fixed-address SDRAM backing is uninitialized until then).
     void Reset() {
@@ -48,6 +54,9 @@ struct LossCounters {
         group_reject.store(0, std::memory_order_relaxed);
         fifo_overflow_frames.store(0, std::memory_order_relaxed);
         last_reject_word.store(0, std::memory_order_relaxed);
+        note_on_count.store(0, std::memory_order_relaxed);
+        note_off_count.store(0, std::memory_order_relaxed);
+        last_note_off_note.store(0, std::memory_order_relaxed);
     }
 };
 

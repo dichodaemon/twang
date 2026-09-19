@@ -98,12 +98,17 @@ void HandleMidiWord(nostromo::Panel *panel, nostromo::Interaction *interaction,
     }
     case 0x90:  // Note On (velocity 0 = note off)
         if (d2 == 0) {
+            loss->note_off_count.fetch_add(1, std::memory_order_relaxed);
+            loss->last_note_off_note.store(d1, std::memory_order_relaxed);
             nostromo::PanelNoteOff(panel, d1);
         } else {
+            loss->note_on_count.fetch_add(1, std::memory_order_relaxed);
             nostromo::PanelNoteOn(panel, d1, d2);
         }
         return;
     case 0x80:  // Note Off
+        loss->note_off_count.fetch_add(1, std::memory_order_relaxed);
+        loss->last_note_off_note.store(d1, std::memory_order_relaxed);
         nostromo::PanelNoteOff(panel, d1);
         return;
     default:
