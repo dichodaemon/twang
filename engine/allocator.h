@@ -80,7 +80,8 @@ class Allocator {
   private:
     struct Owner {
         bool active;           ///< a note occupies this voice
-        float freq;            ///< note frequency, for note-off matching
+        std::uint8_t note;     ///< MIDI note number; identity for note-off matching
+        float freq;            ///< note frequency, computed at note-on
         std::uint8_t part;     ///< owning part
         std::uint32_t serial;  ///< note-on order, for "oldest" stealing
     };

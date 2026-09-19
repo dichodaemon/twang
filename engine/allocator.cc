@@ -11,7 +11,7 @@ Allocator::Allocator() { Reset(); }
 
 void Allocator::Reset() {
     for (int i = 0; i < kNumVoices; ++i)
-        owner_[i] = Owner{false, 0.0f, 0, 0};
+        owner_[i] = Owner{false, 0, 0.0f, 0, 0};
     serial_ = 0;
 }
 
