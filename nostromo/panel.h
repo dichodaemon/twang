@@ -108,15 +108,15 @@ void PanelPointer(Panel *p, PointerEvent e);
 /// @brief A note-on: drives the engine and starts the envelope playhead.
 ///
 /// @param p Panel context.
-/// @param freq_hz Note frequency in Hz.
+/// @param note MIDI note number.
 /// @param velocity MIDI velocity in [1, 127].
-void PanelNoteOn(Panel *p, float freq_hz, std::uint8_t velocity);
+void PanelNoteOn(Panel *p, std::uint8_t note, std::uint8_t velocity);
 
 /// @brief A note-off: releases the note and starts the playhead release.
 ///
 /// @param p Panel context.
-/// @param freq_hz Note frequency in Hz.
-void PanelNoteOff(Panel *p, float freq_hz);
+/// @param note MIDI note number.
+void PanelNoteOff(Panel *p, std::uint8_t note);
 
 /// @brief Feeds rendered samples into the scope ring (audio thread).
 ///

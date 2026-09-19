@@ -36,6 +36,7 @@
 #include "fft.h"
 #include "font.h"
 #include "interaction.h"
+#include "midi.h"
 #include "pages.h"
 #include "params.h"
 #include "scope_ring.h"
@@ -1742,8 +1743,9 @@ void PanelPointer(Panel *p, PointerEvent e) {
   }
 }
 
-void PanelNoteOn(Panel *p, float freq_hz, std::uint8_t velocity) {
-  p->control->NoteOn(0, freq_hz, velocity);
+void PanelNoteOn(Panel *p, std::uint8_t note, std::uint8_t velocity) {
+  const float freq_hz = engine::MidiNoteToFreq(note);
+  p->control->NoteOn(0, note, freq_hz, velocity);
   p->note_on = true;
   p->note_at = NowMs();
   p->freq = freq_hz;
@@ -1752,11 +1754,11 @@ void PanelNoteOn(Panel *p, float freq_hz, std::uint8_t velocity) {
   MarkDirty(p, kSlotOut);
 }
 
-void PanelNoteOff(Panel *p, float freq_hz) {
+void PanelNoteOff(Panel *p, std::uint8_t note) {
   p->release_from = EnvLevel(NowMs(), *p);
   p->note_on = false;
   p->release_at = NowMs();
-  p->control->NoteOff(0, freq_hz);
+  p->control->NoteOff(0, note);
   MarkDirty(p, kSlotEnv);
   MarkDirty(p, kSlotOut);
 }
