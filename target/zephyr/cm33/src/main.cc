@@ -52,6 +52,7 @@ void HandleMidiWord(nostromo::Panel *panel, nostromo::Interaction *interaction,
     ump.data[0] = word;
     LossCounters *loss = reinterpret_cast<LossCounters *>(kLossCountersAddr);
     if (UMP_MT(ump) != UMP_MT_MIDI1_CHANNEL_VOICE) {
+        loss->last_reject_word.store(word, std::memory_order_relaxed);
         loss->mt_reject.fetch_add(1, std::memory_order_relaxed);
         return;  // SysEx / MIDI 2.0 (multi-word) not handled yet
     }

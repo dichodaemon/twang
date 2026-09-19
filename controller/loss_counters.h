@@ -34,6 +34,10 @@ struct LossCounters {
     /// once by cm85 after Reset().
     std::atomic<std::uint32_t> boot_magic{0};
 
+    /// Last UMP word rejected by the MT filter (diagnostic: captures the
+    /// non-MIDI-1.0-channel-voice word that bumped mt_reject).
+    std::atomic<std::uint32_t> last_reject_word{0};
+
     /// Reset the counters (cm85, the sole owner, calls this once before MIDI
     /// flows — the fixed-address SDRAM backing is uninitialized until then).
     void Reset() {
@@ -43,6 +47,7 @@ struct LossCounters {
         mt_reject.store(0, std::memory_order_relaxed);
         group_reject.store(0, std::memory_order_relaxed);
         fifo_overflow_frames.store(0, std::memory_order_relaxed);
+        last_reject_word.store(0, std::memory_order_relaxed);
     }
 };
 
