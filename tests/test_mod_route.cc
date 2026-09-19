@@ -43,7 +43,7 @@ static std::vector<float> RenderNote(EngineControl &control, EngineAudio &audio,
                                      int samples, float freq,
                                      std::uint8_t velocity) {
     std::vector<float> buf(samples);
-    control.NoteOn(0, freq, velocity);
+    control.NoteOn(0, 69, freq, velocity);
     Render(audio, buf.data(), samples);
     return buf;
 }

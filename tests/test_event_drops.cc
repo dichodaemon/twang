@@ -40,7 +40,7 @@ int main() {
 
     // One more note-on: the allocator grants a voice (all free), the engine
     // pushes into the full ring, Push fails, and the transport counter bumps.
-    control.NoteOn(0, 440.0f, 127);
+    control.NoteOn(0, 69, 440.0f, 127);
     Check(ipc.event_drops.load(std::memory_order_relaxed) == 1,
           "one drop counted");
 
