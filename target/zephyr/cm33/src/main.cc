@@ -18,7 +18,6 @@
 #include "engine_control.h"
 #include "glcdc_backend.h"
 #include "interaction.h"
-#include "midi.h"       // engine::MidiNoteToFreq
 #include "midi_ring.h"
 #include "loss_counters.h"
 #include "panel.h"
@@ -91,13 +90,13 @@ void HandleMidiWord(nostromo::Panel *panel, nostromo::Interaction *interaction,
     }
     case 0x90:  // Note On (velocity 0 = note off)
         if (d2 == 0) {
-            nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(d1));
+            nostromo::PanelNoteOff(panel, d1);
         } else {
-            nostromo::PanelNoteOn(panel, engine::MidiNoteToFreq(d1), d2);
+            nostromo::PanelNoteOn(panel, d1, d2);
         }
         return;
     case 0x80:  // Note Off
-        nostromo::PanelNoteOff(panel, engine::MidiNoteToFreq(d1));
+        nostromo::PanelNoteOff(panel, d1);
         return;
     default:
         return;
